@@ -1,0 +1,2 @@
+# Use a CUDA/ROCm/Vulkan wheel matching the ComfyUI installation when available.
+llama-cpp-python>=0.3.35
