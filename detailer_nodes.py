@@ -232,6 +232,41 @@ def create_feathered_mask(
     return torch.from_numpy(arr)
 
 
+def standardize_and_batch_crops(crop_list: list[torch.Tensor]) -> torch.Tensor:
+    """
+    Safely batches a list of image tensors [1, H, W, C] or [H, W, C] along dimension 0.
+    If crops have differing spatial resolutions (H, W), resizes them to the maximum
+    dimensions using bicubic interpolation so they form a valid ComfyUI IMAGE batch.
+    """
+    if not crop_list:
+        return torch.zeros((1, 64, 64, 3), dtype=torch.float32)
+
+    normalized = [c if c.ndim == 4 else c.unsqueeze(0) for c in crop_list]
+
+    first_shape = normalized[0].shape[1:3]
+    if all(c.shape[1:3] == first_shape for c in normalized):
+        return torch.cat(normalized, dim=0)
+
+    max_h = max(c.shape[1] for c in normalized)
+    max_w = max(c.shape[2] for c in normalized)
+
+    standardized = []
+    for c in normalized:
+        if c.shape[1] == max_h and c.shape[2] == max_w:
+            standardized.append(c)
+        else:
+            c_perm = c.permute(0, 3, 1, 2)
+            c_res = F.interpolate(
+                c_perm,
+                size=(max_h, max_w),
+                mode="bicubic",
+                align_corners=False,
+            ).clamp(0.0, 1.0)
+            standardized.append(c_res.permute(0, 2, 3, 1))
+
+    return torch.cat(standardized, dim=0)
+
+
 def draw_boxes_on_image(
     image_tensor: torch.Tensor,
     boxes: list[tuple[int, int, int, int]],
@@ -705,13 +740,9 @@ class ZiggartDetailerKrea2:
         final_preview_tensor = torch.cat(detection_previews, dim=0)
         final_mask_tensor = torch.cat(all_masks, dim=0)
 
-        # Fallback for crops if no boxes were detected in any frame
-        if cropped_refined_list:
-            final_refined_crops = torch.cat(cropped_refined_list, dim=0)
-            final_base_crops = torch.cat(cropped_base_list, dim=0)
-        else:
-            final_refined_crops = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
-            final_base_crops = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
+        # Safely batch crops (resizing to matching dimensions if detections had different aspect ratios)
+        final_refined_crops = standardize_and_batch_crops(cropped_refined_list)
+        final_base_crops = standardize_and_batch_crops(cropped_base_list)
 
         # Encode final composited image to latent
         try:
@@ -880,19 +911,7 @@ class ZiggartWeVisOneDetector:
 
         preview_tensor = torch.cat(previews, dim=0)
         mask_tensor = torch.cat(masks, dim=0)
-
-        if all_crops:
-            # If multiple crops have different sizes, pad or resize to max size for batching
-            max_ch = max(c.shape[1] for c in all_crops)
-            max_cw = max(c.shape[2] for c in all_crops)
-            standardized_crops = []
-            for c in all_crops:
-                c_perm = c.permute(0, 3, 1, 2)
-                c_res = F.interpolate(c_perm, size=(max_ch, max_cw), mode="bilinear", align_corners=False)
-                standardized_crops.append(c_res.permute(0, 2, 3, 1))
-            crop_tensor = torch.cat(standardized_crops, dim=0)
-        else:
-            crop_tensor = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
+        crop_tensor = standardize_and_batch_crops(all_crops)
 
         return (
             preview_tensor,

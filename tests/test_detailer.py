@@ -158,6 +158,56 @@ class MockSamplerExecutionTests(unittest.TestCase):
 
     @mock.patch.object(detailer_nodes, "_resolve_gguf", return_value="dummy.gguf")
     @mock.patch.object(detailer_nodes, "detect_objects_with_vlm")
+    def test_detailer_multiple_differing_aspect_ratio_crops(self, mock_detect, mock_resolve):
+        # Two boxes with different aspect ratios
+        mock_detect.return_value = (
+            [(20, 20, 120, 80), (150, 100, 230, 240)],
+            "<20><20><120><80><150><100><230><240>",
+        )
+
+        mock_model = mock.MagicMock()
+        mock_clip = mock.MagicMock()
+        mock_clip.tokenize.return_value = ["dummy"]
+        mock_clip.encode_from_tokens.return_value = (torch.zeros((1, 10, 768)), torch.zeros((1, 768)))
+
+        mock_vae = mock.MagicMock()
+        mock_vae.encode.side_effect = lambda pixels: torch.zeros((1, 4, pixels.shape[1] // 8, pixels.shape[2] // 8))
+        mock_vae.decode.side_effect = lambda samples: torch.ones((1, samples.shape[2] * 8, samples.shape[3] * 8, 3))
+
+        img = torch.ones((1, 512, 512, 3), dtype=torch.float32)
+
+        out_img, crops_refined, crops_base, preview, mask, latent = self.detailer.refine(
+            image=img,
+            model=mock_model,
+            clip=mock_clip,
+            vae=mock_vae,
+            detector_model="model.gguf",
+            detector_mmproj="mmproj.gguf",
+            detection_prompt="eyes",
+            detail_positive_prompt="sharp eyes",
+            detail_negative_prompt="blurry",
+            crop_factor=1.5,
+            target_detail_resolution=768,
+            steps=8,
+            cfg=1.5,
+            denoise=0.4,
+            sampler_name="euler",
+            scheduler="simple",
+            seed=42,
+            max_detections=2,
+            feather_mask=16,
+            free_vram_after=False,
+        )
+
+        self.assertEqual(out_img.shape, (1, 512, 512, 3))
+        # Both crops should be safely batched to shape [2, max_h, max_w, 3] without tensor mismatch error!
+        self.assertEqual(crops_refined.shape[0], 2)
+        self.assertEqual(crops_base.shape[0], 2)
+        self.assertEqual(crops_refined.ndim, 4)
+        self.assertEqual(crops_base.ndim, 4)
+
+    @mock.patch.object(detailer_nodes, "_resolve_gguf", return_value="dummy.gguf")
+    @mock.patch.object(detailer_nodes, "detect_objects_with_vlm")
     def test_detector_bonus_node(self, mock_detect, mock_resolve):
         mock_detect.return_value = ([(30, 40, 120, 140)], "<30><40><120><140>")
 
