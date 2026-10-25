@@ -1,0 +1,18 @@
+[project]
+name = "ziggart-nodes"
+description = "In-process GGUF vision-language prompting, WeVisOne-VL open-vocabulary detection, and Krea 2 Turbo Detailer nodes."
+version = "1.0.0"
+authors = [
+    { name = "mskiller", email = "mskiller51@gmail.com" }
+]
+license = { text = "Apache-2.0" }
+dependencies = ["llama-cpp-python>=0.3.35"]
+readme = "README.md"
+
+[project.urls]
+Repository = "https://github.com/mskiller/Ziggart-Nodes"
+
+[tool.comfy]
+PublisherId = "mskiller"
+DisplayName = "Ziggart Nodes"
+Icon = ""
