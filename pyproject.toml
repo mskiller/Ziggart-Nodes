@@ -1,7 +1,7 @@
 [project]
 name = "ziggart-nodes"
-description = "In-process GGUF vision-language prompting, WeVisOne-VL open-vocabulary detection, and Krea 2 Turbo Detailer nodes."
-version = "1.0.1"
+description = "In-process GGUF vision-language prompting, WeVisOne-VL open-vocabulary detection, quality critic, mask-aware inpaint prompter, BBox crop/stitch, and Krea 2 Turbo Detailer & Smart Tile Upscaler nodes."
+version = "1.1.0"
 authors = [
     { name = "mskiller", email = "mskiller51@gmail.com" }
 ]

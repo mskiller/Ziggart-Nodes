@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import atexit
 import gc
+import re
 import threading
 from dataclasses import dataclass
 from typing import Any
@@ -20,6 +21,28 @@ class ModelConfig:
     threads: int
     flash_attention: bool
     mmproj_on_gpu: bool
+
+
+_THINK_BLOCK_RE = re.compile(r"<think>[\s\S]*?</think>", re.IGNORECASE)
+_UNCLOSED_THINK_RE = re.compile(r"^[\s\S]*?</think>", re.IGNORECASE)
+
+
+def strip_thinking_tags(text: str) -> str:
+    """
+    Removes <think>...</think> reasoning blocks emitted by thinking VLMs
+    while preserving fallback content if the entire response was inside <think>.
+    """
+    if not text or "<think" not in text.lower() and "</think>" not in text.lower():
+        return text.strip()
+    cleaned = _THINK_BLOCK_RE.sub("", text)
+    if "</think>" in cleaned.lower():
+        cleaned = _UNCLOSED_THINK_RE.sub("", cleaned)
+    cleaned = cleaned.strip()
+    if cleaned:
+        return cleaned
+    # Fallback: if model only emitted content inside <think> tags, extract inner text
+    inner = re.sub(r"</?think>", "", text, flags=re.IGNORECASE).strip()
+    return inner
 
 
 def release_comfy_vram() -> None:
@@ -103,43 +126,70 @@ class EmbeddedModelManager:
         top_k: int,
         seed: int,
         enable_thinking: bool,
+        response_format: dict[str, Any] | None = None,
+        strip_thinking: bool = True,
     ) -> str:
         with self._lock:
             if self._model is None or self._handler is None:
                 raise EmbeddedLlamaError("The embedded model is not loaded.")
             try:
-                # Calling the MTMD handler directly lets Qwen's embedded Jinja
-                # template receive enable_thinking, which the public wrapper in
-                # llama-cpp-python does not currently expose.
-                result = self._handler(
-                    llama=self._model,
-                    messages=messages,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    top_p=top_p,
-                    top_k=top_k,
-                    seed=None if seed < 0 else seed,
-                    stream=False,
-                    enable_thinking=enable_thinking,
-                )
+                call_kwargs: dict[str, Any] = {
+                    "llama": self._model,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "top_k": top_k,
+                    "seed": None if seed < 0 else seed,
+                    "stream": False,
+                    "enable_thinking": enable_thinking,
+                }
+                if response_format is not None:
+                    call_kwargs["response_format"] = response_format
+
+                try:
+                    # Calling the MTMD handler directly lets Qwen's embedded Jinja
+                    # template receive enable_thinking, which the public wrapper in
+                    # llama-cpp-python does not currently expose.
+                    result = self._handler(**call_kwargs)
+                except TypeError as type_exc:
+                    if "enable_thinking" in str(type_exc):
+                        call_kwargs.pop("enable_thinking", None)
+                        result = self._handler(**call_kwargs)
+                    else:
+                        raise
                 content = result["choices"][0]["message"]["content"]
             except Exception as exc:
                 raise EmbeddedLlamaError(f"Multimodal inference failed: {exc}") from exc
-            if isinstance(content, str):
-                return content.strip()
-            return str(content).strip()
+            text = content.strip() if isinstance(content, str) else str(content).strip()
+            if strip_thinking:
+                return strip_thinking_tags(text)
+            return text
 
     def unload(self) -> None:
         with self._lock:
             model = self._model
+            handler = self._handler
             self._model = None
             self._handler = None
             self._config = None
             if model is not None:
                 try:
                     model.close()
+                except Exception:
+                    pass
                 finally:
                     del model
+            if handler is not None:
+                try:
+                    if hasattr(handler, "close"):
+                        handler.close()
+                    elif hasattr(handler, "_exit_stack") and handler._exit_stack is not None:
+                        handler._exit_stack.close()
+                except Exception:
+                    pass
+                finally:
+                    del handler
             empty_accelerator_cache()
 
 

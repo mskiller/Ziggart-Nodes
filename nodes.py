@@ -44,7 +44,9 @@ def _gguf_files() -> tuple[list[str], list[str]]:
         if name.lower().endswith(".gguf")
     ]
     projectors = [
-        name for name in names if "mmproj" in Path(name).name.lower()
+        name
+        for name in names
+        if any(tag in Path(name).name.lower() for tag in ("mmproj", "projector"))
     ]
     models = [name for name in names if name not in projectors]
     return models or [NO_MODEL], projectors or [NO_MMPROJ]
@@ -87,7 +89,7 @@ def image_to_data_uri(image: Any, max_dimension: int = 0) -> str:
         rgb = array[..., :3].astype(np.float32)
         alpha = array[..., 3:4].astype(np.float32) / 255.0
         array = (rgb * alpha + 0.5).astype(np.uint8)
-    pil_image = Image.fromarray(array, mode="RGB")
+    pil_image = Image.fromarray(array)
     if max_dimension > 0 and max(pil_image.size) > max_dimension:
         scale = max_dimension / max(pil_image.size)
         target = (
@@ -220,6 +222,12 @@ class GGUFVisionPrompt:
                     "STRING",
                     {"default": "", "tooltip": "Optional absolute mmproj GGUF path."},
                 ),
+                "vlm_config": (
+                    "GGUF_VL_MODEL",
+                    {
+                        "tooltip": "Optional shared VLM configuration from GGUF VLM Loader (overrides local model/mmproj settings)."
+                    },
+                ),
             },
         }
 
@@ -251,18 +259,22 @@ class GGUFVisionPrompt:
         unload_comfy_models_before=True,
         model_path_override="",
         mmproj_path_override="",
+        vlm_config=None,
     ):
-        model_path = _resolve_gguf(model, model_path_override, "model GGUF")
-        projector_path = _resolve_gguf(mmproj, mmproj_path_override, "mmproj GGUF")
-        config = ModelConfig(
-            model_path=model_path,
-            mmproj_path=projector_path,
-            context_size=int(context_size),
-            gpu_layers=int(gpu_layers),
-            threads=int(threads),
-            flash_attention=bool(flash_attention),
-            mmproj_on_gpu=bool(mmproj_on_gpu),
-        )
+        if isinstance(vlm_config, ModelConfig):
+            config = vlm_config
+        else:
+            model_path = _resolve_gguf(model, model_path_override, "model GGUF")
+            projector_path = _resolve_gguf(mmproj, mmproj_path_override, "mmproj GGUF")
+            config = ModelConfig(
+                model_path=model_path,
+                mmproj_path=projector_path,
+                context_size=int(context_size),
+                gpu_layers=int(gpu_layers),
+                threads=int(threads),
+                flash_attention=bool(flash_attention),
+                mmproj_on_gpu=bool(mmproj_on_gpu),
+            )
 
         try:
             MODEL_MANAGER.load(config, bool(unload_comfy_models_before))
@@ -419,5 +431,70 @@ class GGUFVisionPrompt:
                 MODEL_MANAGER.unload()
 
 
-NODE_CLASS_MAPPINGS = {"ZiggartGGUFVisionPrompt": GGUFVisionPrompt}
-NODE_DISPLAY_NAME_MAPPINGS = {"ZiggartGGUFVisionPrompt": "GGUF Vision Prompt"}
+class ZiggartGGUFVLMLoader:
+    """Shared GGUF Vision-Language model configuration node."""
+
+    DESCRIPTION = (
+        "Creates a reusable GGUF_VL_MODEL configuration that can be shared across "
+        "GGUF Vision Prompt, Detailers Krea2, and WeVisOne-VL Detector nodes."
+    )
+    CATEGORY = "Ziggart/LLM"
+    FUNCTION = "create_config"
+    RETURN_TYPES = ("GGUF_VL_MODEL",)
+    RETURN_NAMES = ("vlm_config",)
+    OUTPUT_TOOLTIPS = ("Shared GGUF VLM configuration object.",)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        models, projectors = _gguf_files()
+        return {
+            "required": {
+                "model": (models, {"tooltip": "Language-model GGUF from models/LLM/GGUF."}),
+                "mmproj": (projectors, {"tooltip": "Matching mmproj GGUF from models/LLM/GGUF."}),
+                "context_size": ("INT", {"default": 8192, "min": 1024, "max": 262144, "step": 1024}),
+                "gpu_layers": ("INT", {"default": -1, "min": -1, "max": 999}),
+                "threads": ("INT", {"default": max(1, (os.cpu_count() or 4) // 2), "min": 1, "max": 256}),
+                "flash_attention": ("BOOLEAN", {"default": True}),
+                "mmproj_on_gpu": ("BOOLEAN", {"default": True}),
+            },
+            "optional": {
+                "model_path_override": ("STRING", {"default": ""}),
+                "mmproj_path_override": ("STRING", {"default": ""}),
+            },
+        }
+
+    def create_config(
+        self,
+        model: str,
+        mmproj: str,
+        context_size: int = 8192,
+        gpu_layers: int = -1,
+        threads: int = 4,
+        flash_attention: bool = True,
+        mmproj_on_gpu: bool = True,
+        model_path_override: str = "",
+        mmproj_path_override: str = "",
+    ) -> tuple[ModelConfig]:
+        model_path = _resolve_gguf(model, model_path_override, "model GGUF")
+        projector_path = _resolve_gguf(mmproj, mmproj_path_override, "mmproj GGUF")
+        return (
+            ModelConfig(
+                model_path=model_path,
+                mmproj_path=projector_path,
+                context_size=int(context_size),
+                gpu_layers=int(gpu_layers),
+                threads=int(threads),
+                flash_attention=bool(flash_attention),
+                mmproj_on_gpu=bool(mmproj_on_gpu),
+            ),
+        )
+
+
+NODE_CLASS_MAPPINGS = {
+    "ZiggartGGUFVisionPrompt": GGUFVisionPrompt,
+    "ZiggartGGUFVLMLoader": ZiggartGGUFVLMLoader,
+}
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "ZiggartGGUFVisionPrompt": "GGUF Vision Prompt",
+    "ZiggartGGUFVLMLoader": "GGUF VLM Loader",
+}

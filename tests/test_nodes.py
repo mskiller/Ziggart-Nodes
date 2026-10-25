@@ -94,15 +94,41 @@ class EmbeddedManagerTests(unittest.TestCase):
             def close(self):
                 self.closed = True
 
+        class FakeHandler:
+            closed = False
+
+            def close(self):
+                self.closed = True
+
         model = FakeModel()
+        handler = FakeHandler()
         manager = embedded_model.EmbeddedModelManager()
         manager._model = model
-        manager._handler = object()
+        manager._handler = handler
         manager._config = object()
         manager.unload()
         self.assertTrue(model.closed)
+        self.assertTrue(handler.closed)
         self.assertIsNone(manager._model)
         self.assertIsNone(manager._handler)
+
+    def test_strip_thinking_tags_and_type_error_fallback(self):
+        def legacy_handler(llama, messages, max_tokens, temperature, top_p, top_k, seed, stream):
+            return {"choices": [{"message": {"content": "<think>draft thoughts</think>\nClean final prompt"}}]}
+
+        manager = embedded_model.EmbeddedModelManager()
+        manager._model = object()
+        manager._handler = legacy_handler
+        answer = manager.chat(
+            [{"role": "user", "content": "hi"}],
+            max_tokens=16,
+            temperature=0.2,
+            top_p=0.9,
+            top_k=40,
+            seed=42,
+            enable_thinking=True,
+        )
+        self.assertEqual(answer, "Clean final prompt")
 
 
 class NodeExecutionTests(unittest.TestCase):
