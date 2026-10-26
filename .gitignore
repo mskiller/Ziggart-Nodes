@@ -14,3 +14,7 @@ Thumbs.db
 # Virtual environments
 venv/
 .venv/
+
+# Local index cache and test outputs
+.cache/
+output/

@@ -1417,6 +1417,295 @@ class ZiggartSmartTileUpscaler(ZiggartDetailerKrea2):
         )
 
 
+# ---------------------------------------------------------------------------
+# 6. ZiggartMultiSubjectDetailer
+# ---------------------------------------------------------------------------
+
+
+class ZiggartMultiSubjectDetailer(ZiggartDetailerKrea2):
+    """
+    Multi-Subject Grounded Detailer designed for Duo / Trio / Multi-Character scenes.
+    Locates up to 3 distinct targets with WeVisOne-VL in Phase 1, then refines each
+    subject crop with Krea 2 Turbo using its own dedicated positive prompt in Phase 2.
+    """
+
+    DESCRIPTION = (
+        "Locates up to 3 distinct characters or subjects using WeVisOne-VL and refines "
+        "each subject crop with Krea 2 Turbo using its own dedicated character prompt "
+        "(pairs directly with Ziggart Canonical Theme Resolver's character_1/2/3_prompt outputs)."
+    )
+    CATEGORY = "Ziggart/Detailer"
+    FUNCTION = "refine_multi_subject"
+    RETURN_TYPES = ("IMAGE", "IMAGE", "IMAGE", "MASK", "STRING")
+    RETURN_NAMES = (
+        "image",
+        "cropped_refined",
+        "detection_preview",
+        "composite_mask",
+        "subjects_log_json",
+    )
+    OUTPUT_TOOLTIPS = (
+        "Final composited image with all detected subjects refined using their respective prompts.",
+        "Batch of refined subject crops.",
+        "Preview image showing bounding boxes for all detected subjects.",
+        "Full-size composite mask of all refined regions.",
+        "JSON log of detected subjects, boxes, and applied prompts.",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        models, projectors = _gguf_files()
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "model": ("MODEL",),
+                "clip": ("CLIP",),
+                "vae": ("VAE",),
+                "detector_model": (models,),
+                "detector_mmproj": (projectors,),
+                "subject_1_target": ("STRING", {"default": "female character", "multiline": False}),
+                "subject_1_detail_prompt": (
+                    "STRING",
+                    {"default": "ultra-detailed female character, sharp eyes and facial features, 8k", "multiline": True},
+                ),
+                "subject_2_target": ("STRING", {"default": "male character", "multiline": False}),
+                "subject_2_detail_prompt": (
+                    "STRING",
+                    {"default": "", "multiline": True, "tooltip": "Leave blank to skip Subject 2."},
+                ),
+                "subject_3_target": ("STRING", {"default": "creature or companion", "multiline": False}),
+                "subject_3_detail_prompt": (
+                    "STRING",
+                    {"default": "", "multiline": True, "tooltip": "Leave blank to skip Subject 3."},
+                ),
+                "detail_negative_prompt": (
+                    "STRING",
+                    {"default": "blurry, noisy, deformed, low quality, artifacts", "multiline": True},
+                ),
+                "crop_factor": ("FLOAT", {"default": 1.5, "min": 1.0, "max": 4.0, "step": 0.1}),
+                "target_detail_resolution": ("INT", {"default": 768, "min": 256, "max": 2048, "step": 64}),
+                "steps": ("INT", {"default": 8, "min": 1, "max": 100}),
+                "cfg": ("FLOAT", {"default": 1.5, "min": 0.0, "max": 20.0, "step": 0.1}),
+                "denoise": ("FLOAT", {"default": 0.40, "min": 0.0, "max": 1.0, "step": 0.05}),
+                "sampler_name": (SAMPLER_NAMES, {"default": "euler"}),
+                "scheduler": (SCHEDULER_NAMES, {"default": "simple"}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF}),
+                "feather_mask": ("INT", {"default": 16, "min": 0, "max": 128}),
+                "free_vram_after": ("BOOLEAN", {"default": True}),
+            },
+            "optional": {
+                "detector_model_override": ("STRING", {"default": ""}),
+                "detector_mmproj_override": ("STRING", {"default": ""}),
+                "gpu_layers": ("INT", {"default": -1, "min": -1, "max": 256}),
+                "context_size": ("INT", {"default": 4096, "min": 1024, "max": 32768}),
+                "use_latent_mask": ("BOOLEAN", {"default": True}),
+                "skip_upscale_if_larger": ("BOOLEAN", {"default": True}),
+                "vlm_config": ("GGUF_VL_MODEL",),
+            },
+        }
+
+    def refine_multi_subject(
+        self,
+        image: torch.Tensor,
+        model: Any,
+        clip: Any,
+        vae: Any,
+        detector_model: str,
+        detector_mmproj: str,
+        subject_1_target: str,
+        subject_1_detail_prompt: str,
+        subject_2_target: str,
+        subject_2_detail_prompt: str,
+        subject_3_target: str,
+        subject_3_detail_prompt: str,
+        detail_negative_prompt: str,
+        crop_factor: float,
+        target_detail_resolution: int,
+        steps: int,
+        cfg: float,
+        denoise: float,
+        sampler_name: str,
+        scheduler: str,
+        seed: int,
+        feather_mask: int,
+        free_vram_after: bool,
+        detector_model_override: str = "",
+        detector_mmproj_override: str = "",
+        gpu_layers: int = -1,
+        context_size: int = 4096,
+        use_latent_mask: bool = True,
+        skip_upscale_if_larger: bool = True,
+        vlm_config: ModelConfig | None = None,
+    ):
+        config = _build_vlm_config(
+            detector_model,
+            detector_mmproj,
+            detector_model_override,
+            detector_mmproj_override,
+            gpu_layers,
+            context_size,
+            vlm_config,
+            label_prefix="detector",
+        )
+
+        active_subjects: list[tuple[int, str, str]] = []
+        for s_idx, (tgt, prm) in enumerate(
+            [
+                (subject_1_target, subject_1_detail_prompt),
+                (subject_2_target, subject_2_detail_prompt),
+                (subject_3_target, subject_3_detail_prompt),
+            ],
+            start=1,
+        ):
+            if tgt.strip() and prm.strip():
+                active_subjects.append((s_idx, tgt.strip(), prm.strip()))
+
+        batch_size, img_h, img_w, _ = image.shape
+        final_images: list[torch.Tensor] = []
+        previews: list[torch.Tensor] = []
+        all_masks: list[torch.Tensor] = []
+        refined_crops_list: list[torch.Tensor] = []
+        subjects_log: list[dict[str, Any]] = []
+
+        # Phase 1: Ground all active subjects across all frames while VLM is loaded once
+        # frame_tasks[b] = list of (s_idx, target_label, box, detail_prompt)
+        frame_tasks: list[list[tuple[int, str, tuple[int, int, int, int], str]]] = []
+        try:
+            for b in range(batch_size):
+                frame_3d = image[b]
+                tasks_for_frame: list[tuple[int, str, tuple[int, int, int, int], str]] = []
+                all_frame_boxes: list[tuple[int, int, int, int]] = []
+                for s_idx, tgt_label, pos_prompt in active_subjects:
+                    boxes, _ = detect_objects_with_vlm(
+                        frame_image=frame_3d,
+                        model_path=config.model_path,
+                        mmproj_path=config.mmproj_path,
+                        detection_prompt=tgt_label,
+                        max_detections=1,
+                        gpu_layers=config.gpu_layers,
+                        context_size=config.context_size,
+                        unload_detector_before_sampling=False,
+                    )
+                    if boxes:
+                        box = boxes[0]
+                        tasks_for_frame.append((s_idx, tgt_label, box, pos_prompt))
+                        all_frame_boxes.append(box)
+                        subjects_log.append(
+                            {
+                                "frame_index": b,
+                                "subject_slot": s_idx,
+                                "target": tgt_label,
+                                "box": list(box),
+                                "detail_prompt": pos_prompt,
+                            }
+                        )
+                frame_tasks.append(tasks_for_frame)
+                previews.append(draw_boxes_on_image(frame_3d, all_frame_boxes, label="subject"))
+        finally:
+            if free_vram_after:
+                MODEL_MANAGER.unload()
+                release_comfy_vram()
+
+        # Phase 2: Resample each grounded subject with its own CLIP conditioning
+        any_tasks = any(len(t) > 0 for t in frame_tasks)
+        neg_cond = None
+        if any_tasks:
+            _, neg_cond = self._encode_prompts(clip, "", detail_negative_prompt)
+
+        for b in range(batch_size):
+            frame = image[b : b + 1]
+            out_frame = frame.clone()
+            full_mask = torch.zeros((img_h, img_w), dtype=torch.float32)
+            tasks = frame_tasks[b]
+
+            for t_i, (s_idx, _tgt_label, box, pos_prompt) in enumerate(tasks):
+                cx0, cy0, cx1, cy1 = crop_with_padding(box, img_w, img_h, crop_factor=crop_factor)
+                crop_orig = frame[:, cy0:cy1, cx0:cx1, :]
+                ch, cw = cy1 - cy0, cx1 - cx0
+
+                max_side = max(ch, cw)
+                if skip_upscale_if_larger and max_side >= target_detail_resolution:
+                    target_w = max(64, (cw // 8) * 8)
+                    target_h = max(64, (ch // 8) * 8)
+                else:
+                    scale = target_detail_resolution / float(max_side)
+                    target_w = max(64, int(round(cw * scale / 8.0)) * 8)
+                    target_h = max(64, int(round(ch * scale / 8.0)) * 8)
+
+                if target_h == ch and target_w == cw:
+                    crop_high = crop_orig.clone()
+                else:
+                    crop_high = F.interpolate(
+                        crop_orig.permute(0, 3, 1, 2),
+                        size=(target_h, target_w),
+                        mode="bicubic",
+                        align_corners=False,
+                    ).permute(0, 2, 3, 1).clamp(0.0, 1.0)
+
+                pos_cond, _ = self._encode_prompts(clip, pos_prompt, detail_negative_prompt)
+                latent_noise_mask = None
+                if use_latent_mask and feather_mask > 0:
+                    scaled_feather = max(1, int(round(feather_mask * (target_w / float(max(1, cw))))))
+                    latent_noise_mask = create_feathered_mask(
+                        target_w, target_h, feather_radius=scaled_feather
+                    ).unsqueeze(0)
+
+                cur_seed = (seed + b * 997 + s_idx * 53 + t_i * 19) & 0xFFFFFFFFFFFFFFFF
+                refined_high = self._execute_sampling(
+                    model=model,
+                    clip=clip,
+                    vae=vae,
+                    crop_tensor=crop_high,
+                    positive_prompt=pos_prompt,
+                    negative_prompt=detail_negative_prompt,
+                    steps=steps,
+                    cfg=cfg,
+                    sampler_name=sampler_name,
+                    scheduler=scheduler,
+                    denoise=denoise,
+                    seed=cur_seed,
+                    pos_cond=pos_cond,
+                    neg_cond=neg_cond,
+                    noise_mask=latent_noise_mask,
+                )
+                refined_crops_list.append(refined_high.clone())
+
+                if refined_high.shape[1] == ch and refined_high.shape[2] == cw:
+                    refined_orig = refined_high.clamp(0.0, 1.0)
+                else:
+                    refined_orig = F.interpolate(
+                        refined_high.permute(0, 3, 1, 2),
+                        size=(ch, cw),
+                        mode="bicubic",
+                        align_corners=False,
+                    ).permute(0, 2, 3, 1).clamp(0.0, 1.0)
+
+                refined_orig = refined_orig.to(device=out_frame.device, dtype=out_frame.dtype)
+                feather_m = create_feathered_mask(cw, ch, feather_radius=feather_mask).to(
+                    device=out_frame.device, dtype=out_frame.dtype
+                )
+                feather_4d = feather_m.unsqueeze(0).unsqueeze(-1)
+
+                current_rgb = out_frame[:, cy0:cy1, cx0:cx1, :3]
+                out_frame[:, cy0:cy1, cx0:cx1, :3] = (
+                    refined_orig[:, :, :, :3] * feather_4d + current_rgb * (1.0 - feather_4d)
+                )
+                full_mask[cy0:cy1, cx0:cx1] = torch.maximum(
+                    full_mask[cy0:cy1, cx0:cx1], feather_m.detach().cpu().float()
+                )
+
+            final_images.append(out_frame)
+            all_masks.append(full_mask.unsqueeze(0))
+
+        return (
+            torch.cat(final_images, dim=0),
+            standardize_and_batch_crops(refined_crops_list),
+            torch.cat(previews, dim=0),
+            torch.cat(all_masks, dim=0),
+            json.dumps(subjects_log, indent=2),
+        )
+
+
 NODE_CLASS_MAPPINGS = {
     "ZiggartAutoPromptDetailer": ZiggartAutoPromptDetailer,
     "ZiggartVLMImageCritic": ZiggartVLMImageCritic,
@@ -1424,6 +1713,7 @@ NODE_CLASS_MAPPINGS = {
     "ZiggartStitchByBBox": ZiggartStitchByBBox,
     "ZiggartVLMInpaintPrompter": ZiggartVLMInpaintPrompter,
     "ZiggartSmartTileUpscaler": ZiggartSmartTileUpscaler,
+    "ZiggartMultiSubjectDetailer": ZiggartMultiSubjectDetailer,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1433,4 +1723,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZiggartStitchByBBox": "BBox Feathered Stitch",
     "ZiggartVLMInpaintPrompter": "GGUF Mask-Aware Inpaint Prompter",
     "ZiggartSmartTileUpscaler": "Krea2 VLM Smart Tile Upscaler",
+    "ZiggartMultiSubjectDetailer": "Multi-Character Grounded Krea2 Detailer",
 }
