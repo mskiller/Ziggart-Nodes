@@ -18,3 +18,7 @@ venv/
 # Local index cache and test outputs
 .cache/
 output/
+
+# Keep the wildcards/ folder in git, but ignore user's 700+ MB wildcard files inside it
+wildcards/*
+!wildcards/.gitkeep

@@ -36,7 +36,8 @@ A complete collection of **18 local, in-process ComfyUI nodes** combining:
 ## Table of Contents
 
 1. [Key Features & 700+ MB Wildcard Benchmarks](#key-features--700-mb-wildcard-benchmarks)
-2. [Wildcard & Canonical Theme Suite (`Ziggart/Wildcards`)](#wildcard--canonical-theme-suite-ziggartwildcards)
+2. [Where to Place Your Wildcards (`Ziggart-Nodes/wildcards`)](#where-to-place-your-wildcards-ziggart-nodeswildcards)
+3. [Wildcard & Canonical Theme Suite (`Ziggart/Wildcards`)](#wildcard--canonical-theme-suite-ziggartwildcards)
    - [1. Ziggart Fast Wildcard Processor (Way C1)](#1-ziggart-fast-wildcard-processor-way-c1)
    - [2. Ziggart Wildcard Processor — All-in-One Pillars & Mixed (Way A)](#2-ziggart-wildcard-processor--all-in-one-pillars--mixed-way-a)
    - [3. Ziggart Collection Scene Builder (Way C2)](#3-ziggart-collection-scene-builder-way-c2)
@@ -44,7 +45,7 @@ A complete collection of **18 local, in-process ComfyUI nodes** combining:
    - [5. Ziggart Canonical Theme & Character-Outfit Resolver](#5-ziggart-canonical-theme--character-outfit-resolver)
    - [6. Wildcard-to-VLM Prompt Harmonizer](#6-wildcard-to-vlm-prompt-harmonizer)
    - [7. Ziggart Prompt Recipe & Comparison Saver](#7-ziggart-prompt-recipe--comparison-saver)
-3. [Detailer, Grounding & VLM Suite](#detailer-grounding--vlm-suite)
+4. [Detailer, Grounding & VLM Suite](#detailer-grounding--vlm-suite)
    - [8. Detailers Krea2](#8-detailers-krea2)
    - [9. Detailers Krea2 (VLM Auto-Prompt)](#9-detailers-krea2-vlm-auto-prompt)
    - [10. Multi-Character Grounded Krea2 Detailer](#10-multi-character-grounded-krea2-detailer)
@@ -54,12 +55,12 @@ A complete collection of **18 local, in-process ComfyUI nodes** combining:
    - [14. GGUF Vision Prompt & GGUF VLM Loader](#14-gguf-vision-prompt--gguf-vlm-loader)
    - [15. GGUF Quality & Anatomy Critic](#15-gguf-quality--anatomy-critic)
    - [16. GGUF Mask-Aware Inpaint Prompter](#16-gguf-mask-aware-inpaint-prompter)
-4. [Architecture & Workflows](#architecture--workflows)
-5. [Installation](#installation)
-6. [Models Download & Setup](#models-download--setup)
-7. [Hardware & VRAM Optimization](#hardware--vram-optimization)
-8. [Troubleshooting](#troubleshooting)
-9. [License](#license)
+5. [Architecture & Workflows](#architecture--workflows)
+6. [Installation](#installation)
+7. [Models Download & Setup](#models-download--setup)
+8. [Hardware & VRAM Optimization](#hardware--vram-optimization)
+9. [Troubleshooting](#troubleshooting)
+10. [License](#license)
 
 ---
 
@@ -86,9 +87,54 @@ A complete collection of **18 local, in-process ComfyUI nodes** combining:
 
 ---
 
+## Where to Place Your Wildcards (`Ziggart-Nodes/wildcards`)
+
+To prevent **ComfyUI-Impact-Pack** from scanning 700+ MB / 78,000+ wildcard files on every ComfyUI startup or browser refresh (which causes multi-minute freezes and empty dropdowns in Impact Pack), **move your wildcard files out of `ComfyUI-Impact-Pack/wildcards` and place them directly inside `Ziggart-Nodes/wildcards/`**:
+
+```text
+ComfyUI/
+└── custom_nodes/
+    └── Ziggart-Nodes/
+        └── wildcards/                  <-- PUT ALL YOUR WILDCARDS HERE (Primary Location)
+            ├── Ziggart.yaml            (50+ MB multi-level YAML wildcards)
+            ├── Collection/             (Structured Collection Pillars & Themes)
+            │   ├── Themes/             (01-MysterieusesCitesDOr, 13-Albator, etc. + Character-Outfits.json)
+            │   ├── Characters/
+            │   ├── Anatomy/
+            │   ├── Outfits/
+            │   ├── Pose/
+            │   ├── Expression/
+            │   ├── Environment/
+            │   ├── IconicPlaces/
+            │   ├── Vehicle/
+            │   ├── Style/
+            │   ├── Medium/
+            │   ├── Lighting/
+            │   ├── Camera/
+            │   ├── VFX/
+            │   ├── Sheet/
+            │   └── Combos/
+            ├── ziggart/                (Subfolder .txt pools)
+            └── *.txt                   (Root .txt wildcards: female-full.txt, style-full-v2.txt, etc.)
+```
+
+### Why `Ziggart-Nodes/wildcards/` is Best
+1. **Eliminates Impact Pack Startup Lag**: Once `ComfyUI-Impact-Pack/wildcards` is empty, Impact Pack no longer walks 78,000 files or runs `yaml.FullLoader` on `Ziggart.yaml` when ComfyUI boots or refreshes.
+2. **Highest Discovery Priority (#1)**: `ZiggartWildcardIndex` checks `ComfyUI/custom_nodes/Ziggart-Nodes/wildcards` **first** automatically—no extra path configuration is required.
+3. **Git-Safe Out of the Box**: The `Ziggart-Nodes/wildcards/` folder is pre-created in this repository and configured in `.gitignore` (`wildcards/*`, `!wildcards/.gitkeep`) so `git pull` / `git status` inside `Ziggart-Nodes` will never touch, upload, or slow down on your 700+ MB wildcard library.
+
+### Automatic Discovery Order
+If you keep wildcards in multiple places, `Ziggart-Nodes` scans directories in this priority order:
+1. **`ComfyUI/custom_nodes/Ziggart-Nodes/wildcards`** *(Recommended primary folder)*
+2. `custom_wildcards_dir` *(Optional widget override on the node)*
+3. `ComfyUI/wildcards`
+4. `ComfyUI/custom_nodes/ComfyUI-Impact-Pack/wildcards` *(Fallback if any files remain there)*
+
+---
+
 ## Wildcard & Canonical Theme Suite (`Ziggart/Wildcards`)
 
-Automatically discovers wildcards in `ComfyUI/custom_nodes/ComfyUI-Impact-Pack/wildcards`, `ComfyUI/wildcards`, `Ziggart-Nodes/wildcards`, or any custom path—without modifying external folders.
+Automatically discovers wildcards in `Ziggart-Nodes/wildcards` (primary), `ComfyUI/wildcards`, `ComfyUI-Impact-Pack/wildcards`, or any custom path—without modifying external folders.
 
 ### Full Wildcard Syntax Support
 - **Arbitrary-Depth YAML & TXT Tokens**: `__Ziggart/scenes/all__`, `__Ziggart/scenes/01_mysterieusescitesdor/duo/romantic__`, `__Collection/Themes/01-MysterieusesCitesDOr/Character__`, `__female-full__`, or parent rollups like `__Ziggart/scenes__`.
@@ -489,6 +535,12 @@ cd C:\path\to\ComfyUI_windows_portable
 
 ```text
 ComfyUI/
+├── custom_nodes/
+│   └── Ziggart-Nodes/
+│       └── wildcards/                  <-- Place Ziggart.yaml, Collection/, and .txt wildcards here
+│           ├── Ziggart.yaml
+│           ├── Collection/
+│           └── *.txt
 ├── models/
 │   ├── LLM/
 │   │   └── GGUF/
