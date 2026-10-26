@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import glob
 import json
 import logging
 import os
@@ -56,8 +57,8 @@ RANDOM_THEME_OPTION = "[Random Theme]"
 # Fast regex patterns for YAML byte-offset indexing and wildcard syntax
 _YAML_KEY_LINE_RE = re.compile(r"^(\s*)([A-Za-z0-9_.\-/ ]+?)\s*:\s*(.*)$")
 _YAML_LIST_LINE_RE = re.compile(r"^\s*-\s+(.*)$")
-_WILDCARD_TOKEN_RE = re.compile(r"__([\w.\-+/*\\ ]+?)__")
-_QUANTIFIER_RE = re.compile(r"(?P<quantifier>\d+)#__(?P<keyword>[\w.\-+/*\\ ]+?)__", re.IGNORECASE)
+_WILDCARD_TOKEN_RE = re.compile(r"_{2,}([\w.\-+/*\\ ]+?)(?<!_)_{2,}")
+_QUANTIFIER_RE = re.compile(r"(?P<quantifier>\d+)#_{2,}(?P<keyword>[\w.\-+/*\\ ]+?)(?<!_)_{2,}", re.IGNORECASE)
 _CHOICE_BLOCK_RE = re.compile(r"(?<!\\)\{((?:[^{}]|(?<=\\)[{}])*?)(?<!\\)\}")
 _LORA_TAG_RE = re.compile(r"<lora:([^>]+)>", re.IGNORECASE)
 _NUMERIC_RE = re.compile(r"^-?(?:\d+\.?\d*|\.\d+)$")
@@ -68,7 +69,7 @@ def normalize_wildcard_key(key: str) -> str:
     cleaned = key.strip().replace("\\", "/")
     while "//" in cleaned:
         cleaned = cleaned.replace("//", "/")
-    return cleaned.strip("/").lower()
+    return cleaned.strip("/_ ").lower()
 
 
 def _is_numeric(val: str) -> bool:
@@ -183,8 +184,10 @@ def read_yaml_slice_items(yaml_path: str, byte_start: int, byte_end: int) -> lis
         m = _YAML_LIST_LINE_RE.match(line)
         if m:
             val = m.group(1).strip()
-            if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
-                val = val[1:-1]
+            if val.startswith('"') and val.endswith('"') and len(val) >= 2:
+                val = val[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+            elif val.startswith("'") and val.endswith("'") and len(val) >= 2:
+                val = val[1:-1].replace("''", "'")
             if val:
                 items.append(val)
         else:
@@ -208,10 +211,11 @@ class ZiggartWildcardIndex:
     """
     High-speed, zero-freeze wildcard index and resolver designed for 700+ MB / 80,000+ file
     wildcard libraries:
-    - Indexes arbitrary-depth YAML files (like 53.5 MB Ziggart.yaml) via byte-offset slices
-      and persists the index to disk so startup/refresh takes < 10 ms.
+    - Indexes arbitrary-depth YAML files (like 53.5 MB Ziggart.yaml and krea2*.yaml) via
+      byte-offset slices and persists the index to disk so startup/refresh takes < 40 ms.
     - Organizes wildcards into dedicated Collection Pillar dropdowns + a Mixed dropdown.
-    - Resolves .txt wildcards in O(1) via direct path lookup without walking 77,000 files on boot.
+    - Resolves .txt wildcards and `*` glob patterns (e.g. `Collection/formats-wild/.../Female-*`,
+      `jff/animals/*`) in O(1) via direct path & cached glob lookup without walking 78,000 files on boot.
     """
 
     PILLAR_FOLDERS = {
@@ -221,6 +225,57 @@ class ZiggartWildcardIndex:
         "style_camera_light": ("Style", "Medium", "Lighting", "Camera", "VFX", "Sheet", "Format-dev"),
     }
 
+    LEGACY_ALIAS_MAP = {
+        "actors1": "jff/actors",
+        "actress1": "jff/actress",
+        "jffcum": "jff/liquid",
+        "mklan-female": "jff/mklan-female-card",
+        "mklan-male-card": "male-full",
+        "mskiller/mklan-male-card": "male-full",
+        "mskiller/mklan-female-card": "jff/mklan-female-card",
+        "mskiller/alluring-clothes": "jff/alluring-clothes",
+        "mskiller/alluring-pose": "jff/alluring-pose",
+        "mskiller/jff-clothes": "jff/jff-clothes",
+        "color": "jff/jffcouleur",
+        "colors": "jff/jffcouleur",
+        "nationality": "jff/jff-female-names",
+        "creativelocations": "jff/jfflieu",
+        "cc_various_background": "jff/jfflieu",
+        "outfits": "outfit-full",
+        "outfits_general": "jff/jff-clothes-v3",
+        "outfits_sensitive": "jff/lingerie_outfits",
+        "aln/clothing/anything": "jff/jff-clothes-v3",
+        "cf-punk/bottom-bis": "jff/women-bottom",
+        "advanced-post-apocalyptic-outfits": "jff/jff-clothes-v3",
+        "characters": "female-full",
+        "characters/professions/historical": "jff/class",
+        "art_style_prompt": "jff/jff-styles",
+        "artist-photographer": "jff/artists-art-nouveau",
+        "illustrators": "jff/artists-art-nouveau",
+        "painting": "style-full-v2",
+        "peaksel_camerashotype": "jff/peaksel_camerashotangle",
+        "dinosaur": "creature-full",
+        "creatures/species/insects": "creature-full",
+        "detail": "jff/hairdetail",
+        "drink_prompt_image": "jff/item",
+        "food": "jff/item",
+        "personmaker/commonethnicities": "jff/jff-female-names",
+        "personmaker/commonnationalities": "jff/jff-female-names",
+        "ponycharacter": "female-full",
+        "promptgeek/photorealistic/camera/angle": "jff/camera-angle",
+        "seasons": "jff/jfftemps",
+        "tree": "jff/garden-summer",
+        "wildcard_character": "female-full",
+    }
+
+    LEGACY_GLOB_ALIAS_MAP = {
+        "cc_female_clothing_set_*": "jff/jff-clothes*",
+        "advanced-female-*": "female-*",
+        "bo/chars/*": "characters/*/*",
+        "characters_*": "characters/*/*",
+        "mskiller/mklan-*male-card": "jff/mklan-*",
+    }
+
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._dirs: list[str] = []
@@ -228,6 +283,7 @@ class ZiggartWildcardIndex:
         self._yaml_children: dict[str, list[str]] = {}
         self._curated_txt_map: dict[str, str] = {}
         self._options_cache: dict[str, list[str]] = {}
+        self._glob_files_cache: dict[str, list[str]] = {}
         self._max_cached_keys = 256
 
         # Categorized dropdown lists matching Collection structure + Mixed
@@ -266,6 +322,7 @@ class ZiggartWildcardIndex:
             self._yaml_children.clear()
             self._curated_txt_map.clear()
             self._options_cache.clear()
+            self._glob_files_cache.clear()
             self.theme_folders.clear()
             for k in self.pillars:
                 self.pillars[k] = []
@@ -299,6 +356,11 @@ class ZiggartWildcardIndex:
                             if self._index_single_yaml(entry.path, disk_cache):
                                 cache_dirty = True
                         elif lower_name.endswith(".txt"):
+                            try:
+                                if entry.stat().st_size == 0:
+                                    continue
+                            except OSError:
+                                continue
                             stem = os.path.splitext(entry.name)[0]
                             norm_k = normalize_wildcard_key(stem)
                             self._curated_txt_map[norm_k] = entry.path
@@ -316,19 +378,26 @@ class ZiggartWildcardIndex:
                             base_path,
                             self.pillars["mixed_other"],
                             disk_cache,
-                            max_files=350,
+                            max_files=2000,
                         )
 
             # Route YAML keys into their matching Collection Pillars and build parent rollups
+            custom_yaml_top_tokens: list[str] = []
             for y_key in sorted(self._yaml_offsets.keys()):
                 parts = y_key.split("/")
                 for depth in range(1, len(parts)):
                     parent = "/".join(parts[:depth])
                     self._yaml_children.setdefault(parent, []).append(y_key)
 
+                top_root = parts[0] if parts else ""
                 sec = parts[1] if len(parts) > 1 else ""
                 token = f"__{y_key}__"
-                if sec in ("character", "anatomy", "bestiary"):
+
+                if top_root != "ziggart":
+                    # Friend/custom root YAML files (e.g. krea2.yaml, krea2-grok.yaml, krea2-kimi.yaml, etc.)
+                    custom_yaml_top_tokens.append(token)
+                    self.pillars["mixed_other"].insert(0, token)
+                elif sec in ("character", "anatomy", "bestiary"):
                     self.pillars["character_anatomy"].append(token)
                 elif sec in ("outfit", "pose", "action_pose", "expression", "expressions"):
                     self.pillars["outfit_pose"].append(token)
@@ -337,7 +406,7 @@ class ZiggartWildcardIndex:
                 elif sec in ("style", "medium", "art_medium", "lighting", "camera", "vfx", "sheet", "sheet_layout", "sheet_elements"):
                     self.pillars["style_camera_light"].append(token)
                 elif sec in ("generators", "random", "compatibility"):
-                    self.pillars["macro_yaml_themes"].insert(0, token)
+                    custom_yaml_top_tokens.append(token)
                 elif sec == "scenes":
                     # Include 3-level scene keys (e.g. ziggart/scenes/all, ziggart/scenes/01_...) in dropdown;
                     # deeper 4/5-level subvariants remain in _yaml_offsets for instant resolution & search
@@ -349,14 +418,16 @@ class ZiggartWildcardIndex:
                 else:
                     self.pillars["macro_yaml_themes"].append(token)
 
-            # Also include 3-level parent rollups (e.g. __ziggart/scenes/01_mysterieusescitesdor__) in macro_yaml_themes
+            # Include 3-level parent rollups (e.g. __krea2-grok__, __ziggart/scenes/01_mysterieusescitesdor__)
             parent_scene_tokens: list[str] = []
             for p_key in sorted(self._yaml_children.keys()):
                 if p_key not in self._yaml_offsets:
                     p_parts = p_key.split("/")
                     if len(p_parts) <= 3:
                         parent_scene_tokens.append(f"__{p_key}__")
-            self.pillars["macro_yaml_themes"] = parent_scene_tokens + self.pillars["macro_yaml_themes"]
+            self.pillars["macro_yaml_themes"] = (
+                custom_yaml_top_tokens + parent_scene_tokens + self.pillars["macro_yaml_themes"]
+            )
 
             # Deduplicate each pillar list while preserving order
             all_combined: list[str] = []
@@ -422,6 +493,11 @@ class ZiggartWildcardIndex:
                     if lower.endswith((".yaml", ".yml")):
                         self._index_single_yaml(full_p, disk_cache)
                     elif lower.endswith(".txt"):
+                        try:
+                            if os.path.getsize(full_p) == 0:
+                                continue
+                        except OSError:
+                            continue
                         rel = os.path.relpath(full_p, root_dir).replace("\\", "/")
                         stem = os.path.splitext(rel)[0]
                         norm_k = normalize_wildcard_key(stem)
@@ -498,6 +574,21 @@ class ZiggartWildcardIndex:
                 except OSError:
                     pass
 
+        # 6. Fast single-level scandir of Collection/formats-wild/Formats (~130 format folders in <0.5ms)
+        formats_dir = collection_dir / "formats-wild" / "Formats"
+        if formats_dir.is_dir():
+            try:
+                for entry in sorted(os.scandir(formats_dir), key=lambda e: e.name.lower()):
+                    if entry.is_dir():
+                        self.pillars["style_camera_light"].append(
+                            f"__Collection/formats-wild/Formats/{entry.name}/Templates/Female-*__"
+                        )
+                        self.pillars["style_camera_light"].append(
+                            f"__Collection/formats-wild/Formats/{entry.name}/Templates/*__"
+                        )
+            except OSError:
+                pass
+
     def get_dropdown_list(self, extra_dir: str = "") -> list[str]:
         self.ensure_loaded(extra_dir=extra_dir)
         return [SELECT_PLACEHOLDER] + self._dropdown_items
@@ -561,12 +652,83 @@ class ZiggartWildcardIndex:
 
     def resolve_key_options(self, raw_key: str, rng: random.Random) -> list[str] | None:
         """
-        Resolves a wildcard key (e.g. 'Ziggart/scenes/all' or 'Collection/Themes/01-.../Character')
-        in O(1) time without walking the full directory tree.
+        Resolves a wildcard key (e.g. 'Ziggart/scenes/all', 'Collection/formats-wild/.../Female-*',
+        'krea2-grok/wallpaper', or 'jff/animals/*') in O(1) time without walking 78,000 files on boot.
         """
         self.ensure_loaded()
         norm_key = normalize_wildcard_key(raw_key)
         if not norm_key:
+            return None
+
+        # 0. Glob / wildcard `*` pattern match (YAML, direct filesystem glob, and curated map)
+        if "*" in norm_key:
+            exact_pat = "^" + re.escape(norm_key).replace(r"\*", ".*") + "$"
+            suffix_pat = r"(?:^|/)" + re.escape(norm_key).replace(r"\*", ".*") + "$"
+            cre_exact = re.compile(exact_pat)
+            cre_suffix = re.compile(suffix_pat)
+
+            matched_yaml = [k for k in self._yaml_offsets if cre_exact.match(k)]
+            if not matched_yaml:
+                matched_yaml = [k for k in self._yaml_offsets if cre_suffix.search(k)]
+            if matched_yaml:
+                chosen = rng.choice(matched_yaml)
+                return self.resolve_key_options(chosen, rng)
+
+            matched_files = self._glob_files_cache.get(norm_key)
+            if matched_files is None:
+                clean_rel = raw_key.strip().replace("\\", "/").strip("/_ ")
+                found_paths: list[str] = []
+                seen_paths: set[str] = set()
+
+                def _add_glob_hits(pattern: str) -> None:
+                    for hit in sorted(glob.glob(pattern)):
+                        try:
+                            if os.path.isfile(hit) and hit.lower().endswith(".txt") and os.path.getsize(hit) > 0:
+                                norm_p = os.path.normcase(os.path.abspath(hit))
+                                if norm_p not in seen_paths:
+                                    seen_paths.add(norm_p)
+                                    found_paths.append(hit)
+                            elif os.path.isdir(hit):
+                                all_p = os.path.join(hit, "ALL.txt")
+                                if os.path.isfile(all_p) and os.path.getsize(all_p) > 0:
+                                    norm_p = os.path.normcase(os.path.abspath(all_p))
+                                    if norm_p not in seen_paths:
+                                        seen_paths.add(norm_p)
+                                        found_paths.append(all_p)
+                        except OSError:
+                            continue
+
+                for base_dir in self._dirs:
+                    for rel_variant in (clean_rel, norm_key):
+                        _add_glob_hits(os.path.join(base_dir, f"{rel_variant}.txt"))
+                        _add_glob_hits(os.path.join(base_dir, rel_variant))
+                        _add_glob_hits(os.path.join(base_dir, "jff", f"{rel_variant}.txt"))
+                        if "/" in rel_variant:
+                            base_part = os.path.basename(rel_variant)
+                            if "*" in base_part:
+                                _add_glob_hits(os.path.join(base_dir, "jff", f"{base_part}.txt"))
+
+                if not found_paths:
+                    for k, path in self._curated_txt_map.items():
+                        if cre_exact.match(k) or cre_suffix.search(k):
+                            try:
+                                if os.path.isfile(path) and os.path.getsize(path) > 0:
+                                    found_paths.append(path)
+                            except OSError:
+                                continue
+
+                if not found_paths and norm_key in self.LEGACY_GLOB_ALIAS_MAP:
+                    alias_glob = self.LEGACY_GLOB_ALIAS_MAP[norm_key]
+                    return self.resolve_key_options(alias_glob, rng)
+
+                matched_files = found_paths
+                self._glob_files_cache[norm_key] = matched_files
+
+            if matched_files:
+                chosen_file = rng.choice(matched_files)
+                items = self._read_txt_file(chosen_file)
+                if items:
+                    return items
             return None
 
         if norm_key in self._options_cache:
@@ -579,28 +741,36 @@ class ZiggartWildcardIndex:
             if items:
                 return self._remember_cache(norm_key, items)
 
-        # 2. Parent YAML key match (e.g. __Ziggart/scenes__ or __Ziggart__)
+        # 2. Parent YAML key match (e.g. __Ziggart/scenes__, __krea2-grok__, or __Ziggart__)
         if norm_key in self._yaml_children:
             child_keys = self._yaml_children[norm_key]
             if child_keys:
                 chosen_child = rng.choice(child_keys)
                 return self.resolve_key_options(chosen_child, rng)
 
-        # 3. Direct O(1) .txt file lookup in all wildcard directories
-        clean_rel = raw_key.strip().replace("\\", "/").strip("/")
+        # 3. Direct O(1) .txt file lookup in all wildcard directories (and jff/ subfolder)
+        clean_rel = raw_key.strip().replace("\\", "/").strip("/_ ")
+        rel_variants = (
+            clean_rel,
+            norm_key,
+            clean_rel.replace(" ", "-"),
+            clean_rel.replace(" ", "_"),
+            norm_key.replace(" ", "_"),
+        )
         for base_dir in self._dirs:
-            for candidate_rel in (clean_rel, norm_key, clean_rel.replace(" ", "-")):
-                candidate_path = os.path.join(base_dir, f"{candidate_rel}.txt")
-                if os.path.isfile(candidate_path):
-                    items = self._read_txt_file(candidate_path)
-                    if items:
-                        return self._remember_cache(norm_key, items)
-                # If a directory name was given without /ALL, check <dir>/ALL.txt
-                dir_all_path = os.path.join(base_dir, candidate_rel, "ALL.txt")
-                if os.path.isfile(dir_all_path):
-                    items = self._read_txt_file(dir_all_path)
-                    if items:
-                        return self._remember_cache(norm_key, items)
+            for sub_prefix in ("", "jff"):
+                search_root = os.path.join(base_dir, sub_prefix) if sub_prefix else base_dir
+                for candidate_rel in rel_variants:
+                    candidate_path = os.path.join(search_root, f"{candidate_rel}.txt")
+                    if os.path.isfile(candidate_path):
+                        items = self._read_txt_file(candidate_path)
+                        if items:
+                            return self._remember_cache(norm_key, items)
+                    dir_all_path = os.path.join(search_root, candidate_rel, "ALL.txt")
+                    if os.path.isfile(dir_all_path):
+                        items = self._read_txt_file(dir_all_path)
+                        if items:
+                            return self._remember_cache(norm_key, items)
 
         # 4. Curated lowercase map lookup
         if norm_key in self._curated_txt_map:
@@ -608,19 +778,7 @@ class ZiggartWildcardIndex:
             if items:
                 return self._remember_cache(norm_key, items)
 
-        # 5. Glob / wildcard pattern match (e.g. __Ziggart/scenes/*__ or __*/Character__)
-        if "*" in norm_key:
-            regex_pat = "^" + re.escape(norm_key).replace(r"\*", ".*") + "$"
-            cre = re.compile(regex_pat)
-            matched_yaml = [k for k in self._yaml_offsets if cre.match(k)]
-            if matched_yaml:
-                chosen = rng.choice(matched_yaml)
-                return self.resolve_key_options(chosen, rng)
-            matched_txt = [path for k, path in self._curated_txt_map.items() if cre.match(k)]
-            if matched_txt:
-                return self._read_txt_file(rng.choice(matched_txt))
-
-        # 6. Suffix match fallback across YAML and curated TXT
+        # 5. Suffix match fallback across YAML and curated TXT
         suffix = "/" + norm_key
         suffix_yaml = [k for k in self._yaml_offsets if k.endswith(suffix)]
         if suffix_yaml:
@@ -628,7 +786,33 @@ class ZiggartWildcardIndex:
 
         suffix_txt = [path for k, path in self._curated_txt_map.items() if k.endswith(suffix)]
         if suffix_txt:
-            return self._read_txt_file(rng.choice(suffix_txt))
+            items = self._read_txt_file(rng.choice(suffix_txt))
+            if items:
+                return items
+
+        # 6. Basename & legacy alias fallback (for friend's jff/ cross-folder references)
+        if norm_key in self.LEGACY_ALIAS_MAP:
+            return self.resolve_key_options(self.LEGACY_ALIAS_MAP[norm_key], rng)
+
+        if "/" in norm_key:
+            basename = norm_key.rsplit("/", 1)[-1]
+            if basename in self.LEGACY_ALIAS_MAP:
+                return self.resolve_key_options(self.LEGACY_ALIAS_MAP[basename], rng)
+            base_suffix = "/" + basename
+            base_matches = [
+                path
+                for k, path in self._curated_txt_map.items()
+                if k == basename or k.endswith(base_suffix)
+            ]
+            if base_matches:
+                items = self._read_txt_file(rng.choice(base_matches))
+                if items:
+                    return items
+
+        # 7. Trailing-digit fallback (e.g. actors1 -> actors when actors1.txt is a 0-byte file)
+        stripped_digits = norm_key.rstrip("0123456789")
+        if stripped_digits and stripped_digits != norm_key:
+            return self.resolve_key_options(stripped_digits, rng)
 
         return None
 
@@ -736,7 +920,14 @@ def process_wildcards(
         min_possible = min(select_min, max_possible)
         count = rng.randint(min_possible, max_possible) if max_possible > min_possible else max_possible
         chosen = _weighted_choice(options, count, rng)
-        return sep.join(chosen)
+        normalized_chosen: list[str] = []
+        for c_item in chosen:
+            c_str = c_item.strip()
+            if c_str.startswith("__") and not c_str.endswith("__") and "__" not in c_str[2:]:
+                normalized_chosen.append(f"{c_str}__")
+            else:
+                normalized_chosen.append(c_item)
+        return sep.join(normalized_chosen)
 
     for _ in range(max_depth):
         changed = False
@@ -777,6 +968,9 @@ def process_wildcards(
 
         if not changed:
             break
+
+    if "{" in current or "}" in current:
+        current = current.replace("{", "").replace("}", "")
 
     return current.strip()
 

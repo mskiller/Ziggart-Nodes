@@ -240,6 +240,53 @@ class WildcardEngineTests(unittest.TestCase):
             self.assertEqual(loaded_png.text.get("ziggart_wildcard_template"), "__Ziggart/scenes/all__")
             self.assertEqual(loaded_png.text.get("ziggart_seed"), "777")
 
+    def test_filesystem_globs_multi_root_yaml_and_jff_folder(self):
+        # 1. Create unindexed deep formats-wild glob structure
+        luis_dir = self.wc_root / "Collection" / "formats-wild" / "Formats" / "luisroyo" / "Templates"
+        luis_dir.mkdir(parents=True, exist_ok=True)
+        (luis_dir / "Female-action-environment.txt").write_text(
+            "Dark gothic painting by Luis Royo, __Collection/Characters/Female/Heroines__\n",
+            encoding="utf-8",
+        )
+        (luis_dir / "Female-classic-style.txt").write_text(
+            "Brooding oil painting by Luis Royo, __Collection/Characters/Female/Heroines__\n",
+            encoding="utf-8",
+        )
+
+        # 2. Create additional root YAML (like krea2-grok.yaml) and jff/ folder
+        krea_yaml = self.wc_root / "krea2-grok.yaml"
+        krea_yaml.write_text(
+            'krea2-grok:\n  wallpaper:\n    - "Photorealistic shot wearing ___jff/vetements-grok__ and { __Jff/lingerie outfits | silk dress }"\n',
+            encoding="utf-8",
+        )
+        jff_dir = self.wc_root / "jff"
+        (jff_dir / "animals").mkdir(parents=True, exist_ok=True)
+        (jff_dir / "vetements-grok.txt").write_text("silver latex monokini\n", encoding="utf-8")
+        (jff_dir / "lingerie_outfits.txt").write_text("black lace corset\n", encoding="utf-8")
+        (jff_dir / "animals" / "cats.txt").write_text("persian cat\n", encoding="utf-8")
+
+        with mock.patch.object(
+            wildcard_nodes, "discover_default_wildcard_dirs", return_value=[str(self.wc_root)]
+        ):
+            wildcard_nodes.WILDCARD_INDEX.ensure_loaded(force_refresh=True)
+
+            # Test `*` filesystem glob on unindexed Collection/formats-wild
+            glob_out = wildcard_nodes.process_wildcards(
+                "__Collection/formats-wild/Formats/luisroyo/Templates/Female-*__", seed=1
+            )
+            self.assertIn("Luis Royo", glob_out)
+            self.assertIn("Zia of the Incas", glob_out)
+            self.assertNotIn("__", glob_out)
+
+            # Test krea2-grok.yaml with 3-underscore token and unclosed choice wildcard
+            krea_out = wildcard_nodes.process_wildcards("__krea2-grok/wallpaper__", seed=2)
+            self.assertIn("silver latex monokini", krea_out)
+            self.assertNotIn("__", krea_out)
+
+            # Test jff/ relative glob `__animals/*__`
+            jff_glob_out = wildcard_nodes.process_wildcards("__animals/*__", seed=1)
+            self.assertEqual(jff_glob_out, "persian cat")
+
 
 class MultiSubjectDetailerTests(unittest.TestCase):
     @mock.patch.object(addon_nodes, "_resolve_gguf", return_value="dummy.gguf")
