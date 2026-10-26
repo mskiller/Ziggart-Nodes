@@ -5,6 +5,25 @@ const WILDCARD_PLACEHOLDER = "[Select a Wildcard to Insert or Resolve]";
 const LORA_PLACEHOLDER = "[Select a LoRA to Insert]";
 const NONE_OPTION = "[None]";
 
+// Listen for backend WebSocket feedback when Queue is clicked or a node finishes executing
+api.addEventListener("ziggart-node-feedback", (event) => {
+    const detail = event.detail;
+    if (!detail || detail.node_id === undefined) return;
+    const node =
+        app.graph?._nodes_by_id?.[detail.node_id] ||
+        app.graph?.getNodeById?.(+detail.node_id);
+    if (!node || !Array.isArray(node.widgets)) return;
+
+    const w = node.widgets.find((widget) => widget.name === detail.widget_name);
+    if (w) {
+        w.value = detail.value;
+        if (w.inputEl) {
+            w.inputEl.value = detail.value;
+        }
+        app.graph?.setDirtyCanvas?.(true, true);
+    }
+});
+
 app.registerExtension({
     name: "Ziggart.Wildcards",
     async beforeRegisterNodeDef(nodeType, nodeData) {
@@ -25,6 +44,15 @@ app.registerExtension({
             const modeWidget = this.widgets?.find((w) => w.name === "mode");
             const seedWidget = this.widgets?.find((w) => w.name === "seed");
 
+            if (wildcardTextWidget?.inputEl) {
+                wildcardTextWidget.inputEl.placeholder =
+                    "Wildcard Prompt (e.g. __Ziggart/scenes/all__ or {a|b})";
+            }
+            if (populatedTextWidget?.inputEl) {
+                populatedTextWidget.inputEl.placeholder =
+                    "Populated Prompt (Automatically filled when you click Queue)";
+            }
+
             const refreshPopulatedPreview = async () => {
                 if (!wildcardTextWidget || !populatedTextWidget) return;
                 if (modeWidget && modeWidget.value === "fixed") return;
@@ -43,6 +71,10 @@ app.registerExtension({
                         const data = await res.json();
                         if (data.populated_text !== undefined) {
                             populatedTextWidget.value = data.populated_text;
+                            if (populatedTextWidget.inputEl) {
+                                populatedTextWidget.inputEl.value = data.populated_text;
+                            }
+                            app.graph?.setDirtyCanvas?.(true, true);
                         }
                     }
                 } catch (_err) {
@@ -59,6 +91,9 @@ app.registerExtension({
                     if (value && value !== WILDCARD_PLACEHOLDER && value !== NONE_OPTION) {
                         const current = (wildcardTextWidget.value || "").trim();
                         wildcardTextWidget.value = current ? `${current}, ${value}` : value;
+                        if (wildcardTextWidget.inputEl) {
+                            wildcardTextWidget.inputEl.value = wildcardTextWidget.value;
+                        }
                         selectWcWidget.value = WILDCARD_PLACEHOLDER;
                         refreshPopulatedPreview();
                     }
@@ -92,6 +127,9 @@ app.registerExtension({
                         ) {
                             const current = (wildcardTextWidget.value || "").trim();
                             wildcardTextWidget.value = current ? `${current}, ${value}` : value;
+                            if (wildcardTextWidget.inputEl) {
+                                wildcardTextWidget.inputEl.value = wildcardTextWidget.value;
+                            }
                             pw.value = NONE_OPTION;
                         }
                         refreshPopulatedPreview();
@@ -110,6 +148,9 @@ app.registerExtension({
                         const tag = `<lora:${stem}:1.0:1.0>`;
                         const current = (wildcardTextWidget.value || "").trim();
                         wildcardTextWidget.value = current ? `${current} ${tag}` : tag;
+                        if (wildcardTextWidget.inputEl) {
+                            wildcardTextWidget.inputEl.value = wildcardTextWidget.value;
+                        }
                         selectLoraWidget.value = LORA_PLACEHOLDER;
                     }
                 };

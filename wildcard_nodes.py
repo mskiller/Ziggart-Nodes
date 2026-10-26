@@ -811,6 +811,25 @@ def extract_and_strip_loras(text: str) -> tuple[str, list[tuple[str, float, floa
     return cleaned, loras
 
 
+def _send_node_feedback(node_id: Any, widget_name: str, value: Any) -> None:
+    """Sends a synchronous WebSocket event to update a widget value in the ComfyUI frontend."""
+    if node_id is None:
+        return
+    if PromptServer is not None and getattr(PromptServer, "instance", None) is not None:
+        try:
+            PromptServer.instance.send_sync(
+                "ziggart-node-feedback",
+                {
+                    "node_id": str(node_id),
+                    "widget_name": widget_name,
+                    "type": "STRING",
+                    "value": value,
+                },
+            )
+        except Exception:
+            pass
+
+
 # ---------------------------------------------------------------------------
 # Way C Node 1: ZiggartWildcardProcessor (Compact Drop-In Replacement)
 # ---------------------------------------------------------------------------
@@ -908,6 +927,9 @@ class ZiggartWildcardProcessor:
                     },
                 ),
             },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+            },
         }
 
     def process_text(
@@ -920,6 +942,7 @@ class ZiggartWildcardProcessor:
         search_wildcard_filter: str = "",
         custom_wildcards_dir: str = "",
         refresh_index: bool = False,
+        unique_id: Any = None,
     ) -> tuple[str, str]:
         if refresh_index:
             WILDCARD_INDEX.ensure_loaded(extra_dir=custom_wildcards_dir, force_refresh=True)
@@ -949,6 +972,7 @@ class ZiggartWildcardProcessor:
             source_text = populated_text.strip()
 
         expanded = process_wildcards(source_text, seed=seed, extra_dir=custom_wildcards_dir)
+        _send_node_feedback(unique_id, "populated_text", expanded)
         return (expanded, expanded)
 
 
@@ -1036,6 +1060,9 @@ class ZiggartWildcardProcessorAllInOne:
             "optional": {
                 "custom_wildcards_dir": ("STRING", {"default": ""}),
             },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+            },
         }
 
     def process_all_in_one(
@@ -1052,6 +1079,7 @@ class ZiggartWildcardProcessorAllInOne:
         select_style_camera_light: str = NONE_OPTION,
         select_mixed_other: str = NONE_OPTION,
         custom_wildcards_dir: str = "",
+        unique_id: Any = None,
     ) -> tuple[str, str, str]:
         WILDCARD_INDEX.ensure_loaded(extra_dir=custom_wildcards_dir)
 
@@ -1080,6 +1108,7 @@ class ZiggartWildcardProcessorAllInOne:
 
         recipe = ", ".join(parts) if parts else populated_text.strip()
         expanded = process_wildcards(recipe, seed=seed, extra_dir=custom_wildcards_dir)
+        _send_node_feedback(unique_id, "populated_text", expanded)
         return (expanded, expanded, recipe)
 
 
@@ -1217,7 +1246,10 @@ class ZiggartWildcardEncode:
                 "select_to_add_lora": (lora_list, {"default": LORA_PLACEHOLDER}),
                 "select_to_add_wildcard": (dropdown, {"default": SELECT_PLACEHOLDER}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF}),
-            }
+            },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+            },
         }
 
     def encode(
@@ -1230,6 +1262,7 @@ class ZiggartWildcardEncode:
         select_to_add_lora: str = LORA_PLACEHOLDER,
         select_to_add_wildcard: str = SELECT_PLACEHOLDER,
         seed: int = 0,
+        unique_id: Any = None,
     ):
         processor = ZiggartWildcardProcessor()
         expanded, _ = processor.process_text(
@@ -1238,6 +1271,7 @@ class ZiggartWildcardEncode:
             mode=mode,
             seed=seed,
             select_to_add_wildcard=select_to_add_wildcard,
+            unique_id=unique_id,
         )
 
         clean_prompt, loras = extract_and_strip_loras(expanded)
@@ -1825,6 +1859,99 @@ if PromptServer is not None and getattr(PromptServer, "instance", None) is not N
         seed = int(data.get("seed", 0))
         expanded = process_wildcards(text, seed=seed)
         return web.json_response({"populated_text": expanded})
+
+    def _ziggart_on_prompt_handler(json_data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Automatically populates the `populated_text` widget in the ComfyUI UI the moment
+        the user clicks 'Queue', matching ImpactWildcardProcessor's live feedback behavior.
+        """
+        try:
+            prompt = json_data.get("prompt", {})
+            updated_widgets: dict[str, str] = {}
+            for node_id, node_info in prompt.items():
+                if not isinstance(node_info, dict):
+                    continue
+                cls_type = node_info.get("class_type", "")
+                if cls_type not in (
+                    "ZiggartWildcardProcessor",
+                    "ZiggartWildcardProcessorAllInOne",
+                    "ZiggartWildcardEncode",
+                ):
+                    continue
+                inputs = node_info.get("inputs", {})
+                mode = inputs.get("mode", "populate")
+                if mode is True:
+                    mode = "populate"
+                elif mode is False:
+                    mode = "fixed"
+
+                if mode != "populate":
+                    continue
+
+                raw_seed = inputs.get("seed", 0)
+                if isinstance(raw_seed, (int, float)):
+                    seed_val = int(raw_seed)
+                else:
+                    continue
+
+                custom_dir = str(inputs.get("custom_wildcards_dir", "") or "")
+                wc_text = str(inputs.get("wildcard_text", "") or "").strip()
+
+                if cls_type == "ZiggartWildcardProcessorAllInOne":
+                    parts: list[str] = [wc_text] if wc_text else []
+                    combine_pillars = bool(inputs.get("combine_selected_pillars", True))
+                    if combine_pillars or not parts:
+                        for p_key in (
+                            "select_macro_yaml_theme",
+                            "select_character_anatomy",
+                            "select_outfit_pose",
+                            "select_env_vehicle",
+                            "select_style_camera_light",
+                            "select_mixed_other",
+                        ):
+                            sel = str(inputs.get(p_key, NONE_OPTION) or "")
+                            if sel and sel not in (NONE_OPTION, SELECT_PLACEHOLDER) and sel not in parts:
+                                parts.append(sel)
+                    source_text = ", ".join(parts)
+                else:
+                    sel_wc = str(inputs.get("select_to_add_wildcard", SELECT_PLACEHOLDER) or "")
+                    source_text = wc_text
+                    if not source_text and sel_wc not in (SELECT_PLACEHOLDER, NONE_OPTION, ""):
+                        source_text = sel_wc
+                    if not source_text:
+                        search_q = str(inputs.get("search_wildcard_filter", "") or "").strip()
+                        if search_q:
+                            matches = WILDCARD_INDEX.search_wildcards(search_q, limit=50, extra_dir=custom_dir)
+                            if matches:
+                                rng = random.Random(seed_val & 0xFFFFFFFFFFFFFFFF)
+                                source_text = rng.choice(matches)
+
+                if source_text:
+                    expanded = process_wildcards(source_text, seed=seed_val, extra_dir=custom_dir)
+                    inputs["populated_text"] = expanded
+                    _send_node_feedback(node_id, "populated_text", expanded)
+                    updated_widgets[str(node_id)] = expanded
+
+            if updated_widgets:
+                nodes_list = (
+                    json_data.get("extra_data", {})
+                    .get("extra_pnginfo", {})
+                    .get("workflow", {})
+                    .get("nodes", [])
+                )
+                if isinstance(nodes_list, list):
+                    for n_obj in nodes_list:
+                        if isinstance(n_obj, dict):
+                            n_id = str(n_obj.get("id", ""))
+                            w_vals = n_obj.get("widgets_values")
+                            if n_id in updated_widgets and isinstance(w_vals, list) and len(w_vals) > 1:
+                                w_vals[1] = updated_widgets[n_id]
+        except Exception as exc:
+            logging.debug(f"[Ziggart Wildcards] on_prompt handler warning: {exc}")
+        return json_data
+
+    if hasattr(PromptServer.instance, "add_on_prompt_handler"):
+        PromptServer.instance.add_on_prompt_handler(_ziggart_on_prompt_handler)
 
 
 NODE_CLASS_MAPPINGS = {
