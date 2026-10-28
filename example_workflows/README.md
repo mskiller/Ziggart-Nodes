@@ -98,7 +98,4 @@ Tous les usages de **`GGUF Vision Prompt` (`ZiggartGGUFVisionPrompt`)** et de l'
 4. **Detector, Quality Critic, Mask Inpaint & BBox Crop/Stitch** (`ZiggartWeVisOneDetector`, `ZiggartVLMImageCritic`, `ZiggartVLMInpaintPrompter`, `ZiggartCropByBBox`, `ZiggartStitchByBBox`)
 5. **Smart Tile Upscaler & Recipe Comparison Saver** (`ZiggartSmartTileUpscaler`, `ZiggartWildcardRecipeSaver`)
 
----
 
-### 9. [`09_Sdxl_Test_Free_Migrated_to_Ziggart.json`](./09_Sdxl_Test_Free_Migrated_to_Ziggart.json)
-Version migrée de votre workflow personnel `Sdxl+test-free.json` où les nœuds `ImpactWildcardProcessor` (positif et négatif) ont été remplacés par **`ZiggartWildcardProcessor`** pour un démarrage instantané sans gel sur les 700+ Mo de wildcards.
