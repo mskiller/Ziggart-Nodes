@@ -1,0 +1,1125 @@
+{
+  "id": "39c8db1e-6f9d-5442-9912-15191c1038a2",
+  "revision": 0,
+  "last_node_id": 13,
+  "last_link_id": 23,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Note",
+      "pos": [
+        -400.0,
+        -180.0
+      ],
+      "size": [
+        2360.0,
+        115.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Guide — Detailers Krea2 (Standard, Enchaîné Face -> Yeux, et VLM Auto-Prompt par Crop)",
+      "properties": {
+        "Node name for S&R": "Note"
+      },
+      "widgets_values": [
+        "WORKFLOW 03 : LES DIFFÉRENTS USAGES DE DETAILERS KREA2 & DETAILERS KREA2 (VLM AUTO-PROMPT)\n- BRANCHE HAUT (Chained Standard Detailers Krea2) : Passe 1 détecte et raffine 'face' -> Passe 2 détecte et raffine 'eyes' avec masque de bruit latent et feathering gaussien.\n- BRANCHE BAS (Detailers Krea2 VLM Auto-Prompt) : Idéal quand plusieurs objets différents sont détectés (ex: 'faces and hands', max_detections=4).\n  Le VLM examine chaque crop individuellement pendant qu'il est en VRAM, rédige un micro-prompt sur-mesure par crop, se décharge une seule fois, puis Krea 2 Turbo raffine chaque zone."
+      ],
+      "widgets_values_named": {
+        "text": "WORKFLOW 03 : LES DIFFÉRENTS USAGES DE DETAILERS KREA2 & DETAILERS KREA2 (VLM AUTO-PROMPT)\n- BRANCHE HAUT (Chained Standard Detailers Krea2) : Passe 1 détecte et raffine 'face' -> Passe 2 détecte et raffine 'eyes' avec masque de bruit latent et feathering gaussien.\n- BRANCHE BAS (Detailers Krea2 VLM Auto-Prompt) : Idéal quand plusieurs objets différents sont détectés (ex: 'faces and hands', max_detections=4).\n  Le VLM examine chaque crop individuellement pendant qu'il est en VRAM, rédige un micro-prompt sur-mesure par crop, se décharge une seule fois, puis Krea 2 Turbo raffine chaque zone."
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 2,
+      "type": "LoadImage",
+      "pos": [
+        -390.0,
+        50.0
+      ],
+      "size": [
+        360.0,
+        310.0
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            1,
+            14,
+            22
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "Input Image to Refine",
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ],
+      "widgets_values_named": {
+        "image": "example.png",
+        "upload": "image"
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 3,
+      "type": "CheckpointLoaderSimple",
+      "pos": [
+        -390.0,
+        400.0
+      ],
+      "size": [
+        360.0,
+        120.0
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": [
+            2,
+            7,
+            15
+          ]
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "slot_index": 1,
+          "links": [
+            3,
+            8,
+            16
+          ]
+        },
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "slot_index": 2,
+          "links": [
+            4,
+            9,
+            17
+          ]
+        }
+      ],
+      "title": "Load Krea 2 Turbo Model",
+      "properties": {
+        "Node name for S&R": "CheckpointLoaderSimple"
+      },
+      "widgets_values": [
+        "krea2_turbo.safetensors"
+      ],
+      "widgets_values_named": {
+        "ckpt_name": "krea2_turbo.safetensors"
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 4,
+      "type": "ZiggartGGUFVLMLoader",
+      "pos": [
+        -390.0,
+        560.0
+      ],
+      "size": [
+        400.0,
+        290.0
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "vlm_config",
+          "type": "GGUF_VL_MODEL",
+          "slot_index": 0,
+          "links": [
+            5,
+            10,
+            18
+          ]
+        }
+      ],
+      "title": "Shared WeVisOne-VL GGUF Config",
+      "properties": {
+        "Node name for S&R": "ZiggartGGUFVLMLoader"
+      },
+      "widgets_values": [
+        "WeVisOne-VL-4B-Q4_K_M.gguf",
+        "mmproj-WeVisOne-VL-F16.gguf",
+        4096,
+        -1,
+        14,
+        true,
+        true,
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "model": "WeVisOne-VL-4B-Q4_K_M.gguf",
+        "mmproj": "mmproj-WeVisOne-VL-F16.gguf",
+        "context_size": 4096,
+        "gpu_layers": -1,
+        "threads": 14,
+        "flash_attention": true,
+        "mmproj_on_gpu": true,
+        "model_path_override": "",
+        "mmproj_path_override": ""
+      },
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 5,
+      "type": "ZiggartDetailerKrea2",
+      "pos": [
+        130.0,
+        50.0
+      ],
+      "size": [
+        460.0,
+        640.0
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 1
+        },
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 2
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 3
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 4
+        },
+        {
+          "name": "vlm_config",
+          "type": "GGUF_VL_MODEL",
+          "link": 5,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            6
+          ]
+        },
+        {
+          "name": "cropped_refined",
+          "type": "IMAGE",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "cropped_base",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "detection_preview",
+          "type": "IMAGE",
+          "slot_index": 3,
+          "links": [
+            11
+          ]
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "slot_index": 4,
+          "links": []
+        },
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "slot_index": 5,
+          "links": []
+        }
+      ],
+      "title": "Pass 1 — Detailers Krea2 (Target: 'face')",
+      "properties": {
+        "Node name for S&R": "ZiggartDetailerKrea2"
+      },
+      "widgets_values": [
+        "WeVisOne-VL-4B-Q4_K_M.gguf",
+        "mmproj-WeVisOne-VL-F16.gguf",
+        "face",
+        "ultra-detailed face, natural skin pores, balanced studio lighting, sharp focus, 8k",
+        "blurry, plastic skin, distorted features, artifacts",
+        1.5,
+        768,
+        8,
+        1.5,
+        0.35,
+        "euler",
+        "simple",
+        101,
+        "fixed",
+        2,
+        20,
+        true,
+        "",
+        "",
+        -1,
+        4096,
+        true,
+        true,
+        false
+      ],
+      "widgets_values_named": {
+        "detector_model": "WeVisOne-VL-4B-Q4_K_M.gguf",
+        "detector_mmproj": "mmproj-WeVisOne-VL-F16.gguf",
+        "detection_prompt": "face",
+        "detail_positive_prompt": "ultra-detailed face, natural skin pores, balanced studio lighting, sharp focus, 8k",
+        "detail_negative_prompt": "blurry, plastic skin, distorted features, artifacts",
+        "crop_factor": 1.5,
+        "target_detail_resolution": 768,
+        "steps": 8,
+        "cfg": 1.5,
+        "denoise": 0.35,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "seed": 101,
+        "control_after_generate": "fixed",
+        "max_detections": 2,
+        "feather_mask": 20,
+        "free_vram_after": true,
+        "detector_model_override": "",
+        "detector_mmproj_override": "",
+        "gpu_layers": -1,
+        "context_size": 4096,
+        "use_latent_mask": true,
+        "skip_upscale_if_larger": true,
+        "encode_final_latent": false
+      },
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 6,
+      "type": "ZiggartDetailerKrea2",
+      "pos": [
+        640.0,
+        50.0
+      ],
+      "size": [
+        460.0,
+        640.0
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 6
+        },
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 7
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 8
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 9
+        },
+        {
+          "name": "vlm_config",
+          "type": "GGUF_VL_MODEL",
+          "link": 10,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            13
+          ]
+        },
+        {
+          "name": "cropped_refined",
+          "type": "IMAGE",
+          "slot_index": 1,
+          "links": [
+            12
+          ]
+        },
+        {
+          "name": "cropped_base",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "detection_preview",
+          "type": "IMAGE",
+          "slot_index": 3,
+          "links": []
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "slot_index": 4,
+          "links": []
+        },
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "slot_index": 5,
+          "links": []
+        }
+      ],
+      "title": "Pass 2 — Detailers Krea2 (Target: 'eyes')",
+      "properties": {
+        "Node name for S&R": "ZiggartDetailerKrea2"
+      },
+      "widgets_values": [
+        "WeVisOne-VL-4B-Q4_K_M.gguf",
+        "mmproj-WeVisOne-VL-F16.gguf",
+        "eyes",
+        "ultra-detailed sharp eyes, intricate iris fibers, natural catchlights, crystal clear, 8k",
+        "blurry pupils, asymmetrical irises, bloodshot, artifacts",
+        1.6,
+        768,
+        8,
+        1.5,
+        0.4,
+        "euler",
+        "simple",
+        202,
+        "fixed",
+        4,
+        16,
+        true,
+        "",
+        "",
+        -1,
+        4096,
+        true,
+        true,
+        true
+      ],
+      "widgets_values_named": {
+        "detector_model": "WeVisOne-VL-4B-Q4_K_M.gguf",
+        "detector_mmproj": "mmproj-WeVisOne-VL-F16.gguf",
+        "detection_prompt": "eyes",
+        "detail_positive_prompt": "ultra-detailed sharp eyes, intricate iris fibers, natural catchlights, crystal clear, 8k",
+        "detail_negative_prompt": "blurry pupils, asymmetrical irises, bloodshot, artifacts",
+        "crop_factor": 1.6,
+        "target_detail_resolution": 768,
+        "steps": 8,
+        "cfg": 1.5,
+        "denoise": 0.4,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "seed": 202,
+        "control_after_generate": "fixed",
+        "max_detections": 4,
+        "feather_mask": 16,
+        "free_vram_after": true,
+        "detector_model_override": "",
+        "detector_mmproj_override": "",
+        "gpu_layers": -1,
+        "context_size": 4096,
+        "use_latent_mask": true,
+        "skip_upscale_if_larger": true,
+        "encode_final_latent": true
+      },
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 7,
+      "type": "PreviewImage",
+      "pos": [
+        1150.0,
+        50.0
+      ],
+      "size": [
+        360.0,
+        280.0
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 11
+        }
+      ],
+      "outputs": [],
+      "title": "Pass 1 Face Detection Preview",
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {},
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 8,
+      "type": "PreviewImage",
+      "pos": [
+        1150.0,
+        370.0
+      ],
+      "size": [
+        360.0,
+        280.0
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 12
+        }
+      ],
+      "outputs": [],
+      "title": "Pass 2 Refined Eye Crops",
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {},
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 9,
+      "type": "SaveImage",
+      "pos": [
+        1550.0,
+        50.0
+      ],
+      "size": [
+        390.0,
+        320.0
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 13
+        }
+      ],
+      "outputs": [],
+      "title": "Save Chained Face + Eyes Result",
+      "properties": {
+        "Node name for S&R": "SaveImage"
+      },
+      "widgets_values": [
+        "Ziggart/WF03_Chained_Face_Eyes"
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "Ziggart/WF03_Chained_Face_Eyes"
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 10,
+      "type": "ZiggartAutoPromptDetailer",
+      "pos": [
+        130.0,
+        830.0
+      ],
+      "size": [
+        480.0,
+        660.0
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 14
+        },
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 15
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 16
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 17
+        },
+        {
+          "name": "vlm_config",
+          "type": "GGUF_VL_MODEL",
+          "link": 18,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            21
+          ]
+        },
+        {
+          "name": "cropped_refined",
+          "type": "IMAGE",
+          "slot_index": 1,
+          "links": [
+            20
+          ]
+        },
+        {
+          "name": "cropped_base",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "detection_preview",
+          "type": "IMAGE",
+          "slot_index": 3,
+          "links": [
+            19
+          ]
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "slot_index": 4,
+          "links": []
+        },
+        {
+          "name": "generated_prompts",
+          "type": "STRING",
+          "slot_index": 5,
+          "links": [
+            23
+          ]
+        }
+      ],
+      "title": "Detailers Krea2 (VLM Auto-Prompt — Multi-Object Autonomous Prompting)",
+      "properties": {
+        "Node name for S&R": "ZiggartAutoPromptDetailer"
+      },
+      "widgets_values": [
+        "WeVisOne-VL-4B-Q4_K_M.gguf",
+        "mmproj-WeVisOne-VL-F16.gguf",
+        "faces and hands",
+        "Describe this cropped region in rich visual detail for high-resolution image refinement. Focus on exact pose, skin texture, lighting direction, and anatomy. Output only the positive prompt.",
+        "ultra-detailed, anatomically correct, sharp focus, high resolution, 8k",
+        "blurry, extra fingers, fused fingers, deformed, low quality, artifacts",
+        1.5,
+        768,
+        8,
+        1.5,
+        0.4,
+        "euler",
+        "simple",
+        303,
+        "fixed",
+        4,
+        16,
+        true,
+        "",
+        "",
+        -1,
+        4096,
+        true,
+        true
+      ],
+      "widgets_values_named": {
+        "detector_model": "WeVisOne-VL-4B-Q4_K_M.gguf",
+        "detector_mmproj": "mmproj-WeVisOne-VL-F16.gguf",
+        "detection_prompt": "faces and hands",
+        "prompt_instruction": "Describe this cropped region in rich visual detail for high-resolution image refinement. Focus on exact pose, skin texture, lighting direction, and anatomy. Output only the positive prompt.",
+        "base_positive_suffix": "ultra-detailed, anatomically correct, sharp focus, high resolution, 8k",
+        "detail_negative_prompt": "blurry, extra fingers, fused fingers, deformed, low quality, artifacts",
+        "crop_factor": 1.5,
+        "target_detail_resolution": 768,
+        "steps": 8,
+        "cfg": 1.5,
+        "denoise": 0.4,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "seed": 303,
+        "control_after_generate": "fixed",
+        "max_detections": 4,
+        "feather_mask": 16,
+        "free_vram_after": true,
+        "detector_model_override": "",
+        "detector_mmproj_override": "",
+        "gpu_layers": -1,
+        "context_size": 4096,
+        "use_latent_mask": true,
+        "skip_upscale_if_larger": true
+      },
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 11,
+      "type": "PreviewImage",
+      "pos": [
+        660.0,
+        830.0
+      ],
+      "size": [
+        380.0,
+        300.0
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 19
+        }
+      ],
+      "outputs": [],
+      "title": "Auto-Prompt Detection Boxes",
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {},
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 12,
+      "type": "PreviewImage",
+      "pos": [
+        660.0,
+        1170.0
+      ],
+      "size": [
+        380.0,
+        300.0
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 20
+        }
+      ],
+      "outputs": [],
+      "title": "Auto-Prompt Refined Crops",
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {},
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 13,
+      "type": "ZiggartWildcardRecipeSaver",
+      "pos": [
+        1090.0,
+        830.0
+      ],
+      "size": [
+        480.0,
+        420.0
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 21
+        },
+        {
+          "name": "base_image",
+          "type": "IMAGE",
+          "link": 22,
+          "shape": 7
+        },
+        {
+          "name": "detailer_or_vlm_notes",
+          "type": "STRING",
+          "widget": {
+            "name": "detailer_or_vlm_notes"
+          },
+          "link": 23
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output_image_or_grid",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "recipe_summary",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "saved_paths_json",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        }
+      ],
+      "title": "Save Auto-Prompt Comparison Grid & Per-Crop Prompts Log",
+      "properties": {
+        "Node name for S&R": "ZiggartWildcardRecipeSaver"
+      },
+      "widgets_values": [
+        "Ziggart/WF03_AutoPrompt_Detailer",
+        "Auto-Prompt Detailer (faces and hands)",
+        "",
+        303,
+        "fixed",
+        true,
+        true,
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "Ziggart/WF03_AutoPrompt_Detailer",
+        "wildcard_template": "Auto-Prompt Detailer (faces and hands)",
+        "populated_text": "",
+        "seed": 303,
+        "control_after_generate": "fixed",
+        "save_json_sidecar": true,
+        "build_comparison_grid": true,
+        "detailer_or_vlm_notes": "",
+        "output_dir_override": ""
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    }
+  ],
+  "links": [
+    [
+      1,
+      2,
+      0,
+      5,
+      0,
+      "IMAGE"
+    ],
+    [
+      2,
+      3,
+      0,
+      5,
+      1,
+      "MODEL"
+    ],
+    [
+      3,
+      3,
+      1,
+      5,
+      2,
+      "CLIP"
+    ],
+    [
+      4,
+      3,
+      2,
+      5,
+      3,
+      "VAE"
+    ],
+    [
+      5,
+      4,
+      0,
+      5,
+      4,
+      "GGUF_VL_MODEL"
+    ],
+    [
+      6,
+      5,
+      0,
+      6,
+      0,
+      "IMAGE"
+    ],
+    [
+      7,
+      3,
+      0,
+      6,
+      1,
+      "MODEL"
+    ],
+    [
+      8,
+      3,
+      1,
+      6,
+      2,
+      "CLIP"
+    ],
+    [
+      9,
+      3,
+      2,
+      6,
+      3,
+      "VAE"
+    ],
+    [
+      10,
+      4,
+      0,
+      6,
+      4,
+      "GGUF_VL_MODEL"
+    ],
+    [
+      11,
+      5,
+      3,
+      7,
+      0,
+      "IMAGE"
+    ],
+    [
+      12,
+      6,
+      1,
+      8,
+      0,
+      "IMAGE"
+    ],
+    [
+      13,
+      6,
+      0,
+      9,
+      0,
+      "IMAGE"
+    ],
+    [
+      14,
+      2,
+      0,
+      10,
+      0,
+      "IMAGE"
+    ],
+    [
+      15,
+      3,
+      0,
+      10,
+      1,
+      "MODEL"
+    ],
+    [
+      16,
+      3,
+      1,
+      10,
+      2,
+      "CLIP"
+    ],
+    [
+      17,
+      3,
+      2,
+      10,
+      3,
+      "VAE"
+    ],
+    [
+      18,
+      4,
+      0,
+      10,
+      4,
+      "GGUF_VL_MODEL"
+    ],
+    [
+      19,
+      10,
+      3,
+      11,
+      0,
+      "IMAGE"
+    ],
+    [
+      20,
+      10,
+      1,
+      12,
+      0,
+      "IMAGE"
+    ],
+    [
+      21,
+      10,
+      0,
+      13,
+      0,
+      "IMAGE"
+    ],
+    [
+      22,
+      2,
+      0,
+      13,
+      1,
+      "IMAGE"
+    ],
+    [
+      23,
+      10,
+      5,
+      13,
+      2,
+      "STRING"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "GUIDE & OVERVIEW",
+      "bounding": [
+        -420.0,
+        -240.0,
+        2400.0,
+        190.0
+      ],
+      "color": "#594a28",
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "1. Source Image & Shared Models",
+      "bounding": [
+        -420.0,
+        -10.0,
+        480.0,
+        920.0
+      ],
+      "color": "#333333",
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "2A. Branch A — Chained Detailers Krea2 (Pass 1: Face -> Pass 2: Eyes)",
+      "bounding": [
+        100.0,
+        -10.0,
+        1880.0,
+        740.0
+      ],
+      "color": "#1f4e5f",
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "2B. Branch B — Detailers Krea2 (VLM Auto-Prompt per Crop)",
+      "bounding": [
+        100.0,
+        770.0,
+        1880.0,
+        760.0
+      ],
+      "color": "#23494d",
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.65,
+      "offset": [
+        150,
+        100
+      ]
+    },
+    "workflow_title": "03 - Detailers Krea2: Standard, Chained (Face -> Eyes) & VLM Auto-Prompt"
+  },
+  "version": 0.4
+}

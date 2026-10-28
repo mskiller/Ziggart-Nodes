@@ -1,0 +1,1045 @@
+{
+  "id": "ec5889dc-da5e-5c47-9756-c1fb3aecdcdc",
+  "revision": 0,
+  "last_node_id": 14,
+  "last_link_id": 14,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Note",
+      "pos": [
+        -500.0,
+        -220.0
+      ],
+      "size": [
+        2540.0,
+        140.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Guide — Les 4 Nœuds Wildcards (Way C1, Way A, Way C2 & LoRA Encode) et leurs modes d'usage",
+      "properties": {
+        "Node name for S&R": "Note"
+      },
+      "widgets_values": [
+        "WORKFLOW 01 : TOUS LES USAGES DES PROCESSEURS DE WILDCARDS ZIGGART\n1. GROUPE HAUT-GAUCHE (Way C1 — Ziggart Fast Wildcard Processor) : 3 usages différents :\n   - Usage 1A (Standard YAML/TXT + Choix pondérés {a|b|2.0::c} + Multi-sélection {2$$, $$__wildcard__})\n   - Usage 1B (Recherche par mot-clé via 'search_wildcard_filter' ex: 'cyberpunk' avec wildcard_text vide)\n   - Usage 1C (Mode 'fixed' pour verrouiller le prompt résolu ou le prompt négatif)\n2. GROUPE MILIEU-GAUCHE (Way A — All-in-One Pillars & Mixed) :\n   - Usage 2A (combine_selected_pillars = True : combine automatiquement les 6 menus déroulants Collection/ avec wildcard_text)\n   - Usage 2B (combine_selected_pillars = False : mode insertion rapide dans wildcard_text)\n3. GROUPE BAS-GAUCHE (Way C2 — Ziggart Collection Scene Builder + Ziggart Fast Wildcard Encode LoRA) :\n   - Assemble visuellement la scène et envoie le template (avec tags <lora:...> et BREAK) vers ZiggartWildcardEncode + Recipe Saver."
+      ],
+      "widgets_values_named": {
+        "text": "WORKFLOW 01 : TOUS LES USAGES DES PROCESSEURS DE WILDCARDS ZIGGART\n1. GROUPE HAUT-GAUCHE (Way C1 — Ziggart Fast Wildcard Processor) : 3 usages différents :\n   - Usage 1A (Standard YAML/TXT + Choix pondérés {a|b|2.0::c} + Multi-sélection {2$$, $$__wildcard__})\n   - Usage 1B (Recherche par mot-clé via 'search_wildcard_filter' ex: 'cyberpunk' avec wildcard_text vide)\n   - Usage 1C (Mode 'fixed' pour verrouiller le prompt résolu ou le prompt négatif)\n2. GROUPE MILIEU-GAUCHE (Way A — All-in-One Pillars & Mixed) :\n   - Usage 2A (combine_selected_pillars = True : combine automatiquement les 6 menus déroulants Collection/ avec wildcard_text)\n   - Usage 2B (combine_selected_pillars = False : mode insertion rapide dans wildcard_text)\n3. GROUPE BAS-GAUCHE (Way C2 — Ziggart Collection Scene Builder + Ziggart Fast Wildcard Encode LoRA) :\n   - Assemble visuellement la scène et envoie le template (avec tags <lora:...> et BREAK) vers ZiggartWildcardEncode + Recipe Saver."
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 2,
+      "type": "ZiggartWildcardProcessor",
+      "pos": [
+        -490.0,
+        40.0
+      ],
+      "size": [
+        460.0,
+        340.0
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "processed_text",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "populated_text",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "1A. Fast Wildcard Processor (YAML + Dynamic Braces)",
+      "properties": {
+        "Node name for S&R": "ZiggartWildcardProcessor"
+      },
+      "widgets_values": [
+        "masterpiece, 8k, __Ziggart/scenes/all__, {cinematic rim lighting|volumetric neon fog|2.0::golden hour sunlight}",
+        "",
+        "populate",
+        1001,
+        "randomize",
+        "[Select a Wildcard to Insert or Resolve]",
+        "",
+        "",
+        false
+      ],
+      "widgets_values_named": {
+        "wildcard_text": "masterpiece, 8k, __Ziggart/scenes/all__, {cinematic rim lighting|volumetric neon fog|2.0::golden hour sunlight}",
+        "populated_text": "",
+        "mode": "populate",
+        "seed": 1001,
+        "control_after_generate": "randomize",
+        "select_to_add_wildcard": "[Select a Wildcard to Insert or Resolve]",
+        "search_wildcard_filter": "",
+        "custom_wildcards_dir": "",
+        "refresh_index": false
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 3,
+      "type": "ZiggartWildcardProcessor",
+      "pos": [
+        10.0,
+        40.0
+      ],
+      "size": [
+        460.0,
+        340.0
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "processed_text",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "populated_text",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "1B. Fast Wildcard Processor (Keyword Search Filter Mode)",
+      "properties": {
+        "Node name for S&R": "ZiggartWildcardProcessor"
+      },
+      "widgets_values": [
+        "",
+        "",
+        "populate",
+        1002,
+        "randomize",
+        "[Select a Wildcard to Insert or Resolve]",
+        "cyberpunk",
+        "",
+        false
+      ],
+      "widgets_values_named": {
+        "wildcard_text": "",
+        "populated_text": "",
+        "mode": "populate",
+        "seed": 1002,
+        "control_after_generate": "randomize",
+        "select_to_add_wildcard": "[Select a Wildcard to Insert or Resolve]",
+        "search_wildcard_filter": "cyberpunk",
+        "custom_wildcards_dir": "",
+        "refresh_index": false
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 4,
+      "type": "ZiggartWildcardProcessor",
+      "pos": [
+        -490.0,
+        430.0
+      ],
+      "size": [
+        460.0,
+        310.0
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "processed_text",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": [
+            5
+          ]
+        },
+        {
+          "name": "populated_text",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "1C. Fast Wildcard Processor (Mode 'fixed' / Negative Prompt)",
+      "properties": {
+        "Node name for S&R": "ZiggartWildcardProcessor"
+      },
+      "widgets_values": [
+        "",
+        "blurry, low quality, deformed hands, extra fingers, watermark, text, signature, artifacts",
+        "fixed",
+        42,
+        "fixed",
+        "[Select a Wildcard to Insert or Resolve]",
+        "",
+        "",
+        false
+      ],
+      "widgets_values_named": {
+        "wildcard_text": "",
+        "populated_text": "blurry, low quality, deformed hands, extra fingers, watermark, text, signature, artifacts",
+        "mode": "fixed",
+        "seed": 42,
+        "control_after_generate": "fixed",
+        "select_to_add_wildcard": "[Select a Wildcard to Insert or Resolve]",
+        "search_wildcard_filter": "",
+        "custom_wildcards_dir": "",
+        "refresh_index": false
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 5,
+      "type": "ZiggartWildcardProcessorAllInOne",
+      "pos": [
+        -470.0,
+        830.0
+      ],
+      "size": [
+        460.0,
+        430.0
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "processed_text",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "populated_text",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "combined_wildcard_recipe",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        }
+      ],
+      "title": "2A. All-in-One Processor (combine_selected_pillars = True)",
+      "properties": {
+        "Node name for S&R": "ZiggartWildcardProcessorAllInOne"
+      },
+      "widgets_values": [
+        "ultra-detailed cinematic shot, 8k",
+        "",
+        "populate",
+        2026,
+        "randomize",
+        true,
+        "__ziggart/scenes/all__",
+        "[None]",
+        "[None]",
+        "[None]",
+        "[None]",
+        "__style-full-v2__",
+        ""
+      ],
+      "widgets_values_named": {
+        "wildcard_text": "ultra-detailed cinematic shot, 8k",
+        "populated_text": "",
+        "mode": "populate",
+        "seed": 2026,
+        "control_after_generate": "randomize",
+        "combine_selected_pillars": true,
+        "select_macro_yaml_theme": "__ziggart/scenes/all__",
+        "select_character_anatomy": "[None]",
+        "select_outfit_pose": "[None]",
+        "select_env_vehicle": "[None]",
+        "select_style_camera_light": "[None]",
+        "select_mixed_other": "__style-full-v2__",
+        "custom_wildcards_dir": ""
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 6,
+      "type": "ZiggartWildcardProcessorAllInOne",
+      "pos": [
+        20.0,
+        830.0
+      ],
+      "size": [
+        460.0,
+        430.0
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "processed_text",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "populated_text",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "combined_wildcard_recipe",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        }
+      ],
+      "title": "2B. All-in-One Processor (combine_selected_pillars = False / Interactive Insert)",
+      "properties": {
+        "Node name for S&R": "ZiggartWildcardProcessorAllInOne"
+      },
+      "widgets_values": [
+        "__female-full__, __outfit-full__, __pose-full__, __environnement-full__, __style-full-v2__",
+        "",
+        "populate",
+        2027,
+        "randomize",
+        false,
+        "[None]",
+        "[None]",
+        "[None]",
+        "[None]",
+        "[None]",
+        "[None]",
+        ""
+      ],
+      "widgets_values_named": {
+        "wildcard_text": "__female-full__, __outfit-full__, __pose-full__, __environnement-full__, __style-full-v2__",
+        "populated_text": "",
+        "mode": "populate",
+        "seed": 2027,
+        "control_after_generate": "randomize",
+        "combine_selected_pillars": false,
+        "select_macro_yaml_theme": "[None]",
+        "select_character_anatomy": "[None]",
+        "select_outfit_pose": "[None]",
+        "select_env_vehicle": "[None]",
+        "select_style_camera_light": "[None]",
+        "select_mixed_other": "[None]",
+        "custom_wildcards_dir": ""
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 7,
+      "type": "CheckpointLoaderSimple",
+      "pos": [
+        570.0,
+        50.0
+      ],
+      "size": [
+        340.0,
+        120.0
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": [
+            1
+          ]
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "slot_index": 1,
+          "links": [
+            2
+          ]
+        },
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "slot_index": 2,
+          "links": [
+            11
+          ]
+        }
+      ],
+      "title": "Load Checkpoint (Krea 2 Turbo / SDXL / Flux)",
+      "properties": {
+        "Node name for S&R": "CheckpointLoaderSimple"
+      },
+      "widgets_values": [
+        "krea2_turbo.safetensors"
+      ],
+      "widgets_values_named": {
+        "ckpt_name": "krea2_turbo.safetensors"
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 8,
+      "type": "ZiggartCollectionSceneBuilder",
+      "pos": [
+        570.0,
+        210.0
+      ],
+      "size": [
+        460.0,
+        380.0
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "populated_prompt",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "wildcard_template",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": [
+            3,
+            13
+          ]
+        }
+      ],
+      "title": "3A. Ziggart Collection Scene Builder (Way C2)",
+      "properties": {
+        "Node name for S&R": "ZiggartCollectionSceneBuilder"
+      },
+      "widgets_values": [
+        "masterpiece, 8k resolution, <lora:detail_tweaker:0.8:0.8>",
+        "[None]",
+        "[None]",
+        "[None]",
+        "[None]",
+        "[None]",
+        "__female-full__",
+        "BREAK dramatic volumetric lighting, __style-full-v2__",
+        3003,
+        "randomize"
+      ],
+      "widgets_values_named": {
+        "custom_prefix": "masterpiece, 8k resolution, <lora:detail_tweaker:0.8:0.8>",
+        "select_macro_yaml_theme": "[None]",
+        "select_character_anatomy": "[None]",
+        "select_outfit_pose": "[None]",
+        "select_env_vehicle": "[None]",
+        "select_style_camera_light": "[None]",
+        "select_mixed_other": "__female-full__",
+        "custom_suffix": "BREAK dramatic volumetric lighting, __style-full-v2__",
+        "seed": 3003,
+        "control_after_generate": "randomize"
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 9,
+      "type": "ZiggartWildcardEncode",
+      "pos": [
+        1070.0,
+        120.0
+      ],
+      "size": [
+        460.0,
+        360.0
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 1
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 2
+        },
+        {
+          "name": "wildcard_text",
+          "type": "STRING",
+          "widget": {
+            "name": "wildcard_text"
+          },
+          "link": 3
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": [
+            6
+          ]
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "slot_index": 1,
+          "links": [
+            4
+          ]
+        },
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "slot_index": 2,
+          "links": [
+            7
+          ]
+        },
+        {
+          "name": "populated_text",
+          "type": "STRING",
+          "slot_index": 3,
+          "links": [
+            14
+          ]
+        }
+      ],
+      "title": "3B. Ziggart Fast Wildcard Encode (LoRA & BREAK Conditioning)",
+      "properties": {
+        "Node name for S&R": "ZiggartWildcardEncode"
+      },
+      "widgets_values": [
+        "",
+        "",
+        "populate",
+        "[Select a LoRA to Insert]",
+        "[Select a Wildcard to Insert or Resolve]",
+        3003,
+        "randomize"
+      ],
+      "widgets_values_named": {
+        "wildcard_text": "",
+        "populated_text": "",
+        "mode": "populate",
+        "select_to_add_lora": "[Select a LoRA to Insert]",
+        "select_to_add_wildcard": "[Select a Wildcard to Insert or Resolve]",
+        "seed": 3003,
+        "control_after_generate": "randomize"
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 10,
+      "type": "CLIPTextEncode",
+      "pos": [
+        1070.0,
+        520.0
+      ],
+      "size": [
+        420.0,
+        140.0
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 4
+        },
+        {
+          "name": "text",
+          "type": "STRING",
+          "widget": {
+            "name": "text"
+          },
+          "link": 5
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [
+            8
+          ]
+        }
+      ],
+      "title": "Encode Negative Prompt (from 1C)",
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        ""
+      ],
+      "widgets_values_named": {
+        "text": ""
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 11,
+      "type": "EmptyLatentImage",
+      "pos": [
+        1070.0,
+        700.0
+      ],
+      "size": [
+        320.0,
+        130.0
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "slot_index": 0,
+          "links": [
+            9
+          ]
+        }
+      ],
+      "title": "EmptyLatentImage",
+      "properties": {
+        "Node name for S&R": "EmptyLatentImage"
+      },
+      "widgets_values": [
+        1024,
+        1024,
+        1
+      ],
+      "widgets_values_named": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 12,
+      "type": "KSampler",
+      "pos": [
+        1570.0,
+        120.0
+      ],
+      "size": [
+        340.0,
+        340.0
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 6
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 7
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 8
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 9
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "slot_index": 0,
+          "links": [
+            10
+          ]
+        }
+      ],
+      "title": "Base KSampler (8 Steps Krea 2 Turbo)",
+      "properties": {
+        "Node name for S&R": "KSampler"
+      },
+      "widgets_values": [
+        3003,
+        "randomize",
+        8,
+        1.5,
+        "euler",
+        "simple",
+        1.0
+      ],
+      "widgets_values_named": {
+        "seed": 3003,
+        "control_after_generate": "randomize",
+        "steps": 8,
+        "cfg": 1.5,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 1.0
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 13,
+      "type": "VAEDecode",
+      "pos": [
+        1570.0,
+        500.0
+      ],
+      "size": [
+        240.0,
+        90.0
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 10
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 11
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            12
+          ]
+        }
+      ],
+      "title": "VAEDecode",
+      "properties": {
+        "Node name for S&R": "VAEDecode"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {},
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 14,
+      "type": "ZiggartWildcardRecipeSaver",
+      "pos": [
+        1570.0,
+        640.0
+      ],
+      "size": [
+        470.0,
+        380.0
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 12
+        },
+        {
+          "name": "base_image",
+          "type": "IMAGE",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "wildcard_template",
+          "type": "STRING",
+          "widget": {
+            "name": "wildcard_template"
+          },
+          "link": 13
+        },
+        {
+          "name": "populated_text",
+          "type": "STRING",
+          "widget": {
+            "name": "populated_text"
+          },
+          "link": 14
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output_image_or_grid",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "recipe_summary",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "saved_paths_json",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        }
+      ],
+      "title": "4. Ziggart Prompt Recipe & Comparison Saver (PNG + JSON Sidecar)",
+      "properties": {
+        "Node name for S&R": "ZiggartWildcardRecipeSaver"
+      },
+      "widgets_values": [
+        "Ziggart/WF01_Wildcards_Recipe",
+        "",
+        "",
+        3003,
+        "fixed",
+        true,
+        false,
+        "Generated with ZiggartCollectionSceneBuilder + ZiggartWildcardEncode (LoRA)",
+        ""
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "Ziggart/WF01_Wildcards_Recipe",
+        "wildcard_template": "",
+        "populated_text": "",
+        "seed": 3003,
+        "control_after_generate": "fixed",
+        "save_json_sidecar": true,
+        "build_comparison_grid": false,
+        "detailer_or_vlm_notes": "Generated with ZiggartCollectionSceneBuilder + ZiggartWildcardEncode (LoRA)",
+        "output_dir_override": ""
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    }
+  ],
+  "links": [
+    [
+      1,
+      7,
+      0,
+      9,
+      0,
+      "MODEL"
+    ],
+    [
+      2,
+      7,
+      1,
+      9,
+      1,
+      "CLIP"
+    ],
+    [
+      3,
+      8,
+      1,
+      9,
+      2,
+      "STRING"
+    ],
+    [
+      4,
+      9,
+      1,
+      10,
+      0,
+      "CLIP"
+    ],
+    [
+      5,
+      4,
+      0,
+      10,
+      1,
+      "STRING"
+    ],
+    [
+      6,
+      9,
+      0,
+      12,
+      0,
+      "MODEL"
+    ],
+    [
+      7,
+      9,
+      2,
+      12,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      8,
+      10,
+      0,
+      12,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      9,
+      11,
+      0,
+      12,
+      3,
+      "LATENT"
+    ],
+    [
+      10,
+      12,
+      0,
+      13,
+      0,
+      "LATENT"
+    ],
+    [
+      11,
+      7,
+      2,
+      13,
+      1,
+      "VAE"
+    ],
+    [
+      12,
+      13,
+      0,
+      14,
+      0,
+      "IMAGE"
+    ],
+    [
+      13,
+      8,
+      1,
+      14,
+      2,
+      "STRING"
+    ],
+    [
+      14,
+      9,
+      3,
+      14,
+      3,
+      "STRING"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "GUIDE & OVERVIEW",
+      "bounding": [
+        -520.0,
+        -280.0,
+        2600.0,
+        220.0
+      ],
+      "color": "#594a28",
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "1. Way C1 — Ziggart Fast Wildcard Processor (3 Usages: Standard, Search Filter, Fixed)",
+      "bounding": [
+        -520.0,
+        -20.0,
+        1020.0,
+        1180.0
+      ],
+      "color": "#2b5b3c",
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "2. Way A — All-in-One Pillars & Mixed (Mode Combine vs Mode Insert)",
+      "bounding": [
+        -490.0,
+        770.0,
+        990.0,
+        520.0
+      ],
+      "color": "#2b5b3c",
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "3. Way C2 — Collection Scene Builder + Fast Wildcard Encode (LoRA & BREAK) + Recipe Saver",
+      "bounding": [
+        540.0,
+        -20.0,
+        1540.0,
+        1310.0
+      ],
+      "color": "#1f4e5f",
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.65,
+      "offset": [
+        150,
+        100
+      ]
+    },
+    "workflow_title": "01 - Wildcards: Way C1, Way A, Way C2 & LoRA Encode"
+  },
+  "version": 0.4
+}

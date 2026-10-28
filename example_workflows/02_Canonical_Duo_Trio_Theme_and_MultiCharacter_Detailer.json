@@ -1,0 +1,1265 @@
+{
+  "id": "d8d186df-b3b5-50f3-b4a5-52c0cb6dc258",
+  "revision": 0,
+  "last_node_id": 15,
+  "last_link_id": 26,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Note",
+      "pos": [
+        -500.0,
+        -200.0
+      ],
+      "size": [
+        2640.0,
+        120.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Guide — Résolveur de Thèmes Canoniques (Single/Duo/Trio) + Harmoniseur VLM + Multi-Character Detailer",
+      "properties": {
+        "Node name for S&R": "Note"
+      },
+      "widgets_values": [
+        "WORKFLOW 02 : SCÈNE DUO/TRIO CANONIQUE + HARMONISATION VLM + RETOUCHE MULTI-PERSONNAGES\n1. Ziggart Canonical Theme & Character-Outfit Resolver : Lit 'Character-Outfits.json' dans Collection/Themes/* pour associer chaque personnage à sa vraie tenue canonique.\n   - Génère 'scene_prompt' (scène complète) ET 'character_1_prompt', 'character_2_prompt', 'character_3_prompt' (descriptions individuelles).\n2. Wildcard-to-VLM Prompt Harmonizer : Réécrit le prompt assemblé en prose fluide pour Krea 2 Turbo / Flux tout en verrouillant les personnages.\n3. Multi-Character Grounded Krea2 Detailer : Localise jusqu'à 3 sujets distincts avec WeVisOne-VL et raffine chaque personnage avec son propre prompt canonique !\n4. Ziggart Prompt Recipe & Comparison Saver : Sauvegarde la grille comparative 'Avant / Après Detailing' (build_comparison_grid = True) + le fichier .json."
+      ],
+      "widgets_values_named": {
+        "text": "WORKFLOW 02 : SCÈNE DUO/TRIO CANONIQUE + HARMONISATION VLM + RETOUCHE MULTI-PERSONNAGES\n1. Ziggart Canonical Theme & Character-Outfit Resolver : Lit 'Character-Outfits.json' dans Collection/Themes/* pour associer chaque personnage à sa vraie tenue canonique.\n   - Génère 'scene_prompt' (scène complète) ET 'character_1_prompt', 'character_2_prompt', 'character_3_prompt' (descriptions individuelles).\n2. Wildcard-to-VLM Prompt Harmonizer : Réécrit le prompt assemblé en prose fluide pour Krea 2 Turbo / Flux tout en verrouillant les personnages.\n3. Multi-Character Grounded Krea2 Detailer : Localise jusqu'à 3 sujets distincts avec WeVisOne-VL et raffine chaque personnage avec son propre prompt canonique !\n4. Ziggart Prompt Recipe & Comparison Saver : Sauvegarde la grille comparative 'Avant / Après Detailing' (build_comparison_grid = True) + le fichier .json."
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 2,
+      "type": "ZiggartCanonicalThemeResolver",
+      "pos": [
+        -490.0,
+        40.0
+      ],
+      "size": [
+        450.0,
+        400.0
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "scene_prompt",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": [
+            1,
+            24
+          ]
+        },
+        {
+          "name": "character_1_prompt",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": [
+            17
+          ]
+        },
+        {
+          "name": "character_2_prompt",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": [
+            18
+          ]
+        },
+        {
+          "name": "character_3_prompt",
+          "type": "STRING",
+          "slot_index": 3,
+          "links": [
+            19
+          ]
+        },
+        {
+          "name": "theme_metadata_json",
+          "type": "STRING",
+          "slot_index": 4,
+          "links": []
+        }
+      ],
+      "title": "1A. Canonical Theme Resolver — Mode Duo (Female + Male)",
+      "properties": {
+        "Node name for S&R": "ZiggartCanonicalThemeResolver"
+      },
+      "widgets_values": [
+        "[Random Theme]",
+        "Duo (Female + Male)",
+        true,
+        true,
+        false,
+        true,
+        true,
+        777,
+        "randomize",
+        ""
+      ],
+      "widgets_values_named": {
+        "theme_selection": "[Random Theme]",
+        "cast_mode": "Duo (Female + Male)",
+        "include_pose_action": true,
+        "include_environment": true,
+        "include_vehicle": false,
+        "include_creature": true,
+        "include_style": true,
+        "seed": 777,
+        "control_after_generate": "randomize",
+        "theme_search_filter": ""
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 3,
+      "type": "ZiggartCanonicalThemeResolver",
+      "pos": [
+        -490.0,
+        490.0
+      ],
+      "size": [
+        450.0,
+        400.0
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "scene_prompt",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "character_1_prompt",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "character_2_prompt",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "character_3_prompt",
+          "type": "STRING",
+          "slot_index": 3,
+          "links": []
+        },
+        {
+          "name": "theme_metadata_json",
+          "type": "STRING",
+          "slot_index": 4,
+          "links": []
+        }
+      ],
+      "title": "1B. Canonical Theme Resolver — Mode Single + Keyword Filter ('albator')",
+      "properties": {
+        "Node name for S&R": "ZiggartCanonicalThemeResolver"
+      },
+      "widgets_values": [
+        "[Random Theme]",
+        "Single (Any Gender)",
+        true,
+        true,
+        true,
+        false,
+        true,
+        888,
+        "randomize",
+        "albator"
+      ],
+      "widgets_values_named": {
+        "theme_selection": "[Random Theme]",
+        "cast_mode": "Single (Any Gender)",
+        "include_pose_action": true,
+        "include_environment": true,
+        "include_vehicle": true,
+        "include_creature": false,
+        "include_style": true,
+        "seed": 888,
+        "control_after_generate": "randomize",
+        "theme_search_filter": "albator"
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 4,
+      "type": "ZiggartGGUFVLMLoader",
+      "pos": [
+        0.0,
+        40.0
+      ],
+      "size": [
+        430.0,
+        290.0
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "vlm_config",
+          "type": "GGUF_VL_MODEL",
+          "slot_index": 0,
+          "links": [
+            2,
+            16
+          ]
+        }
+      ],
+      "title": "Shared GGUF VLM Loader (Qwen2.5-VL / WeVisOne-VL)",
+      "properties": {
+        "Node name for S&R": "ZiggartGGUFVLMLoader"
+      },
+      "widgets_values": [
+        "WeVisOne-VL-4B-Q4_K_M.gguf",
+        "mmproj-WeVisOne-VL-F16.gguf",
+        8192,
+        -1,
+        4,
+        true,
+        true,
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "model": "WeVisOne-VL-4B-Q4_K_M.gguf",
+        "mmproj": "mmproj-WeVisOne-VL-F16.gguf",
+        "context_size": 8192,
+        "gpu_layers": -1,
+        "threads": 4,
+        "flash_attention": true,
+        "mmproj_on_gpu": true,
+        "model_path_override": "",
+        "mmproj_path_override": ""
+      },
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 5,
+      "type": "ZiggartWildcardVLMEnhancer",
+      "pos": [
+        0.0,
+        380.0
+      ],
+      "size": [
+        440.0,
+        480.0
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "reference_image",
+          "type": "IMAGE",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "vlm_config",
+          "type": "GGUF_VL_MODEL",
+          "link": 2,
+          "shape": 7
+        },
+        {
+          "name": "wildcard_or_populated_text",
+          "type": "STRING",
+          "widget": {
+            "name": "wildcard_or_populated_text"
+          },
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "harmonized_prompt",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": [
+            4,
+            25
+          ]
+        },
+        {
+          "name": "raw_populated_text",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "2. Wildcard-to-VLM Prompt Harmonizer (Strict Character Lock)",
+      "properties": {
+        "Node name for S&R": "ZiggartWildcardVLMEnhancer"
+      },
+      "widgets_values": [
+        "",
+        "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj-Qwen2.5-VL-F16.gguf",
+        "Krea 2 Turbo / Flux Natural Prose (Strict Character Lock)",
+        777,
+        "fixed",
+        true,
+        "Preserve exact character names, hair/eye colors, and canonical outfits.",
+        512,
+        0.25,
+        -1,
+        4096,
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "wildcard_or_populated_text": "",
+        "model": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj": "mmproj-Qwen2.5-VL-F16.gguf",
+        "harmonization_style": "Krea 2 Turbo / Flux Natural Prose (Strict Character Lock)",
+        "seed": 777,
+        "control_after_generate": "fixed",
+        "free_vram_after": true,
+        "custom_instruction": "Preserve exact character names, hair/eye colors, and canonical outfits.",
+        "max_tokens": 512,
+        "temperature": 0.25,
+        "gpu_layers": -1,
+        "context_size": 4096,
+        "model_path_override": "",
+        "mmproj_path_override": ""
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 6,
+      "type": "CheckpointLoaderSimple",
+      "pos": [
+        530.0,
+        40.0
+      ],
+      "size": [
+        320.0,
+        120.0
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": [
+            6,
+            13
+          ]
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "slot_index": 1,
+          "links": [
+            3,
+            5,
+            14
+          ]
+        },
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "slot_index": 2,
+          "links": [
+            11,
+            15
+          ]
+        }
+      ],
+      "title": "CheckpointLoaderSimple",
+      "properties": {
+        "Node name for S&R": "CheckpointLoaderSimple"
+      },
+      "widgets_values": [
+        "krea2_turbo.safetensors"
+      ],
+      "widgets_values_named": {
+        "ckpt_name": "krea2_turbo.safetensors"
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 7,
+      "type": "CLIPTextEncode",
+      "pos": [
+        530.0,
+        200.0
+      ],
+      "size": [
+        320.0,
+        120.0
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 3
+        },
+        {
+          "name": "text",
+          "type": "STRING",
+          "widget": {
+            "name": "text"
+          },
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [
+            7
+          ]
+        }
+      ],
+      "title": "Positive Conditioning (Harmonized Scene)",
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        ""
+      ],
+      "widgets_values_named": {
+        "text": ""
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 8,
+      "type": "CLIPTextEncode",
+      "pos": [
+        530.0,
+        360.0
+      ],
+      "size": [
+        320.0,
+        120.0
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 5
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [
+            8
+          ]
+        }
+      ],
+      "title": "Negative Conditioning",
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "blurry, deformed, bad anatomy, extra limbs, low resolution, watermark"
+      ],
+      "widgets_values_named": {
+        "text": "blurry, deformed, bad anatomy, extra limbs, low resolution, watermark"
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 9,
+      "type": "EmptyLatentImage",
+      "pos": [
+        530.0,
+        520.0
+      ],
+      "size": [
+        320.0,
+        130.0
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "slot_index": 0,
+          "links": [
+            9
+          ]
+        }
+      ],
+      "title": "EmptyLatentImage",
+      "properties": {
+        "Node name for S&R": "EmptyLatentImage"
+      },
+      "widgets_values": [
+        1280,
+        832,
+        1
+      ],
+      "widgets_values_named": {
+        "width": 1280,
+        "height": 832,
+        "batch_size": 1
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 10,
+      "type": "KSampler",
+      "pos": [
+        880.0,
+        200.0
+      ],
+      "size": [
+        280.0,
+        340.0
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 6
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 7
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 8
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 9
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "slot_index": 0,
+          "links": [
+            10
+          ]
+        }
+      ],
+      "title": "KSampler",
+      "properties": {
+        "Node name for S&R": "KSampler"
+      },
+      "widgets_values": [
+        777,
+        "fixed",
+        8,
+        1.5,
+        "euler",
+        "simple",
+        1.0
+      ],
+      "widgets_values_named": {
+        "seed": 777,
+        "control_after_generate": "fixed",
+        "steps": 8,
+        "cfg": 1.5,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 1.0
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 11,
+      "type": "VAEDecode",
+      "pos": [
+        880.0,
+        580.0
+      ],
+      "size": [
+        240.0,
+        90.0
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 10
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 11
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            12,
+            23
+          ]
+        }
+      ],
+      "title": "VAEDecode",
+      "properties": {
+        "Node name for S&R": "VAEDecode"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {},
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 12,
+      "type": "ZiggartMultiSubjectDetailer",
+      "pos": [
+        1250.0,
+        40.0
+      ],
+      "size": [
+        460.0,
+        760.0
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 12
+        },
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 13
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 14
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 15
+        },
+        {
+          "name": "vlm_config",
+          "type": "GGUF_VL_MODEL",
+          "link": 16,
+          "shape": 7
+        },
+        {
+          "name": "subject_1_detail_prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "subject_1_detail_prompt"
+          },
+          "link": 17
+        },
+        {
+          "name": "subject_2_detail_prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "subject_2_detail_prompt"
+          },
+          "link": 18
+        },
+        {
+          "name": "subject_3_detail_prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "subject_3_detail_prompt"
+          },
+          "link": 19
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            22
+          ]
+        },
+        {
+          "name": "cropped_refined",
+          "type": "IMAGE",
+          "slot_index": 1,
+          "links": [
+            21
+          ]
+        },
+        {
+          "name": "detection_preview",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": [
+            20
+          ]
+        },
+        {
+          "name": "composite_mask",
+          "type": "MASK",
+          "slot_index": 3,
+          "links": []
+        },
+        {
+          "name": "subjects_log_json",
+          "type": "STRING",
+          "slot_index": 4,
+          "links": [
+            26
+          ]
+        }
+      ],
+      "title": "3. Multi-Character Grounded Krea2 Detailer (Subject 1, 2 & 3)",
+      "properties": {
+        "Node name for S&R": "ZiggartMultiSubjectDetailer"
+      },
+      "widgets_values": [
+        "WeVisOne-VL-4B-Q4_K_M.gguf",
+        "mmproj-WeVisOne-VL-F16.gguf",
+        "female character",
+        "",
+        "male character",
+        "",
+        "companion creature",
+        "",
+        "blurry, deformed face, asymmetrical eyes, bad anatomy, artifacts",
+        1.5,
+        768,
+        8,
+        1.5,
+        0.4,
+        "euler",
+        "simple",
+        777,
+        "fixed",
+        16,
+        true,
+        "",
+        "",
+        -1,
+        4096,
+        true,
+        true
+      ],
+      "widgets_values_named": {
+        "detector_model": "WeVisOne-VL-4B-Q4_K_M.gguf",
+        "detector_mmproj": "mmproj-WeVisOne-VL-F16.gguf",
+        "subject_1_target": "female character",
+        "subject_1_detail_prompt": "",
+        "subject_2_target": "male character",
+        "subject_2_detail_prompt": "",
+        "subject_3_target": "companion creature",
+        "subject_3_detail_prompt": "",
+        "detail_negative_prompt": "blurry, deformed face, asymmetrical eyes, bad anatomy, artifacts",
+        "crop_factor": 1.5,
+        "target_detail_resolution": 768,
+        "steps": 8,
+        "cfg": 1.5,
+        "denoise": 0.4,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "seed": 777,
+        "control_after_generate": "fixed",
+        "feather_mask": 16,
+        "free_vram_after": true,
+        "detector_model_override": "",
+        "detector_mmproj_override": "",
+        "gpu_layers": -1,
+        "context_size": 4096,
+        "use_latent_mask": true,
+        "skip_upscale_if_larger": true
+      },
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 13,
+      "type": "PreviewImage",
+      "pos": [
+        1740.0,
+        40.0
+      ],
+      "size": [
+        390.0,
+        260.0
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 20
+        }
+      ],
+      "outputs": [],
+      "title": "Preview — Grounded Character Bounding Boxes",
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {},
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 14,
+      "type": "PreviewImage",
+      "pos": [
+        1740.0,
+        330.0
+      ],
+      "size": [
+        390.0,
+        240.0
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 21
+        }
+      ],
+      "outputs": [],
+      "title": "Preview — Refined Character Crops",
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {},
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 15,
+      "type": "ZiggartWildcardRecipeSaver",
+      "pos": [
+        1740.0,
+        600.0
+      ],
+      "size": [
+        390.0,
+        340.0
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 22
+        },
+        {
+          "name": "base_image",
+          "type": "IMAGE",
+          "link": 23,
+          "shape": 7
+        },
+        {
+          "name": "wildcard_template",
+          "type": "STRING",
+          "widget": {
+            "name": "wildcard_template"
+          },
+          "link": 24
+        },
+        {
+          "name": "populated_text",
+          "type": "STRING",
+          "widget": {
+            "name": "populated_text"
+          },
+          "link": 25
+        },
+        {
+          "name": "detailer_or_vlm_notes",
+          "type": "STRING",
+          "widget": {
+            "name": "detailer_or_vlm_notes"
+          },
+          "link": 26
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output_image_or_grid",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "recipe_summary",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "saved_paths_json",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        }
+      ],
+      "title": "4. Recipe & Side-by-Side Comparison Grid Saver",
+      "properties": {
+        "Node name for S&R": "ZiggartWildcardRecipeSaver"
+      },
+      "widgets_values": [
+        "Ziggart/WF02_Canonical_Duo_Comparison",
+        "",
+        "",
+        777,
+        "fixed",
+        true,
+        true,
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "Ziggart/WF02_Canonical_Duo_Comparison",
+        "wildcard_template": "",
+        "populated_text": "",
+        "seed": 777,
+        "control_after_generate": "fixed",
+        "save_json_sidecar": true,
+        "build_comparison_grid": true,
+        "detailer_or_vlm_notes": "",
+        "output_dir_override": ""
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    }
+  ],
+  "links": [
+    [
+      1,
+      2,
+      0,
+      5,
+      2,
+      "STRING"
+    ],
+    [
+      2,
+      4,
+      0,
+      5,
+      1,
+      "GGUF_VL_MODEL"
+    ],
+    [
+      3,
+      6,
+      1,
+      7,
+      0,
+      "CLIP"
+    ],
+    [
+      4,
+      5,
+      0,
+      7,
+      1,
+      "STRING"
+    ],
+    [
+      5,
+      6,
+      1,
+      8,
+      0,
+      "CLIP"
+    ],
+    [
+      6,
+      6,
+      0,
+      10,
+      0,
+      "MODEL"
+    ],
+    [
+      7,
+      7,
+      0,
+      10,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      8,
+      8,
+      0,
+      10,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      9,
+      9,
+      0,
+      10,
+      3,
+      "LATENT"
+    ],
+    [
+      10,
+      10,
+      0,
+      11,
+      0,
+      "LATENT"
+    ],
+    [
+      11,
+      6,
+      2,
+      11,
+      1,
+      "VAE"
+    ],
+    [
+      12,
+      11,
+      0,
+      12,
+      0,
+      "IMAGE"
+    ],
+    [
+      13,
+      6,
+      0,
+      12,
+      1,
+      "MODEL"
+    ],
+    [
+      14,
+      6,
+      1,
+      12,
+      2,
+      "CLIP"
+    ],
+    [
+      15,
+      6,
+      2,
+      12,
+      3,
+      "VAE"
+    ],
+    [
+      16,
+      4,
+      0,
+      12,
+      4,
+      "GGUF_VL_MODEL"
+    ],
+    [
+      17,
+      2,
+      1,
+      12,
+      5,
+      "STRING"
+    ],
+    [
+      18,
+      2,
+      2,
+      12,
+      6,
+      "STRING"
+    ],
+    [
+      19,
+      2,
+      3,
+      12,
+      7,
+      "STRING"
+    ],
+    [
+      20,
+      12,
+      2,
+      13,
+      0,
+      "IMAGE"
+    ],
+    [
+      21,
+      12,
+      1,
+      14,
+      0,
+      "IMAGE"
+    ],
+    [
+      22,
+      12,
+      0,
+      15,
+      0,
+      "IMAGE"
+    ],
+    [
+      23,
+      11,
+      0,
+      15,
+      1,
+      "IMAGE"
+    ],
+    [
+      24,
+      2,
+      0,
+      15,
+      2,
+      "STRING"
+    ],
+    [
+      25,
+      5,
+      0,
+      15,
+      3,
+      "STRING"
+    ],
+    [
+      26,
+      12,
+      4,
+      15,
+      4,
+      "STRING"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "GUIDE & OVERVIEW",
+      "bounding": [
+        -520.0,
+        -260.0,
+        2680.0,
+        200.0
+      ],
+      "color": "#594a28",
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "1. Canonical Theme Resolver (Duo/Trio & Single Search Filter)",
+      "bounding": [
+        -520.0,
+        -20.0,
+        980.0,
+        980.0
+      ],
+      "color": "#2b5b3c",
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "2. Base Generation (Krea 2 Turbo)",
+      "bounding": [
+        500.0,
+        -20.0,
+        680.0,
+        980.0
+      ],
+      "color": "#333333",
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "3. Multi-Character Grounded Krea2 Detailer + Comparison Grid Saver",
+      "bounding": [
+        1220.0,
+        -20.0,
+        940.0,
+        980.0
+      ],
+      "color": "#1f4e5f",
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.65,
+      "offset": [
+        150,
+        100
+      ]
+    },
+    "workflow_title": "02 - Canonical Theme Resolver + VLM Harmonizer + Multi-Character Detailer"
+  },
+  "version": 0.4
+}

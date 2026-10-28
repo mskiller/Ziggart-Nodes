@@ -348,5 +348,53 @@ class MultiSubjectDetailerTests(unittest.TestCase):
         self.assertEqual(len(logs), 2)
 
 
+class ExampleWorkflowsTests(unittest.TestCase):
+    def test_example_workflows_cover_all_18_nodes_and_valid_links(self):
+        all_mappings = {
+            **nodes.NODE_CLASS_MAPPINGS,
+            **detailer_nodes.NODE_CLASS_MAPPINGS,
+            **addon_nodes.NODE_CLASS_MAPPINGS,
+            **wildcard_nodes.NODE_CLASS_MAPPINGS,
+        }
+        self.assertEqual(len(all_mappings), 18)
+
+        wf_dir = ROOT / "example_workflows"
+        self.assertTrue(wf_dir.is_dir(), "example_workflows directory must exist")
+        wf_files = sorted(wf_dir.glob("*.json"))
+        self.assertGreaterEqual(len(wf_files), 8)
+
+        covered_nodes: set[str] = set()
+        for wf_path in wf_files:
+            data = json.loads(wf_path.read_text(encoding="utf-8"))
+            self.assertIn("nodes", data)
+            self.assertIn("links", data)
+            node_by_id = {n["id"]: n for n in data["nodes"]}
+
+            for n in data["nodes"]:
+                ntype = n.get("type")
+                if ntype in all_mappings:
+                    covered_nodes.add(ntype)
+                    cls = all_mappings[ntype]
+                    it = cls.INPUT_TYPES()
+                    valid_inputs = set(it.get("required", {}).keys()) | set(it.get("optional", {}).keys())
+                    for inp in n.get("inputs", []):
+                        self.assertIn(
+                            inp["name"],
+                            valid_inputs,
+                            f"{wf_path.name}: invalid input '{inp['name']}' on {ntype}",
+                        )
+                    ret_types = getattr(cls, "RETURN_TYPES", ())
+                    self.assertEqual(len(n.get("outputs", [])), len(ret_types))
+
+            for link in data["links"]:
+                _lid, src_id, src_slot, dst_id, dst_slot, _ltype = link
+                self.assertIn(src_id, node_by_id, f"{wf_path.name}: missing src node {src_id}")
+                self.assertIn(dst_id, node_by_id, f"{wf_path.name}: missing dst node {dst_id}")
+                self.assertLess(src_slot, len(node_by_id[src_id].get("outputs", [])))
+                self.assertLess(dst_slot, len(node_by_id[dst_id].get("inputs", [])))
+
+        self.assertEqual(covered_nodes, set(all_mappings.keys()))
+
+
 if __name__ == "__main__":
     unittest.main()

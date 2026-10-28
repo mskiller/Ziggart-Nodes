@@ -1,0 +1,1270 @@
+{
+  "id": "78e0caf1-8fb9-5827-bc6a-457df21a1af2",
+  "revision": 0,
+  "last_node_id": 15,
+  "last_link_id": 23,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Note",
+      "pos": [
+        -400.0,
+        -180.0
+      ],
+      "size": [
+        2280.0,
+        115.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Guide — GGUF Vision Prompt (Simple vs Specialist Passes + Detail Crop + Reference Image) & Harmonizer Multimodal",
+      "properties": {
+        "Node name for S&R": "Note"
+      },
+      "widgets_values": [
+        "WORKFLOW 07 : TOUS LES USAGES DE GGUF VISION PROMPT & WILDCARD-TO-VLM HARMONIZER MULTIMODAL\n1. USAGE 1 (Single-Pass Reverse Prompting) : Décrit une image en un prompt détaillé directement prêt pour Krea 2 / Flux.\n2. USAGE 2 (Multi-Pass Specialist Analysis + Detail Crop + Reference Image) :\n   - WeVisOne-VL Detector extrait un 'detail_crop' haute-résolution du sujet principal.\n   - GGUF Vision Prompt exécute 3 passes spécialistes ('analyze_composition', 'analyze_subject', 'analyze_style') + la synthèse finale !\n3. USAGE 3 (Wildcard-to-VLM Harmonizer avec Reference Image) : Harmonise un wildcard en s'inspirant de l'éclairage et de la palette d'une image de référence."
+      ],
+      "widgets_values_named": {
+        "text": "WORKFLOW 07 : TOUS LES USAGES DE GGUF VISION PROMPT & WILDCARD-TO-VLM HARMONIZER MULTIMODAL\n1. USAGE 1 (Single-Pass Reverse Prompting) : Décrit une image en un prompt détaillé directement prêt pour Krea 2 / Flux.\n2. USAGE 2 (Multi-Pass Specialist Analysis + Detail Crop + Reference Image) :\n   - WeVisOne-VL Detector extrait un 'detail_crop' haute-résolution du sujet principal.\n   - GGUF Vision Prompt exécute 3 passes spécialistes ('analyze_composition', 'analyze_subject', 'analyze_style') + la synthèse finale !\n3. USAGE 3 (Wildcard-to-VLM Harmonizer avec Reference Image) : Harmonise un wildcard en s'inspirant de l'éclairage et de la palette d'une image de référence."
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 2,
+      "type": "LoadImage",
+      "pos": [
+        -390.0,
+        50.0
+      ],
+      "size": [
+        360.0,
+        300.0
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            1,
+            3,
+            5
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "Main Subject Image",
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ],
+      "widgets_values_named": {
+        "image": "example.png",
+        "upload": "image"
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 3,
+      "type": "LoadImage",
+      "pos": [
+        -390.0,
+        390.0
+      ],
+      "size": [
+        360.0,
+        300.0
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            7,
+            9
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "Style / Lighting Reference Image",
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ],
+      "widgets_values_named": {
+        "image": "example.png",
+        "upload": "image"
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 4,
+      "type": "ZiggartGGUFVLMLoader",
+      "pos": [
+        -390.0,
+        730.0
+      ],
+      "size": [
+        380.0,
+        280.0
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "vlm_config",
+          "type": "GGUF_VL_MODEL",
+          "slot_index": 0,
+          "links": [
+            2,
+            4,
+            8,
+            10
+          ]
+        }
+      ],
+      "title": "Shared GGUF VLM Loader (Qwen2.5-VL / Qwen3-VL)",
+      "properties": {
+        "Node name for S&R": "ZiggartGGUFVLMLoader"
+      },
+      "widgets_values": [
+        "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj-Qwen2.5-VL-F16.gguf",
+        8192,
+        -1,
+        14,
+        true,
+        true,
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "model": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj": "mmproj-Qwen2.5-VL-F16.gguf",
+        "context_size": 8192,
+        "gpu_layers": -1,
+        "threads": 14,
+        "flash_attention": true,
+        "mmproj_on_gpu": true,
+        "model_path_override": "",
+        "mmproj_path_override": ""
+      },
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 5,
+      "type": "ZiggartGGUFVisionPrompt",
+      "pos": [
+        90.0,
+        50.0
+      ],
+      "size": [
+        460.0,
+        440.0
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 1
+        },
+        {
+          "name": "detail_crop",
+          "type": "IMAGE",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "reference_image",
+          "type": "IMAGE",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "vlm_config",
+          "type": "GGUF_VL_MODEL",
+          "link": 2,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "answer",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "composition",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "subject",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "style",
+          "type": "STRING",
+          "slot_index": 3,
+          "links": []
+        }
+      ],
+      "title": "Usage A — GGUF Vision Prompt (Fast Single-Pass Image-to-Prompt)",
+      "properties": {
+        "Node name for S&R": "ZiggartGGUFVisionPrompt"
+      },
+      "widgets_values": [
+        "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj-Qwen2.5-VL-F16.gguf",
+        "You are an expert image prompt writer. Describe the image accurately as a detailed generation prompt. Output only the prompt.",
+        "Turn this image into a rich, cinematic generation prompt for Krea 2 Turbo.",
+        false,
+        false,
+        "2048",
+        false,
+        false,
+        false,
+        1024,
+        0.2,
+        0.9,
+        40,
+        -1,
+        "fixed",
+        8192,
+        -1,
+        14,
+        true,
+        true,
+        true,
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "model": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj": "mmproj-Qwen2.5-VL-F16.gguf",
+        "system_prompt": "You are an expert image prompt writer. Describe the image accurately as a detailed generation prompt. Output only the prompt.",
+        "prompt": "Turn this image into a rich, cinematic generation prompt for Krea 2 Turbo.",
+        "free_vram_after": false,
+        "enable_thinking": false,
+        "max_image_dimension": "2048",
+        "analyze_composition": false,
+        "analyze_subject": false,
+        "analyze_style": false,
+        "max_tokens": 1024,
+        "temperature": 0.2,
+        "top_p": 0.9,
+        "top_k": 40,
+        "seed": -1,
+        "control_after_generate": "fixed",
+        "context_size": 8192,
+        "gpu_layers": -1,
+        "threads": 14,
+        "flash_attention": true,
+        "mmproj_on_gpu": true,
+        "unload_comfy_models_before": true,
+        "model_path_override": "",
+        "mmproj_path_override": ""
+      },
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 6,
+      "type": "ZiggartWeVisOneDetector",
+      "pos": [
+        580.0,
+        50.0
+      ],
+      "size": [
+        440.0,
+        360.0
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 3
+        },
+        {
+          "name": "vlm_config",
+          "type": "GGUF_VL_MODEL",
+          "link": 4,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "detection_preview",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "cropped_images",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": [
+            6
+          ]
+        },
+        {
+          "name": "bboxes_json",
+          "type": "STRING",
+          "slot_index": 3,
+          "links": []
+        }
+      ],
+      "title": "Extract High-Res Detail Crop for Vision Prompt",
+      "properties": {
+        "Node name for S&R": "ZiggartWeVisOneDetector"
+      },
+      "widgets_values": [
+        "WeVisOne-VL-4B-Q4_K_M.gguf",
+        "mmproj-WeVisOne-VL-F16.gguf",
+        "main character face or intricate costume detail",
+        1.4,
+        1,
+        0,
+        false,
+        "",
+        "",
+        -1,
+        4096
+      ],
+      "widgets_values_named": {
+        "detector_model": "WeVisOne-VL-4B-Q4_K_M.gguf",
+        "detector_mmproj": "mmproj-WeVisOne-VL-F16.gguf",
+        "detection_prompt": "main character face or intricate costume detail",
+        "crop_factor": 1.4,
+        "max_detections": 1,
+        "feather_mask": 0,
+        "free_vram_after": false,
+        "detector_model_override": "",
+        "detector_mmproj_override": "",
+        "gpu_layers": -1,
+        "context_size": 4096
+      },
+      "color": "#323",
+      "bgcolor": "#535"
+    },
+    {
+      "id": 7,
+      "type": "ZiggartGGUFVisionPrompt",
+      "pos": [
+        90.0,
+        530.0
+      ],
+      "size": [
+        930.0,
+        510.0
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 5
+        },
+        {
+          "name": "detail_crop",
+          "type": "IMAGE",
+          "link": 6,
+          "shape": 7
+        },
+        {
+          "name": "reference_image",
+          "type": "IMAGE",
+          "link": 7,
+          "shape": 7
+        },
+        {
+          "name": "vlm_config",
+          "type": "GGUF_VL_MODEL",
+          "link": 8,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "answer",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": [
+            23
+          ]
+        },
+        {
+          "name": "composition",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "subject",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "style",
+          "type": "STRING",
+          "slot_index": 3,
+          "links": []
+        }
+      ],
+      "title": "Usage B — GGUF Vision Prompt (Composition + Subject + Style Specialist Passes + Detail Crop + Ref Image)",
+      "properties": {
+        "Node name for S&R": "ZiggartGGUFVisionPrompt"
+      },
+      "widgets_values": [
+        "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj-Qwen2.5-VL-F16.gguf",
+        "You are a master visual analyst and prompt engineer. Synthesize the main image, high-res detail crop, and reference style image.",
+        "Combine the subject identity and details from the main image with the lighting and color palette of the reference image.",
+        false,
+        false,
+        "2048",
+        true,
+        true,
+        true,
+        1024,
+        0.2,
+        0.9,
+        40,
+        -1,
+        "fixed",
+        8192,
+        -1,
+        14,
+        true,
+        true,
+        true,
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "model": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj": "mmproj-Qwen2.5-VL-F16.gguf",
+        "system_prompt": "You are a master visual analyst and prompt engineer. Synthesize the main image, high-res detail crop, and reference style image.",
+        "prompt": "Combine the subject identity and details from the main image with the lighting and color palette of the reference image.",
+        "free_vram_after": false,
+        "enable_thinking": false,
+        "max_image_dimension": "2048",
+        "analyze_composition": true,
+        "analyze_subject": true,
+        "analyze_style": true,
+        "max_tokens": 1024,
+        "temperature": 0.2,
+        "top_p": 0.9,
+        "top_k": 40,
+        "seed": -1,
+        "control_after_generate": "fixed",
+        "context_size": 8192,
+        "gpu_layers": -1,
+        "threads": 14,
+        "flash_attention": true,
+        "mmproj_on_gpu": true,
+        "unload_comfy_models_before": true,
+        "model_path_override": "",
+        "mmproj_path_override": ""
+      },
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 8,
+      "type": "ZiggartWildcardVLMEnhancer",
+      "pos": [
+        1170.0,
+        50.0
+      ],
+      "size": [
+        480.0,
+        440.0
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "reference_image",
+          "type": "IMAGE",
+          "link": 9,
+          "shape": 7
+        },
+        {
+          "name": "vlm_config",
+          "type": "GGUF_VL_MODEL",
+          "link": 10,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "harmonized_prompt",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": [
+            12,
+            22
+          ]
+        },
+        {
+          "name": "raw_populated_text",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": [
+            21
+          ]
+        }
+      ],
+      "title": "Usage C — Wildcard-to-VLM Harmonizer (with Reference Image)",
+      "properties": {
+        "Node name for S&R": "ZiggartWildcardVLMEnhancer"
+      },
+      "widgets_values": [
+        "__female-full__, wearing __outfit-full__, __pose-full__, in __environnement-full__",
+        "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj-Qwen2.5-VL-F16.gguf",
+        "Cinematic Director Shot (Rich Lighting & Camera)",
+        4040,
+        "fixed",
+        true,
+        "Match the exact color grading, mood, and lighting direction of the connected reference_image.",
+        512,
+        0.25,
+        -1,
+        4096,
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "wildcard_or_populated_text": "__female-full__, wearing __outfit-full__, __pose-full__, in __environnement-full__",
+        "model": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj": "mmproj-Qwen2.5-VL-F16.gguf",
+        "harmonization_style": "Cinematic Director Shot (Rich Lighting & Camera)",
+        "seed": 4040,
+        "control_after_generate": "fixed",
+        "free_vram_after": true,
+        "custom_instruction": "Match the exact color grading, mood, and lighting direction of the connected reference_image.",
+        "max_tokens": 512,
+        "temperature": 0.25,
+        "gpu_layers": -1,
+        "context_size": 4096,
+        "model_path_override": "",
+        "mmproj_path_override": ""
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 9,
+      "type": "CheckpointLoaderSimple",
+      "pos": [
+        1170.0,
+        520.0
+      ],
+      "size": [
+        340.0,
+        120.0
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": [
+            14
+          ]
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "slot_index": 1,
+          "links": [
+            11,
+            13
+          ]
+        },
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "slot_index": 2,
+          "links": [
+            19
+          ]
+        }
+      ],
+      "title": "CheckpointLoaderSimple",
+      "properties": {
+        "Node name for S&R": "CheckpointLoaderSimple"
+      },
+      "widgets_values": [
+        "krea2_turbo.safetensors"
+      ],
+      "widgets_values_named": {
+        "ckpt_name": "krea2_turbo.safetensors"
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 10,
+      "type": "CLIPTextEncode",
+      "pos": [
+        1170.0,
+        670.0
+      ],
+      "size": [
+        340.0,
+        110.0
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 11
+        },
+        {
+          "name": "text",
+          "type": "STRING",
+          "widget": {
+            "name": "text"
+          },
+          "link": 12
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [
+            15
+          ]
+        }
+      ],
+      "title": "Encode Harmonized Prompt",
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        ""
+      ],
+      "widgets_values_named": {
+        "text": ""
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 11,
+      "type": "CLIPTextEncode",
+      "pos": [
+        1170.0,
+        810.0
+      ],
+      "size": [
+        340.0,
+        110.0
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 13
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [
+            16
+          ]
+        }
+      ],
+      "title": "Negative Prompt",
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "blurry, low quality, deformed, watermark"
+      ],
+      "widgets_values_named": {
+        "text": "blurry, low quality, deformed, watermark"
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 12,
+      "type": "EmptyLatentImage",
+      "pos": [
+        1540.0,
+        520.0
+      ],
+      "size": [
+        320.0,
+        120.0
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "slot_index": 0,
+          "links": [
+            17
+          ]
+        }
+      ],
+      "title": "EmptyLatentImage",
+      "properties": {
+        "Node name for S&R": "EmptyLatentImage"
+      },
+      "widgets_values": [
+        1024,
+        1024,
+        1
+      ],
+      "widgets_values_named": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 13,
+      "type": "KSampler",
+      "pos": [
+        1540.0,
+        670.0
+      ],
+      "size": [
+        320.0,
+        260.0
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 14
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 15
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 16
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 17
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "slot_index": 0,
+          "links": [
+            18
+          ]
+        }
+      ],
+      "title": "KSampler",
+      "properties": {
+        "Node name for S&R": "KSampler"
+      },
+      "widgets_values": [
+        42,
+        "fixed",
+        8,
+        1.5,
+        "euler",
+        "simple",
+        1.0
+      ],
+      "widgets_values_named": {
+        "seed": 42,
+        "control_after_generate": "fixed",
+        "steps": 8,
+        "cfg": 1.5,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 1.0
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 14,
+      "type": "VAEDecode",
+      "pos": [
+        1540.0,
+        960.0
+      ],
+      "size": [
+        220.0,
+        80.0
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 18
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 19
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            20
+          ]
+        }
+      ],
+      "title": "VAEDecode",
+      "properties": {
+        "Node name for S&R": "VAEDecode"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {},
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 15,
+      "type": "ZiggartWildcardRecipeSaver",
+      "pos": [
+        1670.0,
+        50.0
+      ],
+      "size": [
+        210.0,
+        420.0
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 20
+        },
+        {
+          "name": "base_image",
+          "type": "IMAGE",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "wildcard_template",
+          "type": "STRING",
+          "widget": {
+            "name": "wildcard_template"
+          },
+          "link": 21
+        },
+        {
+          "name": "populated_text",
+          "type": "STRING",
+          "widget": {
+            "name": "populated_text"
+          },
+          "link": 22
+        },
+        {
+          "name": "detailer_or_vlm_notes",
+          "type": "STRING",
+          "widget": {
+            "name": "detailer_or_vlm_notes"
+          },
+          "link": 23
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output_image_or_grid",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "recipe_summary",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "saved_paths_json",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        }
+      ],
+      "title": "Save Multimodal Studio Result",
+      "properties": {
+        "Node name for S&R": "ZiggartWildcardRecipeSaver"
+      },
+      "widgets_values": [
+        "Ziggart/WF07_Multimodal_VLM_Studio",
+        "",
+        "",
+        0,
+        "fixed",
+        true,
+        false,
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "Ziggart/WF07_Multimodal_VLM_Studio",
+        "wildcard_template": "",
+        "populated_text": "",
+        "seed": 0,
+        "control_after_generate": "fixed",
+        "save_json_sidecar": true,
+        "build_comparison_grid": false,
+        "detailer_or_vlm_notes": "",
+        "output_dir_override": ""
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    }
+  ],
+  "links": [
+    [
+      1,
+      2,
+      0,
+      5,
+      0,
+      "IMAGE"
+    ],
+    [
+      2,
+      4,
+      0,
+      5,
+      3,
+      "GGUF_VL_MODEL"
+    ],
+    [
+      3,
+      2,
+      0,
+      6,
+      0,
+      "IMAGE"
+    ],
+    [
+      4,
+      4,
+      0,
+      6,
+      1,
+      "GGUF_VL_MODEL"
+    ],
+    [
+      5,
+      2,
+      0,
+      7,
+      0,
+      "IMAGE"
+    ],
+    [
+      6,
+      6,
+      2,
+      7,
+      1,
+      "IMAGE"
+    ],
+    [
+      7,
+      3,
+      0,
+      7,
+      2,
+      "IMAGE"
+    ],
+    [
+      8,
+      4,
+      0,
+      7,
+      3,
+      "GGUF_VL_MODEL"
+    ],
+    [
+      9,
+      3,
+      0,
+      8,
+      0,
+      "IMAGE"
+    ],
+    [
+      10,
+      4,
+      0,
+      8,
+      1,
+      "GGUF_VL_MODEL"
+    ],
+    [
+      11,
+      9,
+      1,
+      10,
+      0,
+      "CLIP"
+    ],
+    [
+      12,
+      8,
+      0,
+      10,
+      1,
+      "STRING"
+    ],
+    [
+      13,
+      9,
+      1,
+      11,
+      0,
+      "CLIP"
+    ],
+    [
+      14,
+      9,
+      0,
+      13,
+      0,
+      "MODEL"
+    ],
+    [
+      15,
+      10,
+      0,
+      13,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      16,
+      11,
+      0,
+      13,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      17,
+      12,
+      0,
+      13,
+      3,
+      "LATENT"
+    ],
+    [
+      18,
+      13,
+      0,
+      14,
+      0,
+      "LATENT"
+    ],
+    [
+      19,
+      9,
+      2,
+      14,
+      1,
+      "VAE"
+    ],
+    [
+      20,
+      14,
+      0,
+      15,
+      0,
+      "IMAGE"
+    ],
+    [
+      21,
+      8,
+      1,
+      15,
+      2,
+      "STRING"
+    ],
+    [
+      22,
+      8,
+      0,
+      15,
+      3,
+      "STRING"
+    ],
+    [
+      23,
+      7,
+      0,
+      15,
+      4,
+      "STRING"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "GUIDE & OVERVIEW",
+      "bounding": [
+        -420.0,
+        -240.0,
+        2320.0,
+        190.0
+      ],
+      "color": "#594a28",
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "1. Input Images & Shared GGUF VLM Loader",
+      "bounding": [
+        -420.0,
+        -10.0,
+        440.0,
+        1080.0
+      ],
+      "color": "#333333",
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "2. GGUF Vision Prompt — Usage A (Fast Reverse Prompt) & Usage B (Specialist Passes + Detail Crop)",
+      "bounding": [
+        60.0,
+        -10.0,
+        1040.0,
+        1080.0
+      ],
+      "color": "#223355",
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "3. Usage C — Reference-Image Guided Wildcard Harmonizer + Generation",
+      "bounding": [
+        1140.0,
+        -10.0,
+        760.0,
+        1080.0
+      ],
+      "color": "#2b5b3c",
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.65,
+      "offset": [
+        150,
+        100
+      ]
+    },
+    "workflow_title": "07 - Multimodal VLM Studio: GGUF Vision Prompt (Specialist Passes) & Reference Harmonizer"
+  },
+  "version": 0.4
+}

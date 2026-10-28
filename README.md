@@ -55,7 +55,7 @@ A complete collection of **18 local, in-process ComfyUI nodes** combining:
    - [14. GGUF Vision Prompt & GGUF VLM Loader](#14-gguf-vision-prompt--gguf-vlm-loader)
    - [15. GGUF Quality & Anatomy Critic](#15-gguf-quality--anatomy-critic)
    - [16. GGUF Mask-Aware Inpaint Prompter](#16-gguf-mask-aware-inpaint-prompter)
-5. [Architecture & Workflows](#architecture--workflows)
+5. [Architecture & Example Workflows (`example_workflows/`)](#architecture--workflows)
 6. [Installation](#installation)
 7. [Models Download & Setup](#models-download--setup)
 8. [Hardware & VRAM Optimization](#hardware--vram-optimization)
@@ -137,11 +137,13 @@ If you keep wildcards in multiple places, `Ziggart-Nodes` scans directories in t
 Automatically discovers wildcards in `Ziggart-Nodes/wildcards` (primary), `ComfyUI/wildcards`, `ComfyUI-Impact-Pack/wildcards`, or any custom path—without modifying external folders.
 
 ### Full Wildcard Syntax Support
-- **Arbitrary-Depth YAML & TXT Tokens**: `__Ziggart/scenes/all__`, `__Ziggart/scenes/01_mysterieusescitesdor/duo/romantic__`, `__Collection/Themes/01-MysterieusesCitesDOr/Character__`, `__female-full__`, or parent rollups like `__Ziggart/scenes__`.
+- **Arbitrary-Depth YAML & TXT Tokens**: `__Ziggart/scenes/all__`, `__Ziggart/scenes/01_mysterieusescitesdor/duo/romantic__`, `__Collection/Themes/01-MysterieusesCitesDOr/Character__`, `__female-full__`, multi-root YAML files (`__krea2-grok/wallpaper__`, `__krea2/all__`), or parent rollups like `__Ziggart/scenes__`.
+- **Glob `*` Wildcard Patterns**: `__Collection/formats-wild/Formats/luisroyo/Templates/Female-*__`, `__jff/animals/*__`, or `__Collection/formats-wild/Formats/*/Templates/*__` resolved in $O(1)$ via cached filesystem & YAML glob matching.
 - **Weighted Dynamic Choices**: `{option A|option B|2.5::weighted option C}` (supports nested braces `{a|{b|c}}`).
 - **Multi-Select Ranges**: `{2$$, $$__wildcard__}` or `{1-3$$ and $$opt1|opt2|opt3}`.
 - **Quantifiers**: `3#__wildcard__`.
 - **LoRA Tags**: `<lora:lora_name:1.0:0.8>`.
+- **Live `populated_text` UI Feedback**: Selecting a wildcard from the dropdown or clicking **Queue** automatically populates the `populated_text` widget in the ComfyUI frontend via WebSocket feedback.
 
 ---
 
@@ -440,6 +442,22 @@ Takes an `IMAGE`, a `MASK` (drawn in ComfyUI's MaskEditor or from a detector), a
 
 ## Architecture & Workflows
 
+### Ready-to-Load Example Workflows (`example_workflows/`)
+
+All **18 Ziggart nodes** and their distinct operating modes are provided as ready-to-load ComfyUI workflow JSON files inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
+
+| Workflow File | Featured Ziggart Nodes | Covered Usage Modes |
+| :--- | :--- | :--- |
+| [`01_Wildcards_3_Ways_and_LoRA_Encode.json`](./example_workflows/01_Wildcards_3_Ways_and_LoRA_Encode.json) | `ZiggartWildcardProcessor`, `ZiggartWildcardProcessorAllInOne`, `ZiggartCollectionSceneBuilder`, `ZiggartWildcardEncode`, `ZiggartWildcardRecipeSaver` | **Way C1** (YAML/Braces, `search_wildcard_filter` keyword search, `fixed` mode), **Way A** (`combine_selected_pillars = True` vs `False`), **Way C2** modular scene builder + `<lora:...>` & `BREAK` conditioning encode. |
+| [`02_Canonical_Duo_Trio_Theme_and_MultiCharacter_Detailer.json`](./example_workflows/02_Canonical_Duo_Trio_Theme_and_MultiCharacter_Detailer.json) | `ZiggartCanonicalThemeResolver`, `ZiggartWildcardVLMEnhancer`, `ZiggartMultiSubjectDetailer`, `ZiggartWildcardRecipeSaver`, `ZiggartGGUFVLMLoader` | `Duo (Female + Male)` & `Single` canonical outfit resolution from `Character-Outfits.json`, VLM prompt harmonization, 3-subject grounded detailing, and side-by-side `Base vs Refined` comparison grid saving. |
+| [`03_Detailers_Krea2_Standard_Chained_and_VLM_AutoPrompt.json`](./example_workflows/03_Detailers_Krea2_Standard_Chained_and_VLM_AutoPrompt.json) | `ZiggartDetailerKrea2`, `ZiggartAutoPromptDetailer`, `ZiggartGGUFVLMLoader`, `ZiggartWildcardRecipeSaver` | Sequential chained detailing (`face` → `eyes` with latent noise mask) vs. multi-instance autonomous per-crop VLM micro-prompting (`faces and hands`). |
+| [`04_Self_Healing_Quality_Critic_and_Surgical_Repair.json`](./example_workflows/04_Self_Healing_Quality_Critic_and_Surgical_Repair.json) | `ZiggartVLMImageCritic`, `ZiggartCropByBBox`, `ZiggartStitchByBBox`, `ZiggartDetailerKrea2`, `ZiggartGGUFVLMLoader`, `ZiggartWildcardRecipeSaver` | Automated defect localization (`hands_and_limbs`) routing either through **BBox Crop → Custom KSampler → BBox Feathered Stitch** or directly into **Detailers Krea2** via `fix_positive_prompt`. |
+| [`05_Mask_Aware_Inpainting_and_WeVisOne_Detector.json`](./example_workflows/05_Mask_Aware_Inpainting_and_WeVisOne_Detector.json) | `ZiggartWeVisOneDetector`, `ZiggartVLMInpaintPrompter`, `ZiggartCropByBBox`, `ZiggartStitchByBBox`, `ZiggartGGUFVLMLoader`, `ZiggartWildcardRecipeSaver` | Standalone open-vocabulary mask generation with **WeVisOne-VL Detector**, scene-harmonized prompt generation with **GGUF Mask-Aware Inpaint Prompter**, and 768px crop inpainting + feathered stitch. |
+| [`06_Smart_Tile_Upscaler_VLM_vs_Fast_Mode.json`](./example_workflows/06_Smart_Tile_Upscaler_VLM_vs_Fast_Mode.json) | `ZiggartSmartTileUpscaler`, `ZiggartGGUFVLMLoader`, `ZiggartWildcardRecipeSaver` | **Mode A** (`enable_vlm_tile_prompts = True` anti-hallucination per-tile VLM captioning) vs. **Mode B** (`enable_vlm_tile_prompts = False` fast pure-Krea2 tiled upscaling). |
+| [`07_Multimodal_VLM_Studio_VisionPrompt_and_Reference_Harmonizer.json`](./example_workflows/07_Multimodal_VLM_Studio_VisionPrompt_and_Reference_Harmonizer.json) | `ZiggartGGUFVisionPrompt`, `ZiggartWeVisOneDetector`, `ZiggartWildcardVLMEnhancer`, `ZiggartGGUFVLMLoader`, `ZiggartWildcardRecipeSaver` | Single-pass Image-to-Prompt, Multi-pass Specialist Analysis (`analyze_composition`, `analyze_subject`, `analyze_style`) with `detail_crop` + `reference_image`, and reference-guided wildcard harmonization. |
+| [`08_Master_All_18_Nodes_Complete_Showcase.json`](./example_workflows/08_Master_All_18_Nodes_Complete_Showcase.json) | **All 18 Ziggart Nodes** | Complete 5-column master architecture pipeline connecting every single Ziggart node on one canvas. |
+| [`09_Sdxl_Test_Free_Migrated_to_Ziggart.json`](./example_workflows/09_Sdxl_Test_Free_Migrated_to_Ziggart.json) | `ZiggartWildcardProcessor` | Drop-in migration of `Sdxl+test-free.json` replacing `ImpactWildcardProcessor` with `ZiggartWildcardProcessor`. |
+
 ### Workflow A: End-to-End Canonical Duo Scene + Multi-Character Detailing
 
 ```text
@@ -537,6 +555,7 @@ cd C:\path\to\ComfyUI_windows_portable
 ComfyUI/
 ├── custom_nodes/
 │   └── Ziggart-Nodes/
+│       ├── example_workflows/          <-- 9 ready-to-load ComfyUI workflow JSON templates
 │       └── wildcards/                  <-- Place Ziggart.yaml, Collection/, and .txt wildcards here
 │           ├── Ziggart.yaml
 │           ├── Collection/

@@ -1,0 +1,1353 @@
+{
+  "id": "4e75fe56-2937-521c-b71c-a6c1846744dc",
+  "revision": 0,
+  "last_node_id": 17,
+  "last_link_id": 30,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Note",
+      "pos": [
+        -400.0,
+        -180.0
+      ],
+      "size": [
+        2320.0,
+        115.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Guide — GGUF Quality & Anatomy Critic + Réparation Chirurgicale via BBox Crop / Stitch ou Detailers Krea2",
+      "properties": {
+        "Node name for S&R": "Note"
+      },
+      "widgets_values": [
+        "WORKFLOW 04 : AUTO-CORRECTION DES DÉFAUTS ANATOMIQUES (MAINS, YEUX, TEXTE, ARTEFACTS)\n1. GGUF Quality & Anatomy Critic : Analyse l'image (focus: 'all_defects', 'hands_and_limbs', 'faces_and_eyes', 'text_and_logos', ou 'custom').\n   - Retourne un score (1-10), les boîtes de défauts (bboxes_json), un masque (defect_mask), et un prompt de réparation sur-mesure (fix_positive_prompt).\n2. USAGE A (Pipeline Modulaire BBox Crop -> Custom KSampler -> BBox Feathered Stitch) :\n   - Découpe uniquement les boîtes défectueuses via BBox Crop, applique le crop_mask dans le latent, ré-échantillonne avec fix_positive_prompt, et fusionne avec BBox Feathered Stitch.\n3. USAGE B (Direct Critic -> Detailers Krea2) : Envoie fix_positive_prompt directement dans Detailers Krea2."
+      ],
+      "widgets_values_named": {
+        "text": "WORKFLOW 04 : AUTO-CORRECTION DES DÉFAUTS ANATOMIQUES (MAINS, YEUX, TEXTE, ARTEFACTS)\n1. GGUF Quality & Anatomy Critic : Analyse l'image (focus: 'all_defects', 'hands_and_limbs', 'faces_and_eyes', 'text_and_logos', ou 'custom').\n   - Retourne un score (1-10), les boîtes de défauts (bboxes_json), un masque (defect_mask), et un prompt de réparation sur-mesure (fix_positive_prompt).\n2. USAGE A (Pipeline Modulaire BBox Crop -> Custom KSampler -> BBox Feathered Stitch) :\n   - Découpe uniquement les boîtes défectueuses via BBox Crop, applique le crop_mask dans le latent, ré-échantillonne avec fix_positive_prompt, et fusionne avec BBox Feathered Stitch.\n3. USAGE B (Direct Critic -> Detailers Krea2) : Envoie fix_positive_prompt directement dans Detailers Krea2."
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 2,
+      "type": "LoadImage",
+      "pos": [
+        -390.0,
+        50.0
+      ],
+      "size": [
+        340.0,
+        310.0
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            1,
+            4,
+            22,
+            25
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "Generated Image to Inspect",
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ],
+      "widgets_values_named": {
+        "image": "example.png",
+        "upload": "image"
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 3,
+      "type": "CheckpointLoaderSimple",
+      "pos": [
+        -390.0,
+        400.0
+      ],
+      "size": [
+        340.0,
+        120.0
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": [
+            13,
+            26
+          ]
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "slot_index": 1,
+          "links": [
+            10,
+            12,
+            27
+          ]
+        },
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "slot_index": 2,
+          "links": [
+            7,
+            18,
+            28
+          ]
+        }
+      ],
+      "title": "CheckpointLoaderSimple",
+      "properties": {
+        "Node name for S&R": "CheckpointLoaderSimple"
+      },
+      "widgets_values": [
+        "krea2_turbo.safetensors"
+      ],
+      "widgets_values_named": {
+        "ckpt_name": "krea2_turbo.safetensors"
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 4,
+      "type": "ZiggartGGUFVLMLoader",
+      "pos": [
+        -390.0,
+        560.0
+      ],
+      "size": [
+        380.0,
+        280.0
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "vlm_config",
+          "type": "GGUF_VL_MODEL",
+          "slot_index": 0,
+          "links": [
+            2
+          ]
+        }
+      ],
+      "title": "GGUF VLM Loader",
+      "properties": {
+        "Node name for S&R": "ZiggartGGUFVLMLoader"
+      },
+      "widgets_values": [
+        "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj-Qwen2.5-VL-F16.gguf",
+        8192,
+        -1,
+        14,
+        true,
+        true,
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "model": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj": "mmproj-Qwen2.5-VL-F16.gguf",
+        "context_size": 8192,
+        "gpu_layers": -1,
+        "threads": 14,
+        "flash_attention": true,
+        "mmproj_on_gpu": true,
+        "model_path_override": "",
+        "mmproj_path_override": ""
+      },
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 5,
+      "type": "ZiggartVLMImageCritic",
+      "pos": [
+        40.0,
+        50.0
+      ],
+      "size": [
+        430.0,
+        460.0
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 1
+        },
+        {
+          "name": "vlm_config",
+          "type": "GGUF_VL_MODEL",
+          "link": 2,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "preview_image",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            3
+          ]
+        },
+        {
+          "name": "defect_mask",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "bboxes_json",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": [
+            5
+          ]
+        },
+        {
+          "name": "fix_positive_prompt",
+          "type": "STRING",
+          "slot_index": 3,
+          "links": [
+            11,
+            23,
+            29
+          ]
+        },
+        {
+          "name": "critique_report",
+          "type": "STRING",
+          "slot_index": 4,
+          "links": [
+            24
+          ]
+        },
+        {
+          "name": "needs_refinement",
+          "type": "BOOLEAN",
+          "slot_index": 5,
+          "links": []
+        }
+      ],
+      "title": "1. GGUF Quality & Anatomy Critic (Focus: hands_and_limbs)",
+      "properties": {
+        "Node name for S&R": "ZiggartVLMImageCritic"
+      },
+      "widgets_values": [
+        "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj-Qwen2.5-VL-F16.gguf",
+        "hands_and_limbs",
+        1.5,
+        4,
+        16,
+        true,
+        "Check for extra fingers, fused fingers, or twisted wrists",
+        "A warrior holding a glowing crystal sword with both hands",
+        "",
+        "",
+        -1,
+        4096
+      ],
+      "widgets_values_named": {
+        "model": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj": "mmproj-Qwen2.5-VL-F16.gguf",
+        "inspection_focus": "hands_and_limbs",
+        "crop_factor": 1.5,
+        "max_detections": 4,
+        "feather_mask": 16,
+        "free_vram_after": true,
+        "custom_criteria": "Check for extra fingers, fused fingers, or twisted wrists",
+        "generation_prompt": "A warrior holding a glowing crystal sword with both hands",
+        "model_path_override": "",
+        "mmproj_path_override": "",
+        "gpu_layers": -1,
+        "context_size": 4096
+      },
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 6,
+      "type": "PreviewImage",
+      "pos": [
+        40.0,
+        550.0
+      ],
+      "size": [
+        430.0,
+        290.0
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 3
+        }
+      ],
+      "outputs": [],
+      "title": "Critic Annotated Defect Preview",
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {},
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 7,
+      "type": "ZiggartCropByBBox",
+      "pos": [
+        570.0,
+        50.0
+      ],
+      "size": [
+        360.0,
+        260.0
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 4
+        },
+        {
+          "name": "bboxes_json",
+          "type": "STRING",
+          "widget": {
+            "name": "bboxes_json"
+          },
+          "link": 5
+        }
+      ],
+      "outputs": [
+        {
+          "name": "cropped_images",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            6
+          ]
+        },
+        {
+          "name": "crop_masks",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": [
+            9
+          ]
+        },
+        {
+          "name": "stitch_pipe",
+          "type": "ZIGGART_STITCH_PIPE",
+          "slot_index": 2,
+          "links": [
+            19
+          ]
+        }
+      ],
+      "title": "2A. BBox Crop (Mod-8 Standardized Crops)",
+      "properties": {
+        "Node name for S&R": "ZiggartCropByBBox"
+      },
+      "widgets_values": [
+        "[]",
+        768,
+        0.0,
+        true,
+        16
+      ],
+      "widgets_values_named": {
+        "bboxes_json": "[]",
+        "target_resolution": 768,
+        "crop_factor_override": 0.0,
+        "skip_upscale_if_larger": true,
+        "feather_mask": 16
+      },
+      "color": "#323",
+      "bgcolor": "#535"
+    },
+    {
+      "id": 8,
+      "type": "CLIPTextEncode",
+      "pos": [
+        570.0,
+        350.0
+      ],
+      "size": [
+        360.0,
+        120.0
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 10
+        },
+        {
+          "name": "text",
+          "type": "STRING",
+          "widget": {
+            "name": "text"
+          },
+          "link": 11
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [
+            14
+          ]
+        }
+      ],
+      "title": "Encode Critic's fix_positive_prompt",
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        ""
+      ],
+      "widgets_values_named": {
+        "text": ""
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 9,
+      "type": "CLIPTextEncode",
+      "pos": [
+        960.0,
+        350.0
+      ],
+      "size": [
+        320.0,
+        120.0
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 12
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [
+            15
+          ]
+        }
+      ],
+      "title": "Negative Prompt",
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "malformed hands, extra fingers, fused fingers, blurry, mutated, deformed"
+      ],
+      "widgets_values_named": {
+        "text": "malformed hands, extra fingers, fused fingers, blurry, mutated, deformed"
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 10,
+      "type": "VAEEncode",
+      "pos": [
+        960.0,
+        50.0
+      ],
+      "size": [
+        220.0,
+        90.0
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "pixels",
+          "type": "IMAGE",
+          "link": 6
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "slot_index": 0,
+          "links": [
+            8
+          ]
+        }
+      ],
+      "title": "VAEEncode",
+      "properties": {
+        "Node name for S&R": "VAEEncode"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {},
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 11,
+      "type": "SetLatentNoiseMask",
+      "pos": [
+        960.0,
+        170.0
+      ],
+      "size": [
+        240.0,
+        90.0
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 8
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "link": 9
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "slot_index": 0,
+          "links": [
+            16
+          ]
+        }
+      ],
+      "title": "SetLatentNoiseMask",
+      "properties": {
+        "Node name for S&R": "SetLatentNoiseMask"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {},
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 12,
+      "type": "KSampler",
+      "pos": [
+        1240.0,
+        50.0
+      ],
+      "size": [
+        300.0,
+        340.0
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 13
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 14
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 15
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 16
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "slot_index": 0,
+          "links": [
+            17
+          ]
+        }
+      ],
+      "title": "Custom Repair KSampler",
+      "properties": {
+        "Node name for S&R": "KSampler"
+      },
+      "widgets_values": [
+        555,
+        "fixed",
+        8,
+        1.5,
+        "euler",
+        "simple",
+        0.45
+      ],
+      "widgets_values_named": {
+        "seed": 555,
+        "control_after_generate": "fixed",
+        "steps": 8,
+        "cfg": 1.5,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 0.45
+      },
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 13,
+      "type": "VAEDecode",
+      "pos": [
+        1240.0,
+        420.0
+      ],
+      "size": [
+        220.0,
+        90.0
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 17
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 18
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            20
+          ]
+        }
+      ],
+      "title": "VAEDecode",
+      "properties": {
+        "Node name for S&R": "VAEDecode"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {},
+      "color": "#333",
+      "bgcolor": "#444"
+    },
+    {
+      "id": 14,
+      "type": "ZiggartStitchByBBox",
+      "pos": [
+        1570.0,
+        50.0
+      ],
+      "size": [
+        340.0,
+        200.0
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "stitch_pipe",
+          "type": "ZIGGART_STITCH_PIPE",
+          "link": 19
+        },
+        {
+          "name": "refined_crops",
+          "type": "IMAGE",
+          "link": 20
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            21
+          ]
+        },
+        {
+          "name": "composite_mask",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "2B. BBox Feathered Stitch",
+      "properties": {
+        "Node name for S&R": "ZiggartStitchByBBox"
+      },
+      "widgets_values": [
+        16,
+        1.0
+      ],
+      "widgets_values_named": {
+        "feather_mask": 16,
+        "blend_opacity": 1.0
+      },
+      "color": "#323",
+      "bgcolor": "#535"
+    },
+    {
+      "id": 15,
+      "type": "ZiggartWildcardRecipeSaver",
+      "pos": [
+        1570.0,
+        280.0
+      ],
+      "size": [
+        340.0,
+        250.0
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 21
+        },
+        {
+          "name": "base_image",
+          "type": "IMAGE",
+          "link": 22,
+          "shape": 7
+        },
+        {
+          "name": "populated_text",
+          "type": "STRING",
+          "widget": {
+            "name": "populated_text"
+          },
+          "link": 23
+        },
+        {
+          "name": "detailer_or_vlm_notes",
+          "type": "STRING",
+          "widget": {
+            "name": "detailer_or_vlm_notes"
+          },
+          "link": 24
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output_image_or_grid",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "recipe_summary",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "saved_paths_json",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        }
+      ],
+      "title": "Save Repaired Image + Critique Report",
+      "properties": {
+        "Node name for S&R": "ZiggartWildcardRecipeSaver"
+      },
+      "widgets_values": [
+        "Ziggart/WF04_Critic_Surgical_Repair",
+        "",
+        "",
+        0,
+        "fixed",
+        true,
+        true,
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "Ziggart/WF04_Critic_Surgical_Repair",
+        "wildcard_template": "",
+        "populated_text": "",
+        "seed": 0,
+        "control_after_generate": "fixed",
+        "save_json_sidecar": true,
+        "build_comparison_grid": true,
+        "detailer_or_vlm_notes": "",
+        "output_dir_override": ""
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 16,
+      "type": "ZiggartDetailerKrea2",
+      "pos": [
+        570.0,
+        640.0
+      ],
+      "size": [
+        460.0,
+        490.0
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 25
+        },
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 26
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 27
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 28
+        },
+        {
+          "name": "vlm_config",
+          "type": "GGUF_VL_MODEL",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "detail_positive_prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "detail_positive_prompt"
+          },
+          "link": 29
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            30
+          ]
+        },
+        {
+          "name": "cropped_refined",
+          "type": "IMAGE",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "cropped_base",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "detection_preview",
+          "type": "IMAGE",
+          "slot_index": 3,
+          "links": []
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "slot_index": 4,
+          "links": []
+        },
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "slot_index": 5,
+          "links": []
+        }
+      ],
+      "title": "Usage B — Detailers Krea2 Guided by Critic's fix_positive_prompt",
+      "properties": {
+        "Node name for S&R": "ZiggartDetailerKrea2"
+      },
+      "widgets_values": [
+        "WeVisOne-VL-4B-Q4_K_M.gguf",
+        "mmproj-WeVisOne-VL-F16.gguf",
+        "hands",
+        "ultra-detailed sharp eyes, realistic iris reflections, crystal clear, 8k",
+        "blurry, noisy, distorted, low quality, artifacts",
+        1.5,
+        768,
+        8,
+        1.5,
+        0.4,
+        "euler",
+        "simple",
+        555,
+        "fixed",
+        4,
+        16,
+        true,
+        "",
+        "",
+        -1,
+        4096,
+        true,
+        true,
+        true
+      ],
+      "widgets_values_named": {
+        "detector_model": "WeVisOne-VL-4B-Q4_K_M.gguf",
+        "detector_mmproj": "mmproj-WeVisOne-VL-F16.gguf",
+        "detection_prompt": "hands",
+        "detail_positive_prompt": "ultra-detailed sharp eyes, realistic iris reflections, crystal clear, 8k",
+        "detail_negative_prompt": "blurry, noisy, distorted, low quality, artifacts",
+        "crop_factor": 1.5,
+        "target_detail_resolution": 768,
+        "steps": 8,
+        "cfg": 1.5,
+        "denoise": 0.4,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "seed": 555,
+        "control_after_generate": "fixed",
+        "max_detections": 4,
+        "feather_mask": 16,
+        "free_vram_after": true,
+        "detector_model_override": "",
+        "detector_mmproj_override": "",
+        "gpu_layers": -1,
+        "context_size": 4096,
+        "use_latent_mask": true,
+        "skip_upscale_if_larger": true,
+        "encode_final_latent": true
+      },
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 17,
+      "type": "PreviewImage",
+      "pos": [
+        1080.0,
+        640.0
+      ],
+      "size": [
+        400.0,
+        340.0
+      ],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 30
+        }
+      ],
+      "outputs": [],
+      "title": "Preview — Direct Detailer Repaired Output",
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {},
+      "color": "#333",
+      "bgcolor": "#444"
+    }
+  ],
+  "links": [
+    [
+      1,
+      2,
+      0,
+      5,
+      0,
+      "IMAGE"
+    ],
+    [
+      2,
+      4,
+      0,
+      5,
+      1,
+      "GGUF_VL_MODEL"
+    ],
+    [
+      3,
+      5,
+      0,
+      6,
+      0,
+      "IMAGE"
+    ],
+    [
+      4,
+      2,
+      0,
+      7,
+      0,
+      "IMAGE"
+    ],
+    [
+      5,
+      5,
+      2,
+      7,
+      1,
+      "STRING"
+    ],
+    [
+      6,
+      7,
+      0,
+      10,
+      0,
+      "IMAGE"
+    ],
+    [
+      7,
+      3,
+      2,
+      10,
+      1,
+      "VAE"
+    ],
+    [
+      8,
+      10,
+      0,
+      11,
+      0,
+      "LATENT"
+    ],
+    [
+      9,
+      7,
+      1,
+      11,
+      1,
+      "MASK"
+    ],
+    [
+      10,
+      3,
+      1,
+      8,
+      0,
+      "CLIP"
+    ],
+    [
+      11,
+      5,
+      3,
+      8,
+      1,
+      "STRING"
+    ],
+    [
+      12,
+      3,
+      1,
+      9,
+      0,
+      "CLIP"
+    ],
+    [
+      13,
+      3,
+      0,
+      12,
+      0,
+      "MODEL"
+    ],
+    [
+      14,
+      8,
+      0,
+      12,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      15,
+      9,
+      0,
+      12,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      16,
+      11,
+      0,
+      12,
+      3,
+      "LATENT"
+    ],
+    [
+      17,
+      12,
+      0,
+      13,
+      0,
+      "LATENT"
+    ],
+    [
+      18,
+      3,
+      2,
+      13,
+      1,
+      "VAE"
+    ],
+    [
+      19,
+      7,
+      2,
+      14,
+      0,
+      "ZIGGART_STITCH_PIPE"
+    ],
+    [
+      20,
+      13,
+      0,
+      14,
+      1,
+      "IMAGE"
+    ],
+    [
+      21,
+      14,
+      0,
+      15,
+      0,
+      "IMAGE"
+    ],
+    [
+      22,
+      2,
+      0,
+      15,
+      1,
+      "IMAGE"
+    ],
+    [
+      23,
+      5,
+      3,
+      15,
+      2,
+      "STRING"
+    ],
+    [
+      24,
+      5,
+      4,
+      15,
+      3,
+      "STRING"
+    ],
+    [
+      25,
+      2,
+      0,
+      16,
+      0,
+      "IMAGE"
+    ],
+    [
+      26,
+      3,
+      0,
+      16,
+      1,
+      "MODEL"
+    ],
+    [
+      27,
+      3,
+      1,
+      16,
+      2,
+      "CLIP"
+    ],
+    [
+      28,
+      3,
+      2,
+      16,
+      3,
+      "VAE"
+    ],
+    [
+      29,
+      5,
+      3,
+      16,
+      5,
+      "STRING"
+    ],
+    [
+      30,
+      16,
+      0,
+      17,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "GUIDE & OVERVIEW",
+      "bounding": [
+        -420.0,
+        -240.0,
+        2360.0,
+        190.0
+      ],
+      "color": "#594a28",
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "1. Source Image & GGUF Quality & Anatomy Critic",
+      "bounding": [
+        -420.0,
+        -10.0,
+        920.0,
+        880.0
+      ],
+      "color": "#223355",
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "2A. Usage A — Surgical Repair via BBox Crop + Custom KSampler + BBox Feathered Stitch",
+      "bounding": [
+        540.0,
+        -10.0,
+        1400.0,
+        560.0
+      ],
+      "color": "#4a2b4d",
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "2B. Usage B — Direct Critic fix_positive_prompt -> Detailers Krea2",
+      "bounding": [
+        540.0,
+        580.0,
+        1400.0,
+        580.0
+      ],
+      "color": "#1f4e5f",
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.65,
+      "offset": [
+        150,
+        100
+      ]
+    },
+    "workflow_title": "04 - Self-Healing Quality & Anatomy Critic + BBox Crop & Feathered Stitch"
+  },
+  "version": 0.4
+}
