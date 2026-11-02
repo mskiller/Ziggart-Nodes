@@ -1680,6 +1680,55 @@ def _install_zero_build_3d_shims(vendor_root: Path, auto_install: bool = True) -
             text=True,
         )
 
+    # 1b. Compatibility shims for Transformers v5+ where legacy pruning/head-mask helpers
+    # used by SPAR3D's bundled DINOv2 implementation were removed.
+    try:
+        import transformers.pytorch_utils as _tpu  # type: ignore[import-not-found]
+        from transformers.modeling_utils import PreTrainedModel  # type: ignore[import-not-found]
+
+        if not hasattr(_tpu, "find_pruneable_heads_and_indices"):
+
+            def _find_pruneable_heads_and_indices(
+                heads: Any,
+                n_heads: int,
+                head_size: int,
+                already_pruned_heads: Any,
+            ) -> tuple[set[int], Any]:
+                assert torch is not None
+                mask = torch.ones(n_heads, head_size)
+                heads_set = set(heads) - set(already_pruned_heads)
+                for head in heads_set:
+                    head -= sum(1 if h < head else 0 for h in already_pruned_heads)
+                    mask[head] = 0
+                mask = mask.view(-1).contiguous().eq(1)
+                index = torch.arange(len(mask))[mask].long()
+                return heads_set, index
+
+            _tpu.find_pruneable_heads_and_indices = _find_pruneable_heads_and_indices  # type: ignore[attr-defined]
+
+        if not hasattr(_tpu, "prune_linear_layer"):
+
+            def _prune_linear_layer(layer: Any, index: Any, dim: int = 0) -> Any:
+                return layer
+
+            _tpu.prune_linear_layer = _prune_linear_layer  # type: ignore[attr-defined]
+
+        if not hasattr(PreTrainedModel, "get_head_mask"):
+
+            def _get_head_mask(
+                self: Any,
+                head_mask: Any,
+                num_hidden_layers: int,
+                is_attention_chunked: bool = False,
+            ) -> Any:
+                if head_mask is not None:
+                    return head_mask
+                return [None] * int(num_hidden_layers)
+
+            PreTrainedModel.get_head_mask = _get_head_mask  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
     # 2. Pure-PyTorch `uv_unwrapper` shim if compiled C++ extension is unavailable
     has_compiled_unwrapper = False
     try:
