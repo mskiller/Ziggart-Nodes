@@ -1462,8 +1462,8 @@ def _pure_torch_rasterize_uv(
             dr = torch.arange(bh, device=dev, dtype=torch.long)[None, :, None]
             dc = torch.arange(bw, device=dev, dtype=torch.long)[None, None, :]
 
-            rows = r_min[t_ids, None, None] + dr  # (K, bh, bw)
-            cols = c_min[t_ids, None, None] + dc  # (K, bh, bw)
+            rows = (r_min[t_ids, None, None] + dr).expand(-1, bh, bw)  # (K, bh, bw)
+            cols = (c_min[t_ids, None, None] + dc).expand(-1, bh, bw)  # (K, bh, bw)
             in_box = (rows <= r_max[t_ids, None, None]) & (cols <= c_max[t_ids, None, None])
 
             px = (cols.float() / float(res)).clamp(0.0, 1.0)
@@ -1587,8 +1587,8 @@ def _pure_torch_custom_rasterize(
             bw = int(dw[t_ids].max().item())
             dr = torch.arange(bh, device=dev, dtype=torch.long)[None, :, None]
             dc = torch.arange(bw, device=dev, dtype=torch.long)[None, None, :]
-            rows = r_min[t_ids, None, None] + dr
-            cols = c_min[t_ids, None, None] + dc
+            rows = (r_min[t_ids, None, None] + dr).expand(-1, bh, bw)
+            cols = (c_min[t_ids, None, None] + dc).expand(-1, bh, bw)
             in_box = (rows <= r_max[t_ids, None, None]) & (cols <= c_max[t_ids, None, None])
 
             px = cols.float() + 0.5
