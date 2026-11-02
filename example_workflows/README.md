@@ -1,6 +1,6 @@
 # Ziggart Nodes — Workflows Exemples (`example_workflows/`)
 
-Ce dossier contient **9 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 18 nœuds Ziggart** dans tous leurs modes et cas d'usage.
+Ce dossier contient **9 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 23 nœuds Ziggart** dans tous leurs modes et cas d'usage.
 
 ---
 
@@ -91,11 +91,20 @@ Tous les usages de **`GGUF Vision Prompt` (`ZiggartGGUFVisionPrompt`)** et de l'
 ---
 
 ### 8. [`08_Master_All_18_Nodes_Complete_Showcase.json`](./08_Master_All_18_Nodes_Complete_Showcase.json)
-**Vitrine Architecturale Complète** réunissant **les 18 nœuds Ziggart** sur un seul canevas organisé en 5 colonnes thématiques :
+**Vitrine Architecturale Complète** réunissant **les 18 nœuds 2D/VLM Ziggart** sur un seul canevas organisé en 5 colonnes thématiques :
 1. **Wildcard & Canonical Theme Suite** (`ZiggartWildcardProcessor`, `ZiggartWildcardProcessorAllInOne`, `ZiggartCollectionSceneBuilder`, `ZiggartWildcardEncode`, `ZiggartCanonicalThemeResolver`, `ZiggartWildcardVLMEnhancer`)
 2. **GGUF VLM Loader, Vision Prompt & Base Diffusion** (`ZiggartGGUFVLMLoader`, `ZiggartGGUFVisionPrompt`)
 3. **Detailers Krea2 Suite** (`ZiggartMultiSubjectDetailer`, `ZiggartDetailerKrea2`, `ZiggartAutoPromptDetailer`)
 4. **Detector, Quality Critic, Mask Inpaint & BBox Crop/Stitch** (`ZiggartWeVisOneDetector`, `ZiggartVLMImageCritic`, `ZiggartVLMInpaintPrompter`, `ZiggartCropByBBox`, `ZiggartStitchByBBox`)
 5. **Smart Tile Upscaler & Recipe Comparison Saver** (`ZiggartSmartTileUpscaler`, `ZiggartWildcardRecipeSaver`)
 
+---
 
+### 9. [`09_3D_Generation_Idol_Gaussian_To_Mesh_SPAR3D_and_Hunyuan3D.json`](./09_3D_Generation_Idol_Gaussian_To_Mesh_SPAR3D_and_Hunyuan3D.json)
+Pipeline complet des **5 nœuds de génération 3D (`Ziggart/3D`)** optimisés pour **RTX 3070 Ti (8 Go – 16 Go VRAM)** :
+- **Branche 1 — `ZiggartIdolImageToGaussian` $\rightarrow$ `ZiggartGaussianToMesh` + `Ziggart3DTurntableRenderer`** :
+  - Génère un **3D Gaussian Splat (`.ply`)** à partir d'une seule image avec **`speridlabs/idol`** (`~7.2 Go` VRAM), le convertit en maillage polygonal **`.glb` / `.obj`** avec couleurs par sommet et lissage Taubin, et calcule une séquence **Turntable 360°** (`IMAGE` + `MASK`).
+- **Branche 2 — `ZiggartSPAR3DImageToMesh` (`low_vram_mode = True`, `~7.0 Go` VRAM)** :
+  - Génère un maillage 3D **`.glb` texturé UV** et son nuage de points intermédiaire `.ply` en ~1 à 2 secondes avec **SPAR3D** (Stability AI).
+- **Branche 3 — `ZiggartHunyuan3DImageToMesh` (`Hunyuan3D-2mini`, `~5.5 Go` VRAM)** :
+  - Génère un maillage 3D `.glb` haute précision avec déchargement séquentiel automatique du modèle Shape avant l'exécution optionnelle de `Hunyuan3DPaintPipeline`.

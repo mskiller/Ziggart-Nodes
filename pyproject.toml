@@ -1,7 +1,7 @@
 [project]
 name = "ziggart-nodes"
-description = "High-speed 700MB+ YAML/TXT Wildcard & Canonical Theme suite, in-process GGUF vision-language prompting, WeVisOne-VL open-vocabulary detection, and Krea 2 Turbo Detailer & Smart Tile Upscaler nodes."
-version = "1.2.0"
+description = "High-speed 700MB+ YAML/TXT Wildcard & Canonical Theme suite, in-process GGUF vision-language prompting, WeVisOne-VL open-vocabulary detection, Krea 2 Turbo Detailer & Smart Tile Upscaler, and RTX 3070 Ti 3D Gaussian/Mesh generation (Idol, SPAR3D, Hunyuan3D-2mini)."
+version = "1.3.0"
 authors = [
     { name = "mskiller", email = "mskiller51@gmail.com" }
 ]

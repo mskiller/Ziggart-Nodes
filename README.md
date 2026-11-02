@@ -1,14 +1,15 @@
-# Ziggart Nodes for ComfyUI (`v1.2.0`)
+# Ziggart Nodes for ComfyUI (`v1.3.0`)
 
-A complete collection of **18 local, in-process ComfyUI nodes** combining:
+A complete collection of **23 local, in-process ComfyUI nodes** combining:
 - **Zero-Freeze 700+ MB Wildcard & Canonical Theme Engines** (Way A + Way C architectures)
 - **GGUF Vision-Language Models (VLMs)** via `llama-cpp-python`
 - **WeVisOne-VL Open-Vocabulary Visual Grounding**
 - **Krea 2 Turbo** High-Resolution Detailing & Tiled Upscaling
+- **RTX 3070 Ti (8GB–16GB VRAM) 3D Generation Suite**: **`speridlabs/idol` Image-to-Gaussian Splat (`.ply`)**, **Gaussian-to-Mesh (`.glb`/`.obj`)**, **SPAR3D**, **Hunyuan3D-2mini**, and **360° Turntable Rendering**
 
 ---
 
-## Included Nodes (18 Nodes)
+## Included Nodes (23 Nodes)
 
 | Display Name | Internal Class | Category | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -30,6 +31,11 @@ A complete collection of **18 local, in-process ComfyUI nodes** combining:
 | **WeVisOne-VL Detector** | `ZiggartWeVisOneDetector` | `Ziggart/Detector` | Standalone open-vocabulary grounding node outputting bounding-box previews, masks, cropped patches, and `bboxes_json`. |
 | **BBox Crop** | `ZiggartCropByBBox` | `Ziggart/Detector` | Extracts mod-8 padded, resolution-standardized crops from `bboxes_json` and outputs a `ZIGGART_STITCH_PIPE` for custom ComfyUI workflows. |
 | **BBox Feathered Stitch** | `ZiggartStitchByBBox` | `Ziggart/Detector` | Blends externally processed crops back into their original locations using `ZIGGART_STITCH_PIPE` and Gaussian alpha feathering. |
+| **Idol Image to 3D Gaussian Splat (PLY)** | `ZiggartIdolImageToGaussian` | `Ziggart/3D` | Generates 3D Gaussian Splats (`.ply`, up to 1,048,576 Gaussians) from a single image using **`speridlabs/idol`** (`~7.2 GB` peak VRAM, auto-evicts ComfyUI VRAM). |
+| **Convert Idol Gaussian Splat to 3D Mesh (GLB/OBJ)** | `ZiggartGaussianToMesh` | `Ziggart/3D` | Converts `ZIGGART_GSPLAT` or `.ply` Gaussian Splats into watertight/smoothed polygon 3D meshes (`.glb`, `.obj`, `.ply`) with vertex colors and normals. |
+| **SPAR3D Image to 3D Mesh (Fast 7GB VRAM)** | `ZiggartSPAR3DImageToMesh` | `Ziggart/3D` | Generates UV-unwrapped textured 3D meshes (`.glb`) + intermediate point clouds (`.ply`) in ~1–2s using Stability AI's **SPAR3D** with `low_vram_mode=True` (`~7.0 GB` VRAM). |
+| **Hunyuan3D-2mini Image to 3D Mesh (GLB)** | `ZiggartHunyuan3DImageToMesh` | `Ziggart/3D` | Generates high-sharpness 3D meshes (`.glb`) using **Hunyuan3D-2mini (0.6B, ~5.5 GB VRAM)** and sequentially unloads Shape before running optional PBR Paint. |
+| **3D Gaussian / Mesh Turntable Renderer** | `Ziggart3DTurntableRenderer` | `Ziggart/3D` | Renders 360° turntable `IMAGE` and `MASK` batches from any `ZIGGART_GSPLAT` or `ZIGGART_MESH`. |
 
 ---
 
@@ -440,11 +446,41 @@ Takes an `IMAGE`, a `MASK` (drawn in ComfyUI's MaskEditor or from a detector), a
 
 ---
 
+## 3D Generation Suite (`Ziggart/3D` — RTX 3070 Ti 8GB–16GB VRAM Optimized)
+
+All 5 nodes in `Ziggart/3D` share `Ziggart3DModelManager`, which automatically evicts loaded ComfyUI checkpoints/VLMs before running 3D generation (`unload_comfy_models = True`), ensures only **one** 3D model is in VRAM at a time, and **automatically downloads/installs missing 3D SDKs (`idol-sdk`, `stable-point-aware-3d`, `Hunyuan3D-2`) into `Ziggart-Nodes/.cache/vendor_3d/` on first execution**.
+
+### 17. Idol Image to 3D Gaussian Splat (PLY)
+*Class: `ZiggartIdolImageToGaussian` | Category: `Ziggart/3D`*
+- Uses **`speridlabs/idol`** (`~7.2 GB` peak VRAM, <2s inference) to convert a single image (`synthetic` render or `real` photo) into up to `1,048,576` 3D Gaussians saved as a `.ply` file.
+- **Hugging Face Authentication**: Because Idol uses `facebook/dinov3-vith16plus-pretrain-lvd1689m` and `black-forest-labs/FLUX.2-dev` (VAE), paste your Hugging Face token into the `hf_token` input field on the first run (or set `HF_TOKEN` in your environment) after accepting their terms on Hugging Face.
+- **Outputs**: `ply_path` (`STRING`), `gsplat_data` (`ZIGGART_GSPLAT`), `preprocessed_image` (`IMAGE`), and `preview_image` (`IMAGE` 2×2 contact sheet).
+
+### 18. Convert Idol Gaussian Splat to 3D Mesh (GLB/OBJ)
+*Class: `ZiggartGaussianToMesh` | Category: `Ziggart/3D`*
+- Converts `gsplat_data` or any `.ply` Gaussian Splat file into a watertight/smoothed polygon 3D mesh (`.glb`, `.obj`, or `.ply`) with baked vertex colors and normals.
+- Supports `auto`, `open3d_poisson`, `open3d_ball_pivoting`, and a built-in zero-dependency `gaussian_density_surface` reconstructor with Taubin smoothing and vertex-clustering decimation.
+
+### 19. SPAR3D Image to 3D Mesh (Fast 7GB VRAM)
+*Class: `ZiggartSPAR3DImageToMesh` | Category: `Ziggart/3D`*
+- Wraps Stability AI's **`stabilityai/stable-point-aware-3d`** with `low_vram_mode = True` (`SPAR3D_LOW_VRAM=1`, `~7.0 GB` VRAM) enabled by default to produce a UV-unwrapped textured `.glb` mesh and intermediate `.ply` point cloud in ~1–2 seconds.
+
+### 20. Hunyuan3D-2mini Image to 3D Mesh (GLB)
+*Class: `ZiggartHunyuan3DImageToMesh` | Category: `Ziggart/3D`*
+- Runs Tencent's **`Hunyuan3D-2mini (0.6B - 6GB VRAM)`** (`octree_resolution = 256`, `num_chunks = 8000`) for ultra-sharp watertight geometry.
+- **Sequential VRAM Protection**: When `generate_texture = True`, it unloads the Shape DiT model and empties CUDA cache **before** loading `Hunyuan3DPaintPipeline` with CPU offload.
+
+### 21. 3D Gaussian / Mesh Turntable Renderer
+*Class: `Ziggart3DTurntableRenderer` | Category: `Ziggart/3D`*
+- Renders single or multi-frame 360° turntable `IMAGE` (`[N, H, W, 3]`) and `MASK` (`[N, H, W]`) batches from either a `ZIGGART_GSPLAT` or `ZIGGART_MESH`.
+
+---
+
 ## Architecture & Workflows
 
 ### Ready-to-Load Example Workflows (`example_workflows/`)
 
-All **18 Ziggart nodes** and their distinct operating modes are provided as ready-to-load ComfyUI workflow JSON files inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
+All **23 Ziggart nodes** and their distinct operating modes are provided as ready-to-load ComfyUI workflow JSON files inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
 
 | Workflow File | Featured Ziggart Nodes | Covered Usage Modes |
 | :--- | :--- | :--- |
@@ -455,8 +491,9 @@ All **18 Ziggart nodes** and their distinct operating modes are provided as read
 | [`05_Mask_Aware_Inpainting_and_WeVisOne_Detector.json`](./example_workflows/05_Mask_Aware_Inpainting_and_WeVisOne_Detector.json) | `ZiggartWeVisOneDetector`, `ZiggartVLMInpaintPrompter`, `ZiggartCropByBBox`, `ZiggartStitchByBBox`, `ZiggartGGUFVLMLoader`, `ZiggartWildcardRecipeSaver` | Standalone open-vocabulary mask generation with **WeVisOne-VL Detector**, scene-harmonized prompt generation with **GGUF Mask-Aware Inpaint Prompter**, and 768px crop inpainting + feathered stitch. |
 | [`06_Smart_Tile_Upscaler_VLM_vs_Fast_Mode.json`](./example_workflows/06_Smart_Tile_Upscaler_VLM_vs_Fast_Mode.json) | `ZiggartSmartTileUpscaler`, `ZiggartGGUFVLMLoader`, `ZiggartWildcardRecipeSaver` | **Mode A** (`enable_vlm_tile_prompts = True` anti-hallucination per-tile VLM captioning) vs. **Mode B** (`enable_vlm_tile_prompts = False` fast pure-Krea2 tiled upscaling). |
 | [`07_Multimodal_VLM_Studio_VisionPrompt_and_Reference_Harmonizer.json`](./example_workflows/07_Multimodal_VLM_Studio_VisionPrompt_and_Reference_Harmonizer.json) | `ZiggartGGUFVisionPrompt`, `ZiggartWeVisOneDetector`, `ZiggartWildcardVLMEnhancer`, `ZiggartGGUFVLMLoader`, `ZiggartWildcardRecipeSaver` | Single-pass Image-to-Prompt, Multi-pass Specialist Analysis (`analyze_composition`, `analyze_subject`, `analyze_style`) with `detail_crop` + `reference_image`, and reference-guided wildcard harmonization. |
-| [`08_Master_All_18_Nodes_Complete_Showcase.json`](./example_workflows/08_Master_All_18_Nodes_Complete_Showcase.json) | **All 18 Ziggart Nodes** | Complete 5-column master architecture pipeline connecting every single Ziggart node on one canvas. |
-| [`09_Sdxl_Test_Free_Migrated_to_Ziggart.json`](./example_workflows/09_Sdxl_Test_Free_Migrated_to_Ziggart.json) | `ZiggartWildcardProcessor` | Drop-in migration of `Sdxl+test-free.json` replacing `ImpactWildcardProcessor` with `ZiggartWildcardProcessor`. |
+| [`08_Master_All_18_Nodes_Complete_Showcase.json`](./example_workflows/08_Master_All_18_Nodes_Complete_Showcase.json) | **All 18 Core 2D/VLM Ziggart Nodes** | Complete 5-column master architecture pipeline connecting the 18 Wildcard, VLM, Detector, and Detailer nodes. |
+
+| [`09_3D_Generation_Idol_Gaussian_To_Mesh_SPAR3D_and_Hunyuan3D.json`](./example_workflows/09_3D_Generation_Idol_Gaussian_To_Mesh_SPAR3D_and_Hunyuan3D.json) | `ZiggartIdolImageToGaussian`, `ZiggartGaussianToMesh`, `ZiggartSPAR3DImageToMesh`, `ZiggartHunyuan3DImageToMesh`, `Ziggart3DTurntableRenderer` | Complete 3D showcase: **Path A** (Idol `.ply` Gaussian Splat $\rightarrow$ `.glb` Mesh + 360° Turntable), **Path B** (SPAR3D 7GB Low-VRAM Textured `.glb`), and **Path C** (Hunyuan3D-2mini 6GB `.glb`). |
 
 ### Workflow A: End-to-End Canonical Duo Scene + Multi-Character Detailing
 

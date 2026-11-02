@@ -33,6 +33,7 @@ nodes = load_module("nodes", "nodes.py")
 detailer_nodes = load_module("detailer_nodes", "detailer_nodes.py")
 addon_nodes = load_module("addon_nodes", "addon_nodes.py")
 wildcard_nodes = load_module("wildcard_nodes", "wildcard_nodes.py")
+three_d_nodes = load_module("three_d_nodes", "three_d_nodes.py")
 
 
 class WildcardEngineTests(unittest.TestCase):
@@ -355,8 +356,9 @@ class ExampleWorkflowsTests(unittest.TestCase):
             **detailer_nodes.NODE_CLASS_MAPPINGS,
             **addon_nodes.NODE_CLASS_MAPPINGS,
             **wildcard_nodes.NODE_CLASS_MAPPINGS,
+            **three_d_nodes.NODE_CLASS_MAPPINGS,
         }
-        self.assertEqual(len(all_mappings), 18)
+        self.assertEqual(len(all_mappings), 23)
 
         wf_dir = ROOT / "example_workflows"
         self.assertTrue(wf_dir.is_dir(), "example_workflows directory must exist")

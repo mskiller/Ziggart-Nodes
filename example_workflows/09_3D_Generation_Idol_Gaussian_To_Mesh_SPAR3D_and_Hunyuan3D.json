@@ -1,0 +1,548 @@
+{
+  "id": "a49d1302-7c88-4e11-b8f2-3d00103070ee",
+  "revision": 0,
+  "last_node_id": 10,
+  "last_link_id": 9,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Note",
+      "pos": [
+        -420.0,
+        -210.0
+      ],
+      "size": [
+        1980.0,
+        125.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Guide — Ziggart 3D Generation Suite (Idol Gaussian Splat, Gaussian->Mesh, SPAR3D & Hunyuan3D-2mini for RTX 3070 Ti)",
+      "properties": {
+        "Node name for S&R": "Note"
+      },
+      "widgets_values": [
+        "WORKFLOW 10 : ZIGGART 3D GENERATION SUITE (RTX 3070 Ti 8GB-16GB VRAM READY)\n1. PATH A (Idol -> Gaussian Splat -> Mesh + Turntable) : ZiggartIdolImageToGaussian generates a .ply 3D Gaussian Splat (~7.2GB VRAM), ZiggartGaussianToMesh converts it into a .glb/.obj mesh, and Ziggart3DTurntableRenderer renders 360-degree turntable frames.\n2. PATH B (SPAR3D Fast Textured Mesh) : ZiggartSPAR3DImageToMesh runs with low_vram_mode=True (~7.0GB VRAM) to produce a UV-unwrapped textured .glb mesh in ~1-2s.\n3. PATH C (Hunyuan3D-2mini High-Sharpness Mesh) : ZiggartHunyuan3DImageToMesh runs the 0.6B shape model (~5.5GB VRAM) and unloads it before running optional PBR texture painting."
+      ],
+      "color": "#234",
+      "bgcolor": "#356"
+    },
+    {
+      "id": 2,
+      "type": "LoadImage",
+      "pos": [
+        -410.0,
+        20.0
+      ],
+      "size": [
+        340.0,
+        310.0
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            1,
+            5,
+            7
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "Input 2D Subject Image",
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ]
+    },
+    {
+      "id": 3,
+      "type": "ZiggartIdolImageToGaussian",
+      "pos": [
+        20.0,
+        20.0
+      ],
+      "size": [
+        420.0,
+        340.0
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "ply_path",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "gsplat_data",
+          "type": "ZIGGART_GSPLAT",
+          "slot_index": 1,
+          "links": [
+            2,
+            4
+          ]
+        },
+        {
+          "name": "preprocessed_image",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "preview_image",
+          "type": "IMAGE",
+          "slot_index": 3,
+          "links": []
+        }
+      ],
+      "title": "1A. Idol Image to 3D Gaussian Splat (.ply)",
+      "properties": {
+        "Node name for S&R": "ZiggartIdolImageToGaussian"
+      },
+      "widgets_values": [
+        "synthetic",
+        "262144",
+        "bf16",
+        42,
+        "ziggart_idol_splat",
+        true,
+        true,
+        "speridlabs/idol",
+        ""
+      ]
+    },
+    {
+      "id": 4,
+      "type": "ZiggartGaussianToMesh",
+      "pos": [
+        500.0,
+        20.0
+      ],
+      "size": [
+        420.0,
+        290.0
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "gsplat_data",
+          "type": "ZIGGART_GSPLAT",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh_path",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "mesh_data",
+          "type": "ZIGGART_MESH",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "preview_image",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": [
+            3
+          ]
+        }
+      ],
+      "title": "1B. Convert Idol Gaussian Splat -> 3D Mesh (.glb)",
+      "properties": {
+        "Node name for S&R": "ZiggartGaussianToMesh"
+      },
+      "widgets_values": [
+        "auto",
+        "glb",
+        0.15,
+        112,
+        50000,
+        3,
+        "ziggart_idol_mesh",
+        ""
+      ]
+    },
+    {
+      "id": 5,
+      "type": "Ziggart3DTurntableRenderer",
+      "pos": [
+        500.0,
+        360.0
+      ],
+      "size": [
+        420.0,
+        250.0
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "gsplat_data",
+          "type": "ZIGGART_GSPLAT",
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            9
+          ]
+        },
+        {
+          "name": "masks",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "1C. 360° Turntable Renderer",
+      "properties": {
+        "Node name for S&R": "Ziggart3DTurntableRenderer"
+      },
+      "widgets_values": [
+        12,
+        0.0,
+        360.0,
+        20.0,
+        512,
+        2,
+        ""
+      ]
+    },
+    {
+      "id": 6,
+      "type": "ZiggartSPAR3DImageToMesh",
+      "pos": [
+        20.0,
+        420.0
+      ],
+      "size": [
+        420.0,
+        320.0
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 5
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh_path",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "mesh_data",
+          "type": "ZIGGART_MESH",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "point_cloud_ply_path",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "preview_image",
+          "type": "IMAGE",
+          "slot_index": 3,
+          "links": [
+            6
+          ]
+        }
+      ],
+      "title": "2. SPAR3D Image to Textured 3D Mesh (~7GB VRAM)",
+      "properties": {
+        "Node name for S&R": "ZiggartSPAR3DImageToMesh"
+      },
+      "widgets_values": [
+        true,
+        1024,
+        "none",
+        -1,
+        "ziggart_spar3d_mesh",
+        true,
+        true,
+        "stabilityai/stable-point-aware-3d",
+        ""
+      ]
+    },
+    {
+      "id": 7,
+      "type": "ZiggartHunyuan3DImageToMesh",
+      "pos": [
+        20.0,
+        800.0
+      ],
+      "size": [
+        420.0,
+        390.0
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh_path",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "mesh_data",
+          "type": "ZIGGART_MESH",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "preprocessed_image",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "preview_image",
+          "type": "IMAGE",
+          "slot_index": 3,
+          "links": [
+            8
+          ]
+        }
+      ],
+      "title": "3. Hunyuan3D-2mini Image to 3D Mesh (~6GB VRAM)",
+      "properties": {
+        "Node name for S&R": "ZiggartHunyuan3DImageToMesh"
+      },
+      "widgets_values": [
+        "Hunyuan3D-2mini (0.6B - 6GB VRAM)",
+        30,
+        5.5,
+        256,
+        8000,
+        false,
+        40000,
+        12345,
+        "ziggart_hunyuan3d_mesh",
+        true,
+        true,
+        ""
+      ]
+    },
+    {
+      "id": 8,
+      "type": "PreviewImage",
+      "pos": [
+        980.0,
+        20.0
+      ],
+      "size": [
+        320.0,
+        300.0
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 3
+        }
+      ],
+      "outputs": [],
+      "title": "Idol Reconstructed Mesh Preview",
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      }
+    },
+    {
+      "id": 9,
+      "type": "PreviewImage",
+      "pos": [
+        980.0,
+        360.0
+      ],
+      "size": [
+        320.0,
+        300.0
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 6
+        }
+      ],
+      "outputs": [],
+      "title": "SPAR3D Textured Mesh Preview",
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      }
+    },
+    {
+      "id": 10,
+      "type": "PreviewImage",
+      "pos": [
+        980.0,
+        700.0
+      ],
+      "size": [
+        320.0,
+        300.0
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 8
+        },
+        {
+          "name": "turntable",
+          "type": "IMAGE",
+          "link": 9
+        }
+      ],
+      "outputs": [],
+      "title": "Hunyuan3D Preview",
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      }
+    }
+  ],
+  "links": [
+    [
+      1,
+      2,
+      0,
+      3,
+      0,
+      "IMAGE"
+    ],
+    [
+      2,
+      3,
+      1,
+      4,
+      0,
+      "ZIGGART_GSPLAT"
+    ],
+    [
+      3,
+      4,
+      2,
+      8,
+      0,
+      "IMAGE"
+    ],
+    [
+      4,
+      3,
+      1,
+      5,
+      0,
+      "ZIGGART_GSPLAT"
+    ],
+    [
+      5,
+      2,
+      0,
+      6,
+      0,
+      "IMAGE"
+    ],
+    [
+      6,
+      6,
+      3,
+      9,
+      0,
+      "IMAGE"
+    ],
+    [
+      7,
+      2,
+      0,
+      7,
+      0,
+      "IMAGE"
+    ],
+    [
+      8,
+      7,
+      3,
+      10,
+      0,
+      "IMAGE"
+    ],
+    [
+      9,
+      5,
+      0,
+      10,
+      1,
+      "IMAGE"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}
