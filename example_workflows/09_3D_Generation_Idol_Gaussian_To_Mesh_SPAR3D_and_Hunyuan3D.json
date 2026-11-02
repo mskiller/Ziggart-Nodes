@@ -1,7 +1,7 @@
 {
   "id": "a49d1302-7c88-4e11-b8f2-3d00103070ee",
   "revision": 0,
-  "last_node_id": 10,
+  "last_node_id": 11,
   "last_link_id": 9,
   "nodes": [
     {
@@ -453,15 +453,37 @@
           "name": "images",
           "type": "IMAGE",
           "link": 8
-        },
+        }
+      ],
+      "outputs": [],
+      "title": "Hunyuan3D Preview",
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      }
+    },
+    {
+      "id": 11,
+      "type": "PreviewImage",
+      "pos": [
+        980.0,
+        1040.0
+      ],
+      "size": [
+        320.0,
+        300.0
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
         {
-          "name": "turntable",
+          "name": "images",
           "type": "IMAGE",
           "link": 9
         }
       ],
       "outputs": [],
-      "title": "Hunyuan3D Preview",
+      "title": "360° Turntable Frames Preview",
       "properties": {
         "Node name for S&R": "PreviewImage"
       }
@@ -536,8 +558,8 @@
       9,
       5,
       0,
-      10,
-      1,
+      11,
+      0,
       "IMAGE"
     ]
   ],
