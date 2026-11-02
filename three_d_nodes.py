@@ -1381,6 +1381,10 @@ class Ziggart3DModelManager:
                 try:
                     if hasattr(pipe, "to"):
                         pipe.to("cpu")
+                    for sub_attr in ("denoiser", "decoder", "decoder_gs", "background_remover", "image_encoder"):
+                        sub_mod = getattr(pipe, sub_attr, None)
+                        if sub_mod is not None and hasattr(sub_mod, "to"):
+                            sub_mod.to("cpu")
                 except Exception:
                     pass
                 del pipe
@@ -1428,19 +1432,49 @@ class Ziggart3DModelManager:
 
             _ensure_backend_installed("idol", auto_install=True)
 
+            # Guard against broken/stub flash_attn packages on Windows where
+            # importlib.util.find_spec("flash_attn") is not None but flash_attn_func is None
+            has_working_flash_attn = False
+            try:
+                import flash_attn  # type: ignore[import-not-found]
+
+                has_working_flash_attn = callable(getattr(flash_attn, "flash_attn_func", None)) and callable(
+                    getattr(flash_attn, "flash_attn_qkvpacked_func", None)
+                )
+            except Exception:
+                has_working_flash_attn = False
+
+            if not has_working_flash_attn:
+                os.environ["ATTN_BACKEND"] = "sdpa"
+
             # Strategy 1: Direct Python SDK (`idol` package from `speridlabs/idol-sdk`)
             try:
                 import idol  # type: ignore[import-not-found]
 
+                try:
+                    from idol.models import layers as idol_layers  # type: ignore[import-not-found]
+
+                    if not has_working_flash_attn and getattr(idol_layers, "ATTN_BACKEND", None) == "flash_attn":
+                        idol_layers.ATTN_BACKEND = "sdpa"
+                except Exception:
+                    pass
+
                 if self._pipeline is None:
                     loader_fn = (
-                        getattr(idol, "load_pipeline", None)
-                        or getattr(idol, "IdolPipeline", None)
+                        getattr(idol, "IdolPipeline", None)
+                        or getattr(idol, "load_pipeline", None)
                         or getattr(idol, "Idol", None)
                     )
                     if loader_fn is not None:
+                        dinov3_dtype = "bf16" if precision in ("bf16", "fp16") else "fp32"
                         if hasattr(loader_fn, "from_pretrained"):
-                            self._pipeline = loader_fn.from_pretrained(model_id_or_path)
+                            try:
+                                self._pipeline = loader_fn.from_pretrained(
+                                    model_id_or_path,
+                                    dinov3_dtype=dinov3_dtype,
+                                )
+                            except TypeError:
+                                self._pipeline = loader_fn.from_pretrained(model_id_or_path)
                         else:
                             self._pipeline = loader_fn(model_id_or_path)
                         self._active_kind = "idol"
@@ -1453,17 +1487,23 @@ class Ziggart3DModelManager:
                         num_gaussians=int(num_gaussians),
                         seed=int(seed),
                     )
-                    if hasattr(result, "save_ply"):
+                    if hasattr(result, "gaussian") and hasattr(result.gaussian, "save_ply"):
+                        result.gaussian.save_ply(str(output_ply_path))
+                    elif hasattr(result, "save_ply"):
                         result.save_ply(str(output_ply_path))
                     elif isinstance(result, dict) and "ply_path" in result:
                         shutil.copyfile(result["ply_path"], output_ply_path)
                     elif isinstance(result, (str, Path)) and Path(result).is_file():
                         shutil.copyfile(result, output_ply_path)
-                    preprocessed = (
-                        result.get("input_image", pil_image)
-                        if isinstance(result, dict)
-                        else getattr(result, "input_image", pil_image)
-                    )
+
+                    if isinstance(result, dict):
+                        preprocessed = result.get("preprocessed_image") or result.get("input_image") or pil_image
+                    else:
+                        preprocessed = (
+                            getattr(result, "preprocessed_image", None)
+                            or getattr(result, "input_image", None)
+                            or pil_image
+                        )
                     if free_vram_after:
                         self.unload()
                     return output_ply_path, preprocessed

@@ -130,6 +130,71 @@ class ThreeDNodesMockedInferenceTests(unittest.TestCase):
                 self.assertEqual(tuple(pre_img.shape), (1, 64, 64, 3))
                 self.assertEqual(tuple(preview.shape), (1, 512, 512, 3))
 
+    def test_idol_pipeline_handles_broken_flash_attn_and_idol_output(self):
+        positions, colors, opacities, scales = _make_sphere_gaussians(64)
+
+        class FakeGaussian:
+            def save_ply(self, path):
+                three_d_nodes.save_gaussian_ply(path, positions, colors, opacities, scales)
+
+        class FakeIdolOutput:
+            def __init__(self, pil_img):
+                self.gaussian = FakeGaussian()
+                self.preprocessed_image = pil_img
+                self.camera = {"yaw": 0.0, "pitch": 0.0, "radius": 2.0, "fov": 40.0}
+
+        class FakeIdolPipeline:
+            dinov3_dtype_passed = None
+
+            @classmethod
+            def from_pretrained(cls, repo_id, **kwargs):
+                cls.dinov3_dtype_passed = kwargs.get("dinov3_dtype")
+                return cls()
+
+            def __call__(self, pil_image, **kwargs):
+                if fake_layers.ATTN_BACKEND == "flash_attn":
+                    # Simulates the Windows broken flash_attn_func=None crash
+                    return broken_flash_attn.flash_attn_func()
+                return FakeIdolOutput(pil_image)
+
+        broken_flash_attn = types.ModuleType("flash_attn")
+        broken_flash_attn.flash_attn_func = None
+        broken_flash_attn.flash_attn_qkvpacked_func = None
+
+        fake_layers = types.ModuleType("idol.models.layers")
+        fake_layers.ATTN_BACKEND = "flash_attn"
+        fake_models = types.ModuleType("idol.models")
+        fake_models.layers = fake_layers
+        fake_idol = types.ModuleType("idol")
+        fake_idol.IdolPipeline = FakeIdolPipeline
+        fake_idol.models = fake_models
+
+        with tempfile.TemporaryDirectory() as tmp:
+            node = three_d_nodes.ZiggartIdolImageToGaussian()
+            with (
+                mock.patch.dict(
+                    sys.modules,
+                    {
+                        "flash_attn": broken_flash_attn,
+                        "idol": fake_idol,
+                        "idol.models": fake_models,
+                        "idol.models.layers": fake_layers,
+                    },
+                ),
+                mock.patch.object(three_d_nodes, "_get_output_3d_dir", return_value=Path(tmp)),
+            ):
+                ply_path, gsplat_data, pre_img, preview = node.generate_gaussian(
+                    image=self.dummy_image,
+                    mode="synthetic",
+                    num_gaussians="262144",
+                    precision="bf16",
+                    seed=42,
+                )
+                self.assertEqual(fake_layers.ATTN_BACKEND, "sdpa")
+                self.assertEqual(FakeIdolPipeline.dinov3_dtype_passed, "bf16")
+                self.assertTrue(Path(ply_path).is_file())
+                self.assertEqual(gsplat_data["num_gaussians"], 64)
+
     def test_spar3d_node_runs_with_low_vram_mode(self):
         class FakeMesh:
             vertices = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
