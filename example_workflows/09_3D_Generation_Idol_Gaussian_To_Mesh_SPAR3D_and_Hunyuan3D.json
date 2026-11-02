@@ -20,7 +20,7 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "Guide — Ziggart 3D Generation Suite (Idol Gaussian Splat, Gaussian->Mesh, SPAR3D & Hunyuan3D-2mini for RTX 3070 Ti)",
+      "title": "Guide \u2014 Ziggart 3D Generation Suite (Idol Gaussian Splat, Gaussian->Mesh, SPAR3D & Hunyuan3D-2mini for RTX 3070 Ti)",
       "properties": {
         "Node name for S&R": "Note"
       },
@@ -131,6 +131,7 @@
         "262144",
         "bf16",
         42,
+        "fixed",
         "ziggart_idol_splat",
         true,
         true,
@@ -233,7 +234,7 @@
           "links": []
         }
       ],
-      "title": "1C. 360° Turntable Renderer",
+      "title": "1C. 360\u00b0 Turntable Renderer",
       "properties": {
         "Node name for S&R": "Ziggart3DTurntableRenderer"
       },
@@ -374,6 +375,7 @@
         false,
         40000,
         12345,
+        "fixed",
         "ziggart_hunyuan3d_mesh",
         true,
         true,
@@ -483,7 +485,7 @@
         }
       ],
       "outputs": [],
-      "title": "360° Turntable Frames Preview",
+      "title": "360\u00b0 Turntable Frames Preview",
       "properties": {
         "Node name for S&R": "PreviewImage"
       }

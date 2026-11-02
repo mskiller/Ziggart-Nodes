@@ -287,6 +287,7 @@ def load_gaussian_ply(ply_path: str | Path) -> dict[str, Any]:
     else:
         raise ValueError(f"Unsupported PLY format '{fmt}' in {path}")
 
+    is_y_up = any("coordinate_system y_up" in line for line in header_lines)
     names = set(raw.dtype.names or ())
     positions = np.column_stack(
         [
@@ -295,6 +296,13 @@ def load_gaussian_ply(ply_path: str | Path) -> dict[str, Any]:
             raw["z"].astype(np.float32) if "z" in names else np.zeros(len(raw), dtype=np.float32),
         ]
     )
+
+    # Standard 3DGS PLY files (including speridlabs/idol) store coordinates in
+    # OpenCV/3DGS convention (-Y up, -Z front: xyz = [x, -z_up, y_depth]).
+    # Rotate 180 deg around X -> (x, -y, -z) to convert to standard Y-up (+Y up, +Z front).
+    if not is_y_up and {"f_dc_0", "scale_0", "rot_0"}.issubset(names):
+        positions[:, 1] = -positions[:, 1]
+        positions[:, 2] = -positions[:, 2]
 
     if {"f_dc_0", "f_dc_1", "f_dc_2"}.issubset(names):
         dc = np.column_stack([raw["f_dc_0"], raw["f_dc_1"], raw["f_dc_2"]]).astype(np.float32)
@@ -418,6 +426,7 @@ def save_gaussian_ply(
     header = (
         "ply\n"
         "format binary_little_endian 1.0\n"
+        "comment coordinate_system y_up\n"
         f"element vertex {n}\n"
         "property float x\n"
         "property float y\n"
@@ -1278,6 +1287,20 @@ def _extract_trimesh_arrays(mesh_obj: Any) -> dict[str, Any]:
         except Exception:
             cols = None
 
+    if (cols is None or len(cols) != len(verts)) and visual is not None:
+        try:
+            uv = np.asarray(getattr(visual, "uv", None), dtype=np.float32)
+            mat = getattr(visual, "material", None)
+            tex_img = getattr(mat, "baseColorTexture", None) or getattr(mat, "image", None)
+            if uv is not None and uv.ndim == 2 and tex_img is not None and len(uv) == len(verts):
+                tex_arr = np.asarray(tex_img.convert("RGB"), dtype=np.float32) / 255.0
+                th, tw = tex_arr.shape[:2]
+                u_px = np.clip(np.round(uv[:, 0] * (tw - 1)).astype(np.int32), 0, tw - 1)
+                v_px = np.clip(np.round((1.0 - uv[:, 1]) * (th - 1)).astype(np.int32), 0, th - 1)
+                cols = tex_arr[v_px, u_px]
+        except Exception:
+            pass
+
     if cols is None or len(cols) != len(verts):
         cols = np.full((len(verts), 3), 0.78, dtype=np.float32)
     normals = compute_vertex_normals(verts, faces)
@@ -1305,16 +1328,456 @@ _BACKEND_REPOS: dict[str, tuple[str, str]] = {
 }
 
 
+def _pure_torch_assign_faces_uv_to_atlas_index(
+    vertex_positions: Any,
+    triangle_idxs: Any,
+    face_uv: Any,
+    face_index: Any,
+) -> Any:
+    """
+    Pure-PyTorch drop-in replacement for `torch.ops.UVUnwrapper.assign_faces_uv_to_atlas_index`.
+    Detects overlapping UV triangles per cube face (0..5) and shifts occluded back-layer
+    triangles by +6 (into 6..12) using a vectorized 2D UV grid depth buffer.
+    """
+    assert torch is not None
+    dev = vertex_positions.device
+    tri_idx = triangle_idxs.to(dev, dtype=torch.long)
+    assign_indices = face_index.to(dev, dtype=torch.long).clone()
+    num_faces = int(tri_idx.shape[0])
+    if num_faces == 0:
+        return assign_indices
+
+    uv_3 = face_uv.view(num_faces, 3, 2).to(dev, dtype=torch.float32)
+    uv_centroids = uv_3.mean(dim=1).clamp(0.0, 1.0)
+    tri_verts = vertex_positions.to(dev, dtype=torch.float32)[tri_idx]
+    tri_centroids = tri_verts.mean(dim=1)  # (Nf, 3)
+
+    grid_res = 64
+    for pass_offset in (0, 6):
+        for f in range(pass_offset, pass_offset + 6):
+            mask = assign_indices == f
+            face_ids = torch.nonzero(mask, as_tuple=False).squeeze(-1)
+            if face_ids.numel() <= 1:
+                continue
+
+            norm_idx = f % 6
+            axis = 0 if norm_idx < 2 else (1 if norm_idx < 4 else 2)
+            use_max = (f % 2) == 1
+            pos_axis = tri_centroids[face_ids, axis]
+            # Smaller depth = closer to camera along this cube face normal
+            depth = -pos_axis if use_max else pos_axis
+
+            # Sample 4 points per triangle in UV space (centroid + 3 vertices shifted slightly inward)
+            c_uv = uv_centroids[face_ids]
+            v_uv = 0.85 * uv_3[face_ids] + 0.15 * c_uv.unsqueeze(1)
+            pts_uv = torch.cat([c_uv.unsqueeze(1), v_uv], dim=1).clamp(0.0, 0.9999)  # (K, 4, 2)
+
+            gx = (pts_uv[..., 0] * grid_res).long()
+            gy = (pts_uv[..., 1] * grid_res).long()
+            cell_idx = gx * grid_res + gy  # (K, 4)
+
+            depth_exp = depth.unsqueeze(1).expand_as(cell_idx).reshape(-1)
+            cell_flat = cell_idx.reshape(-1)
+
+            min_depth_grid = torch.full((grid_res * grid_res,), 1e10, device=dev, dtype=torch.float32)
+            min_depth_grid.scatter_reduce_(0, cell_flat, depth_exp, reduce="amin", include_self=True)
+
+            cell_min = min_depth_grid[cell_idx]  # (K, 4)
+            span = (pos_axis.max() - pos_axis.min()).clamp(min=1e-4)
+            # A triangle is occluded if at least 2 of its UV sample points land in cells
+            # owned by a noticeably closer surface layer
+            occluded_pts = depth.unsqueeze(1) > (cell_min + 0.08 * span)
+            occluded_mask = occluded_pts.sum(dim=1) >= 2
+            if occluded_mask.any():
+                moved_ids = face_ids[occluded_mask]
+                assign_indices[moved_ids] = (assign_indices[moved_ids] + 6).clamp(0, 12)
+
+    return assign_indices
+
+
+def _pure_torch_rasterize_uv(
+    uv: Any,
+    face_indices: Any,
+    bake_resolution: int,
+) -> Any:
+    """
+    Pure-PyTorch vectorized 2D UV triangle rasterizer matching `texture_baker_cpp::rasterize`.
+    Returns `(H, W, 4)` float32 tensor `[u, v, w, triangle_idx]` (`-1.0` where empty) on `uv.device`.
+    """
+    assert torch is not None
+    dev = uv.device
+    res = int(bake_resolution)
+    rast = torch.zeros((res, res, 4), dtype=torch.float32, device=dev)
+    rast[..., 3] = -1.0
+
+    f_idx = face_indices.to(dev, dtype=torch.long)
+    num_faces = int(f_idx.shape[0])
+    if num_faces == 0:
+        return rast
+
+    uv_f = uv.to(dev, dtype=torch.float32)
+    v0 = uv_f[f_idx[:, 0]]
+    v1 = uv_f[f_idx[:, 1]]
+    v2 = uv_f[f_idx[:, 2]]
+
+    # Pixel mapping from baker.cpp:
+    # row = x in [0..res-1], col = y in [0..res-1]
+    # px = col / res, py = 1.0 - row / res
+    min_u = torch.minimum(torch.minimum(v0[:, 0], v1[:, 0]), v2[:, 0])
+    max_u = torch.maximum(torch.maximum(v0[:, 0], v1[:, 0]), v2[:, 0])
+    min_v = torch.minimum(torch.minimum(v0[:, 1], v1[:, 1]), v2[:, 1])
+    max_v = torch.maximum(torch.maximum(v0[:, 1], v1[:, 1]), v2[:, 1])
+
+    c_min = torch.floor(min_u * res).long().clamp(0, res - 1)
+    c_max = torch.ceil(max_u * res).long().clamp(0, res - 1)
+    r_min = torch.floor((1.0 - max_v) * res).long().clamp(0, res - 1)
+    r_max = torch.ceil((1.0 - min_v) * res).long().clamp(0, res - 1)
+
+    dh = (r_max - r_min + 1).clamp(min=1)
+    dw = (c_max - c_min + 1).clamp(min=1)
+    span = torch.maximum(dh, dw)
+
+    all_tri_ids = torch.arange(num_faces, device=dev, dtype=torch.long)
+
+    buckets = [
+        (1, 8, 16384),
+        (9, 16, 8192),
+        (17, 32, 2048),
+        (33, 64, 512),
+        (65, 128, 128),
+        (129, res + 1, 16),
+    ]
+
+    for lo, hi, chunk_size in buckets:
+        b_mask = (span >= lo) & (span <= hi)
+        b_tris = all_tri_ids[b_mask]
+        if b_tris.numel() == 0:
+            continue
+
+        for start in range(0, int(b_tris.numel()), chunk_size):
+            t_ids = b_tris[start : start + chunk_size]
+            bh = int(dh[t_ids].max().item())
+            bw = int(dw[t_ids].max().item())
+
+            dr = torch.arange(bh, device=dev, dtype=torch.long)[None, :, None]
+            dc = torch.arange(bw, device=dev, dtype=torch.long)[None, None, :]
+
+            rows = r_min[t_ids, None, None] + dr  # (K, bh, bw)
+            cols = c_min[t_ids, None, None] + dc  # (K, bh, bw)
+            in_box = (rows <= r_max[t_ids, None, None]) & (cols <= c_max[t_ids, None, None])
+
+            px = (cols.float() / float(res)).clamp(0.0, 1.0)
+            py = 1.0 - (rows.float() / float(res)).clamp(0.0, 1.0)
+
+            tv0 = v0[t_ids]
+            tv1 = v1[t_ids]
+            tv2 = v2[t_ids]
+
+            v1v2 = tv1 - tv0
+            v1v3 = tv2 - tv0
+            d00 = (v1v2 * v1v2).sum(-1)[:, None, None]
+            d01 = (v1v2 * v1v3).sum(-1)[:, None, None]
+            d11 = (v1v3 * v1v3).sum(-1)[:, None, None]
+            denom = d00 * d11 - d01 * d01
+
+            xy_x = px - tv0[:, 0, None, None]
+            xy_y = py - tv0[:, 1, None, None]
+            d20 = xy_x * v1v2[:, 0, None, None] + xy_y * v1v2[:, 1, None, None]
+            d21 = xy_x * v1v3[:, 0, None, None] + xy_y * v1v3[:, 1, None, None]
+
+            valid_denom = denom.abs() > 1e-12
+            safe_denom = torch.where(valid_denom, denom, torch.ones_like(denom))
+            bv = (d11 * d20 - d01 * d21) / safe_denom
+            bw_coord = (d00 * d21 - d01 * d20) / safe_denom
+            bu = 1.0 - bv - bw_coord
+
+            eps = 1e-5
+            inside = in_box & valid_denom & (bv >= -eps) & (bw_coord >= -eps) & (bu >= -eps)
+            if not inside.any():
+                continue
+
+            r_hit = rows[inside]
+            c_hit = cols[inside]
+            u_hit = bu[inside].clamp(0.0, 1.0)
+            v_hit = bv[inside].clamp(0.0, 1.0)
+            w_hit = bw_coord[inside].clamp(0.0, 1.0)
+            t_hit = t_ids[:, None, None].expand_as(rows)[inside].float()
+
+            rast[r_hit, c_hit] = torch.stack([u_hit, v_hit, w_hit, t_hit], dim=-1)
+
+    return rast
+
+
+def _pure_torch_interpolate_uv(
+    attr: Any,
+    rast: Any,
+    face_indices: Any,
+    uv: Any = None,
+) -> Any:
+    """
+    Pure-PyTorch barycentric attribute interpolation matching `texture_baker_cpp::interpolate`.
+    """
+    assert torch is not None
+    dev = attr.device
+    rast_dev = rast.to(dev, dtype=torch.float32)
+    mask = rast_dev[..., 3] >= 0
+    tri_idx = rast_dev[..., 3].long().clamp(min=0)
+    bary = rast_dev[..., :3].to(attr.dtype)
+    f_idx = face_indices.to(dev, dtype=torch.long)[tri_idx]
+    v0 = attr[f_idx[..., 0]]
+    v1 = attr[f_idx[..., 1]]
+    v2 = attr[f_idx[..., 2]]
+    out = v0 * bary[..., 0:1] + v1 * bary[..., 1:2] + v2 * bary[..., 2:3]
+    return torch.where(mask.unsqueeze(-1), out, torch.zeros_like(out))
+
+
+def _pure_torch_custom_rasterize(
+    pos: Any,
+    tri: Any,
+    resolution: tuple[int, int] | list[int],
+    clamp_depth: Any = None,
+    use_depth_prior: int = 0,
+) -> tuple[Any, Any]:
+    """
+    Pure-PyTorch depth-buffered clip-space rasterizer matching `custom_rasterizer.rasterize`
+    for `Hunyuan3DPaintPipeline`.
+    """
+    assert torch is not None
+    dev = pos.device
+    height, width = int(resolution[0]), int(resolution[1])
+    findices = torch.zeros((height, width), dtype=torch.int32, device=dev)
+    barycentric = torch.zeros((height, width, 3), dtype=torch.float32, device=dev)
+
+    v_clip = pos[0] if pos.ndim == 3 else pos
+    f_idx = tri.to(dev, dtype=torch.long)
+    num_faces = int(f_idx.shape[0])
+    if num_faces == 0:
+        return findices, barycentric
+
+    tv = v_clip[f_idx].float()  # (Nf, 3, 4)
+    tw = tv[..., 3].clamp(min=1e-6)
+    sx = (tv[..., 0] / tw * 0.5 + 0.5) * (width - 1) + 0.5
+    sy = (tv[..., 1] / tw * 0.5 + 0.5) * (height - 1) + 0.5
+    sz = tv[..., 2] / tw * 0.49999 + 0.5
+
+    c_min = torch.floor(sx.min(dim=1).values).long().clamp(0, width - 1)
+    c_max = torch.ceil(sx.max(dim=1).values).long().clamp(0, width - 1)
+    r_min = torch.floor(sy.min(dim=1).values).long().clamp(0, height - 1)
+    r_max = torch.ceil(sy.max(dim=1).values).long().clamp(0, height - 1)
+
+    dh = (r_max - r_min + 1).clamp(min=1)
+    dw = (c_max - c_min + 1).clamp(min=1)
+    span = torch.maximum(dh, dw)
+    all_tri_ids = torch.arange(num_faces, device=dev, dtype=torch.long)
+
+    zbuf = torch.full((height, width), 1e10, dtype=torch.float32, device=dev)
+
+    buckets = [
+        (1, 16, 4096),
+        (17, 64, 512),
+        (65, max(height, width) + 1, 32),
+    ]
+    for lo, hi, chunk_size in buckets:
+        b_tris = all_tri_ids[(span >= lo) & (span <= hi)]
+        if b_tris.numel() == 0:
+            continue
+        for start in range(0, int(b_tris.numel()), chunk_size):
+            t_ids = b_tris[start : start + chunk_size]
+            bh = int(dh[t_ids].max().item())
+            bw = int(dw[t_ids].max().item())
+            dr = torch.arange(bh, device=dev, dtype=torch.long)[None, :, None]
+            dc = torch.arange(bw, device=dev, dtype=torch.long)[None, None, :]
+            rows = r_min[t_ids, None, None] + dr
+            cols = c_min[t_ids, None, None] + dc
+            in_box = (rows <= r_max[t_ids, None, None]) & (cols <= c_max[t_ids, None, None])
+
+            px = cols.float() + 0.5
+            py = rows.float() + 0.5
+
+            x0, y0 = sx[t_ids, 0, None, None], sy[t_ids, 0, None, None]
+            x1, y1 = sx[t_ids, 1, None, None], sy[t_ids, 1, None, None]
+            x2, y2 = sx[t_ids, 2, None, None], sy[t_ids, 2, None, None]
+
+            denom = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+            valid_d = denom.abs() > 1e-12
+            safe_d = torch.where(valid_d, denom, torch.ones_like(denom))
+            b0 = ((y1 - y2) * (px - x2) + (x2 - x1) * (py - y2)) / safe_d
+            b1 = ((y2 - y0) * (px - x2) + (x0 - x2) * (py - y2)) / safe_d
+            b2 = 1.0 - b0 - b1
+
+            inside = in_box & valid_d & (b0 >= 0.0) & (b1 >= 0.0) & (b2 >= 0.0)
+            if not inside.any():
+                continue
+
+            depth = (
+                b0 * sz[t_ids, 0, None, None]
+                + b1 * sz[t_ids, 1, None, None]
+                + b2 * sz[t_ids, 2, None, None]
+            )
+            p0 = b0 / tw[t_ids, 0, None, None]
+            p1 = b1 / tw[t_ids, 1, None, None]
+            p2 = b2 / tw[t_ids, 2, None, None]
+            psum = (p0 + p1 + p2).clamp(min=1e-8)
+            pb0, pb1, pb2 = p0 / psum, p1 / psum, p2 / psum
+
+            r_hit = rows[inside]
+            c_hit = cols[inside]
+            d_hit = depth[inside]
+            t_hit = (t_ids[:, None, None].expand_as(rows)[inside] + 1).to(torch.int32)
+            b_hit = torch.stack([pb0[inside], pb1[inside], pb2[inside]], dim=-1)
+
+            # Sort descending by depth so closest triangle overwrites last
+            order = torch.argsort(d_hit, descending=True)
+            r_ord = r_hit[order]
+            c_ord = c_hit[order]
+            d_ord = d_hit[order]
+            closer = d_ord <= zbuf[r_ord, c_ord]
+            r_win = r_ord[closer]
+            c_win = c_ord[closer]
+            zbuf[r_win, c_win] = d_ord[closer]
+            findices[r_win, c_win] = t_hit[order][closer]
+            barycentric[r_win, c_win] = b_hit[order][closer]
+
+    return findices, barycentric
+
+
+def _install_zero_build_3d_shims(vendor_root: Path, auto_install: bool = True) -> None:
+    """
+    Registers pure-PyTorch fallback modules for C++ extensions (`uv_unwrapper`, `texture_baker`,
+    `custom_rasterizer`) and pure-Python git dependencies (`clip`, `alpha_clip`) so SPAR3D and
+    Hunyuan3D run on Windows + Python 3.10-3.14 without requiring Visual Studio/CUDA compilation.
+    """
+    import importlib.util
+    import types
+
+    vendor_root.mkdir(parents=True, exist_ok=True)
+
+    # 1. Ensure CLIP & AlphaCLIP are importable for SPAR3D
+    extra_git_deps = [
+        ("clip", "https://github.com/openai/CLIP.git", "CLIP"),
+        ("alpha_clip", "https://github.com/SunzeY/AlphaCLIP.git", "AlphaCLIP"),
+    ]
+    for mod_name, repo_url, folder_name in extra_git_deps:
+        repo_dir = vendor_root / folder_name
+        if repo_dir.is_dir() and str(repo_dir) not in sys.path:
+            sys.path.insert(0, str(repo_dir))
+        if importlib.util.find_spec(mod_name) is None and auto_install:
+            if not (repo_dir / ".git").exists():
+                subprocess.run(
+                    ["git", "clone", "--depth", "1", repo_url, str(repo_dir)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+            if repo_dir.is_dir() and str(repo_dir) not in sys.path:
+                sys.path.insert(0, str(repo_dir))
+
+    if importlib.util.find_spec("loralib") is None and auto_install:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "loralib", "ftfy", "regex"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    # 2. Pure-PyTorch `uv_unwrapper` shim if compiled C++ extension is unavailable
+    has_compiled_unwrapper = False
+    try:
+        import uv_unwrapper as _uw  # type: ignore[import-not-found]
+
+        has_compiled_unwrapper = hasattr(_uw, "Unwrapper") and hasattr(torch.ops, "UVUnwrapper") and hasattr(
+            torch.ops.UVUnwrapper, "assign_faces_uv_to_atlas_index"
+        )
+    except Exception:
+        has_compiled_unwrapper = False
+
+    if not has_compiled_unwrapper and torch is not None:
+        unwrap_py = vendor_root / "stable-point-aware-3d" / "uv_unwrapper" / "uv_unwrapper" / "unwrap.py"
+        if unwrap_py.is_file():
+            spec = importlib.util.spec_from_file_location("_ziggart_uv_unwrap", str(unwrap_py))
+            if spec is not None and spec.loader is not None:
+                unwrap_mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(unwrap_mod)
+                base_unwrapper = unwrap_mod.Unwrapper
+
+                class PureTorchUnwrapper(base_unwrapper):  # type: ignore[misc, valid-type]
+                    def _assign_faces_uv_to_atlas_index(
+                        self,
+                        vertex_positions: Any,
+                        triangle_idxs: Any,
+                        face_uv: Any,
+                        face_index: Any,
+                    ) -> Any:
+                        return _pure_torch_assign_faces_uv_to_atlas_index(
+                            vertex_positions, triangle_idxs, face_uv, face_index
+                        )
+
+                pkg = types.ModuleType("uv_unwrapper")
+                pkg.Unwrapper = PureTorchUnwrapper  # type: ignore[attr-defined]
+                sys.modules["uv_unwrapper"] = pkg
+
+    # 3. Pure-PyTorch `texture_baker` shim if compiled C++ extension is unavailable
+    has_compiled_baker = False
+    try:
+        import texture_baker as _tb  # type: ignore[import-not-found]
+
+        has_compiled_baker = hasattr(_tb, "TextureBaker") and hasattr(torch.ops, "texture_baker_cpp") and hasattr(
+            torch.ops.texture_baker_cpp, "rasterize"
+        )
+    except Exception:
+        has_compiled_baker = False
+
+    if not has_compiled_baker and torch is not None:
+        class PureTorchTextureBaker(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+
+            def rasterize(self, uv: Any, face_indices: Any, bake_resolution: int) -> Any:
+                return _pure_torch_rasterize_uv(uv, face_indices, int(bake_resolution))
+
+            def get_mask(self, rast: Any) -> Any:
+                return rast[..., -1] >= 0
+
+            def interpolate(self, attr: Any, rast: Any, face_indices: Any, uv: Any = None) -> Any:
+                return _pure_torch_interpolate_uv(attr, rast, face_indices, uv)
+
+            def forward(self, attr: Any, uv: Any, face_indices: Any, bake_resolution: int) -> Any:
+                rast = self.rasterize(uv, face_indices, int(bake_resolution))
+                return self.interpolate(attr, rast, face_indices, uv)
+
+        tb_pkg = types.ModuleType("texture_baker")
+        tb_pkg.TextureBaker = PureTorchTextureBaker  # type: ignore[attr-defined]
+        sys.modules["texture_baker"] = tb_pkg
+
+    # 4. Pure-PyTorch `custom_rasterizer` shim for Hunyuan3DPaintPipeline
+    if "custom_rasterizer" not in sys.modules and importlib.util.find_spec("custom_rasterizer") is None and torch is not None:
+        cr_pkg = types.ModuleType("custom_rasterizer")
+        cr_pkg.rasterize = _pure_torch_custom_rasterize  # type: ignore[attr-defined]
+
+        def _cr_interpolate(col: Any, findices: Any, barycentric: Any, tri: Any) -> Any:
+            f = findices - 1 + (findices == 0).to(findices.dtype)
+            vcol = col[0, tri.long()[f.long()]]
+            result = barycentric.unsqueeze(-1) * vcol
+            result = torch.sum(result, dim=-2)
+            return result.unsqueeze(0)
+
+        cr_pkg.interpolate = _cr_interpolate  # type: ignore[attr-defined]
+        sys.modules["custom_rasterizer"] = cr_pkg
+
+
 def _ensure_backend_installed(package_name: str, auto_install: bool = True) -> bool:
     """
     Ensure that a 3D backend SDK ('idol', 'spar3d', or 'hy3dgen') is importable.
     If missing and auto_install=True, automatically clones the official SDK into
     Ziggart-Nodes/.cache/vendor_3d/<repo> and installs it into the active ComfyUI Python env.
     """
+    vendor_root = Path(__file__).resolve().parent / ".cache" / "vendor_3d"
+    if package_name in ("spar3d", "hy3dgen"):
+        _install_zero_build_3d_shims(vendor_root, auto_install=auto_install)
+
     if package_name in sys.modules and sys.modules[package_name] is not None:
         return True
 
-    vendor_root = Path(__file__).resolve().parent / ".cache" / "vendor_3d"
     if package_name in _BACKEND_REPOS:
         _, folder_name = _BACKEND_REPOS[package_name]
         local_repo = vendor_root / folder_name
@@ -1343,10 +1806,14 @@ def _ensure_backend_installed(package_name: str, auto_install: bool = True) -> b
     if target_dir.is_dir():
         if str(target_dir) not in sys.path:
             sys.path.insert(0, str(target_dir))
-        pip_cmd = [sys.executable, "-m", "pip", "install", "--no-build-isolation", "-e", str(target_dir)]
-        res = subprocess.run(pip_cmd, check=False, capture_output=True, text=True)
-        if res.returncode != 0:
-            subprocess.run([sys.executable, "-m", "pip", "install", "-e", str(target_dir)], check=False, capture_output=True, text=True)
+        if (target_dir / "setup.py").is_file() or (target_dir / "pyproject.toml").is_file():
+            pip_cmd = [sys.executable, "-m", "pip", "install", "--no-build-isolation", "-e", str(target_dir)]
+            res = subprocess.run(pip_cmd, check=False, capture_output=True, text=True)
+            if res.returncode != 0:
+                subprocess.run([sys.executable, "-m", "pip", "install", "-e", str(target_dir)], check=False, capture_output=True, text=True)
+
+    if package_name in ("spar3d", "hy3dgen"):
+        _install_zero_build_3d_shims(vendor_root, auto_install=auto_install)
 
     try:
         import importlib
@@ -1638,12 +2105,24 @@ class Ziggart3DModelManager:
                 model = self._pipeline
                 rgba_image = remove_background_fallback(pil_image)
 
+                effective_remesh = remesh_option if remesh_option != "none" else "none"
+                if effective_remesh != "none":
+                    try:
+                        import spar3d.models.mesh as _spar_mesh  # type: ignore[import-not-found]
+
+                        if effective_remesh == "triangle" and not getattr(_spar_mesh, "TRIANGLE_REMESH_AVAILABLE", False):
+                            effective_remesh = "none"
+                        elif effective_remesh == "quad" and not getattr(_spar_mesh, "QUAD_REMESH_AVAILABLE", False):
+                            effective_remesh = "none"
+                    except Exception:
+                        effective_remesh = "none"
+
                 point_cloud = None
                 if hasattr(model, "run_image"):
                     res = model.run_image(
                         rgba_image,
                         bake_resolution=int(bake_resolution),
-                        remesh=remesh_option if remesh_option != "none" else "none",
+                        remesh=effective_remesh,
                         vertex_count=int(target_vertex_count) if target_vertex_count > 0 else -1,
                         return_points=True,
                     )
@@ -1655,6 +2134,9 @@ class Ziggart3DModelManager:
                     mesh_obj = model.generate_mesh(rgba_image)
                 else:
                     mesh_obj = model(rgba_image)
+
+                if isinstance(mesh_obj, (list, tuple)) and len(mesh_obj) > 0:
+                    mesh_obj = mesh_obj[0]
 
                 mesh_arrays = _extract_trimesh_arrays(mesh_obj)
                 if hasattr(mesh_obj, "export"):
@@ -1668,14 +2150,33 @@ class Ziggart3DModelManager:
                         mesh_arrays["normals"],
                     )
 
-                if point_cloud is not None and hasattr(point_cloud, "export"):
-                    point_cloud.export(str(output_ply_path))
-                else:
-                    save_gaussian_ply(
-                        output_ply_path,
-                        mesh_arrays["vertices"],
-                        mesh_arrays["vertex_colors"],
-                    )
+                pc_saved = False
+                if isinstance(point_cloud, dict) and "pointcloud" in point_cloud and torch is not None:
+                    try:
+                        pc_t = point_cloud["pointcloud"]
+                        if hasattr(pc_t, "detach"):
+                            pc_np = pc_t.detach().cpu().numpy()
+                            if pc_np.ndim == 3:
+                                pc_np = pc_np[0]
+                            if pc_np.ndim == 2 and pc_np.shape[1] >= 6:
+                                save_gaussian_ply(
+                                    output_ply_path,
+                                    pc_np[:, :3].astype(np.float32),
+                                    np.clip(pc_np[:, 3:6].astype(np.float32), 0.0, 1.0),
+                                )
+                                pc_saved = True
+                    except Exception:
+                        pc_saved = False
+
+                if not pc_saved:
+                    if point_cloud is not None and hasattr(point_cloud, "export"):
+                        point_cloud.export(str(output_ply_path))
+                    else:
+                        save_gaussian_ply(
+                            output_ply_path,
+                            mesh_arrays["vertices"],
+                            mesh_arrays["vertex_colors"],
+                        )
 
                 if free_vram_after:
                     self.unload()
@@ -1925,7 +2426,14 @@ class ZiggartIdolImageToGaussian:
         hf_token: str = "",
     ) -> tuple[str, dict[str, Any], Any, Any]:
         pil_img = tensor_to_pil(image, mask=mask)
-        out_ply = _next_output_path(filename_prefix, "ply")
+        clean_prefix = str(filename_prefix).strip()
+        if not clean_prefix or clean_prefix.lower() in ("true", "false"):
+            clean_prefix = "ziggart_idol_splat"
+        out_ply = _next_output_path(clean_prefix, "ply")
+
+        clean_model_id = str(model_id_or_path).strip()
+        if not clean_model_id or clean_model_id.lower() in ("true", "false"):
+            clean_model_id = "speridlabs/idol"
 
         ply_path, preprocessed_pil = THREED_MANAGER.run_idol(
             pil_image=pil_img,
@@ -1933,7 +2441,7 @@ class ZiggartIdolImageToGaussian:
             num_gaussians=int(num_gaussians),
             precision=precision,
             seed=int(seed),
-            model_id_or_path=model_id_or_path.strip() or "speridlabs/idol",
+            model_id_or_path=clean_model_id,
             hf_token=hf_token,
             unload_comfy_models=bool(unload_comfy_models),
             free_vram_after=bool(free_vram_after),
@@ -2310,12 +2818,19 @@ class ZiggartHunyuan3DImageToMesh:
         custom_model_path: str = "",
     ) -> tuple[str, dict[str, Any], Any, Any]:
         pil_img = tensor_to_pil(image, mask=mask)
-        out_glb = _next_output_path(filename_prefix, "glb")
+        clean_prefix = str(filename_prefix).strip()
+        if not clean_prefix or clean_prefix.lower() in ("true", "false"):
+            clean_prefix = "ziggart_hunyuan3d_mesh"
+        out_glb = _next_output_path(clean_prefix, "glb")
+
+        clean_custom = str(custom_model_path).strip()
+        if clean_custom.lower() in ("true", "false"):
+            clean_custom = ""
 
         glb_path, rgba_pil, mesh_data = THREED_MANAGER.run_hunyuan3d(
             pil_image=pil_img,
             model_variant=model_variant,
-            custom_model_path=custom_model_path,
+            custom_model_path=clean_custom,
             steps=int(steps),
             guidance_scale=float(guidance_scale),
             octree_resolution=int(octree_resolution),
