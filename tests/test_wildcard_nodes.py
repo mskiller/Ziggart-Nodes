@@ -358,7 +358,7 @@ class ExampleWorkflowsTests(unittest.TestCase):
             **wildcard_nodes.NODE_CLASS_MAPPINGS,
             **three_d_nodes.NODE_CLASS_MAPPINGS,
         }
-        self.assertEqual(len(all_mappings), 23)
+        self.assertEqual(len(all_mappings), 28)
 
         wf_dir = ROOT / "example_workflows"
         self.assertTrue(wf_dir.is_dir(), "example_workflows directory must exist")

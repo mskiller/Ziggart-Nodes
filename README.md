@@ -648,3 +648,27 @@ When `free_vram_after` is enabled, the node closes both the vision model and nat
 ## License
 
 This project is licensed under the Apache 2.0 License. Model weights are subject to their respective creators' licenses (Tencent WeVisOne-VL, Krea 2 Community License, Qwen License).
+
+
+---
+
+## Krea2 (Qwen3VL-4B) Prompt Director Suite (`Ziggart/Krea2 Prompt Director`)
+
+The 5 **Krea2 Prompt Director** nodes build structured Solo or Duo prompts directly from your wildcards (`Collection/Themes`, `Collection/Universes`, `Collection/`, `ziggart/`, `jff/`, `Encours/`, `Outfits/`, `Characters/`) while strictly excluding pre-assembled full-scene prompts (`*-scene`, `*-prompts`, `Themes/*/ALL.txt`, `Combos`, `Formats`).
+
+### 5 Included Krea2 Director Nodes
+1. **`ZiggartThemeUniverseContext` (*Ziggart Krea2 Theme & Universe Context*)**:
+   - Selects a Theme (`Collection/Themes/*` with `Character-Outfits.json`), a Universe (`Collection/Universes/*` with `source.json` branches), or `Free Crossover` mode across all wildcard directories, plus `mood_filter` (`SFW Only`, `NSFW / Sensual`, `Fantasy`, `Sci-Fi / Cyberpunk`, `Anime / Manga`, `Dark / Gothic`, `Urban`) and `exclude_full_prompts`.
+2. **`ZiggartCharacterUnitBuilder` (*Ziggart Krea2 Character Unit Builder*)**:
+   - Builds a `Primary` or `Secondary` Character slot with:
+     - **Wildcard-GPT Outfit Linker** (`outfit_link_mode`): `Canonical (1:1 Strict Character Outfit)`, `Compatible (Same Theme/Universe + Gender)`, `Free (All Outfit Wildcards across Folders)`, or `Nude / Unclothed`.
+     - **Automatic Outfit $\rightarrow$ Anatomy Occlusion Filter** (`auto_filter_anatomy_by_outfit = True`): Inspects the resolved outfit across 5 anatomical zones (`BREASTS_CHEST`, `NIPPLES_AREOLAS`, `WAIST_MIDRIFF`, `BUTTOCKS_HIPS`, `INTIMATE_GENITALS`) and automatically removes anatomical descriptions covered by armor or clothing while preserving visible or sheer/torn/bikini zones.
+3. **`ZiggartSceneStageAtmosphere` (*Ziggart Krea2 Scene Stage*)**:
+   - Selects and resolves `(style)`, `(action / duo interaction)`, `(environment)`, `(lighting)`, and `(camera)` from the active Theme/Universe or any pure component wildcard across `Collection/`, `ziggart/`, `jff/`, and `Encours/`.
+4. **`ZiggartKrea2PromptAssembler` (*Ziggart Krea2 Prompt Assembler*)**:
+   - Compiles `char_1_slot`, optional `char_2_slot`, and `stage_data` into the optimal **Qwen3VL-4B** structure:
+     - **Solo**: `1 woman, (Render Style: <style>) (<char_1>) [(<char_1_anatomy>)] (wearing <char_1_outfit>) (<char_1_action>) (<environment>) (<lighting>) (<camera>).`
+     - **Duo**: `2 characters, (Render Style: <style>) (<char_1>) [(<char_1_anatomy>)] (wearing <char_1_outfit>) (<char_2>) [(<char_2_anatomy>)] (wearing <char_2_outfit>) (<shared_action>) (<environment>) (<lighting>) (<camera>).`
+   - Supports all 4 `Krea2CompilerV2` policies (`scoped`, `balanced`, `compact`, `rich`) and outputs `qwen3vl_tokens_estimated` + per-character detailer prompts.
+5. **`ZiggartKrea2MasterPromptDirector` (*Ziggart Krea2 Master Prompt Director — All-in-One*)**:
+   - Combines Nodes 1–4 in a single all-in-one node with live `populated_text` preview.

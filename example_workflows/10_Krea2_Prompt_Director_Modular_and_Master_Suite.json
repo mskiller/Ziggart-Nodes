@@ -1,0 +1,498 @@
+{
+  "id": "b71e9421-8c34-4a52-91d0-9f1a204080ff",
+  "revision": 0,
+  "last_node_id": 8,
+  "last_link_id": 8,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Note",
+      "pos": [
+        -420.0,
+        -220.0
+      ],
+      "size": [
+        1980.0,
+        130.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Guide \u2014 Ziggart Krea2 (Qwen3VL-4B) Prompt Director Suite (Modular Pipeline & All-in-One Master Director)",
+      "properties": {
+        "Node name for S&R": "Note"
+      },
+      "widgets_values": [
+        "WORKFLOW 10 : ZIGGART KREA2 (QWEN3VL-4B) PROMPT DIRECTOR SUITE\n1. MODULAR PIPELINE (Nodes 2 -> 3, 4, 5 -> 6) : ZiggartThemeUniverseContext selects a Theme/Universe or Free Crossover + Mood Filter -> ZiggartCharacterUnitBuilder resolves Primary & Secondary Characters with 1:1 Canonical/Compatible/Free Outfit linking & automatic Outfit->Anatomy occlusion filtering -> ZiggartSceneStageAtmosphere selects Style, Action, Environment, Lighting & Camera -> ZiggartKrea2PromptAssembler compiles the optimal Qwen3VL-4B prompt.\n2. ALL-IN-ONE MASTER DIRECTOR (Node 7) : ZiggartKrea2MasterPromptDirector combines the entire pipeline in a single node."
+      ],
+      "color": "#234",
+      "bgcolor": "#356"
+    },
+    {
+      "id": 2,
+      "type": "ZiggartThemeUniverseContext",
+      "pos": [
+        -410.0,
+        20.0
+      ],
+      "size": [
+        400.0,
+        290.0
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "context",
+          "type": "ZIGGART_CONTEXT",
+          "slot_index": 0,
+          "links": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "name": "active_theme_or_universe",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "default_style",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "default_environment",
+          "type": "STRING",
+          "slot_index": 3,
+          "links": []
+        }
+      ],
+      "title": "1. Theme & Universe Context",
+      "properties": {
+        "Node name for S&R": "ZiggartThemeUniverseContext"
+      },
+      "widgets_values": [
+        "Theme (Collection/Themes)",
+        "[Random Theme]",
+        "[Random Universe]",
+        "[Any / No Filter]",
+        true,
+        42,
+        "",
+        ""
+      ]
+    },
+    {
+      "id": 3,
+      "type": "ZiggartCharacterUnitBuilder",
+      "pos": [
+        40.0,
+        20.0
+      ],
+      "size": [
+        440.0,
+        410.0
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "context",
+          "type": "ZIGGART_CONTEXT",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "char_slot",
+          "type": "ZIGGART_CHAR_SLOT",
+          "slot_index": 0,
+          "links": [
+            4
+          ]
+        },
+        {
+          "name": "character_prompt_block",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "occlusion_debug_info",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        }
+      ],
+      "title": "2A. Primary Character Builder (Outfit & Anatomy Filter)",
+      "properties": {
+        "Node name for S&R": "ZiggartCharacterUnitBuilder"
+      },
+      "widgets_values": [
+        "Primary",
+        "From Context (Theme / Universe)",
+        "Female",
+        "[From Context (Theme / Universe)]",
+        "Canonical (1:1 Strict Character Outfit)",
+        "[From Context (Theme / Universe)]",
+        true,
+        true,
+        "[Random From Category]",
+        "[None]",
+        42
+      ]
+    },
+    {
+      "id": 4,
+      "type": "ZiggartCharacterUnitBuilder",
+      "pos": [
+        40.0,
+        480.0
+      ],
+      "size": [
+        440.0,
+        410.0
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "context",
+          "type": "ZIGGART_CONTEXT",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "char_slot",
+          "type": "ZIGGART_CHAR_SLOT",
+          "slot_index": 0,
+          "links": [
+            5
+          ]
+        },
+        {
+          "name": "character_prompt_block",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "occlusion_debug_info",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        }
+      ],
+      "title": "2B. Secondary Character Builder (Optional Duo)",
+      "properties": {
+        "Node name for S&R": "ZiggartCharacterUnitBuilder"
+      },
+      "widgets_values": [
+        "Secondary",
+        "From Context (Theme / Universe)",
+        "Male",
+        "[From Context (Theme / Universe)]",
+        "Canonical (1:1 Strict Character Outfit)",
+        "[From Context (Theme / Universe)]",
+        true,
+        true,
+        "[Random From Category]",
+        "[None]",
+        43
+      ]
+    },
+    {
+      "id": 5,
+      "type": "ZiggartSceneStageAtmosphere",
+      "pos": [
+        530.0,
+        20.0
+      ],
+      "size": [
+        430.0,
+        350.0
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "context",
+          "type": "ZIGGART_CONTEXT",
+          "link": 3
+        }
+      ],
+      "outputs": [
+        {
+          "name": "stage_data",
+          "type": "ZIGGART_STAGE",
+          "slot_index": 0,
+          "links": [
+            6
+          ]
+        },
+        {
+          "name": "style_str",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "action_str",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "environment_str",
+          "type": "STRING",
+          "slot_index": 3,
+          "links": []
+        },
+        {
+          "name": "lighting_str",
+          "type": "STRING",
+          "slot_index": 4,
+          "links": []
+        },
+        {
+          "name": "camera_str",
+          "type": "STRING",
+          "slot_index": 5,
+          "links": []
+        }
+      ],
+      "title": "3. Scene Stage (Style, Action, Env, Light, Camera)",
+      "properties": {
+        "Node name for S&R": "ZiggartSceneStageAtmosphere"
+      },
+      "widgets_values": [
+        "[From Context (Theme / Universe)]",
+        "[From Context (Theme / Universe)]",
+        "[From Context (Theme / Universe)]",
+        "[Random From Category]",
+        "[Random From Category]",
+        42
+      ]
+    },
+    {
+      "id": 6,
+      "type": "ZiggartKrea2PromptAssembler",
+      "pos": [
+        1010.0,
+        20.0
+      ],
+      "size": [
+        440.0,
+        280.0
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "char_1_slot",
+          "type": "ZIGGART_CHAR_SLOT",
+          "link": 4
+        },
+        {
+          "name": "stage_data",
+          "type": "ZIGGART_STAGE",
+          "link": 6
+        },
+        {
+          "name": "char_2_slot",
+          "type": "ZIGGART_CHAR_SLOT",
+          "link": 5
+        }
+      ],
+      "outputs": [
+        {
+          "name": "krea2_compiled_prompt",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "char_1_detailer_prompt",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "char_2_detailer_prompt",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "krea2_stats_and_metadata_json",
+          "type": "STRING",
+          "slot_index": 3,
+          "links": []
+        }
+      ],
+      "title": "4. Krea2 Prompt Assembler (Qwen3VL-4B)",
+      "properties": {
+        "Node name for S&R": "ZiggartKrea2PromptAssembler"
+      },
+      "widgets_values": [
+        "scoped (Parentheses Blocks + Count Anchor)",
+        true,
+        true,
+        "",
+        ""
+      ]
+    },
+    {
+      "id": 7,
+      "type": "ZiggartKrea2MasterPromptDirector",
+      "pos": [
+        530.0,
+        440.0
+      ],
+      "size": [
+        540.0,
+        660.0
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "krea2_compiled_prompt",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "populated_text",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "char_1_detailer_prompt",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "char_2_detailer_prompt",
+          "type": "STRING",
+          "slot_index": 3,
+          "links": []
+        },
+        {
+          "name": "krea2_stats_and_metadata_json",
+          "type": "STRING",
+          "slot_index": 4,
+          "links": []
+        }
+      ],
+      "title": "5. All-in-One Krea2 Master Prompt Director",
+      "properties": {
+        "Node name for S&R": "ZiggartKrea2MasterPromptDirector"
+      },
+      "widgets_values": [
+        "Theme (Collection/Themes)",
+        "[Random Theme]",
+        "[Random Universe]",
+        "Solo (1 Character)",
+        "scoped (Parentheses Blocks + Count Anchor)",
+        true,
+        true,
+        "[Any / No Filter]",
+        true,
+        "[From Context (Theme / Universe)]",
+        "Auto / Any",
+        "[From Context (Theme / Universe)]",
+        "Canonical (1:1 Strict Character Outfit)",
+        "[From Context (Theme / Universe)]",
+        true,
+        true,
+        "[Random From Category]",
+        "Auto / Any",
+        "[From Context (Theme / Universe)]",
+        "Canonical (1:1 Strict Character Outfit)",
+        "[From Context (Theme / Universe)]",
+        false,
+        true,
+        "[Random From Category]",
+        "[From Context (Theme / Universe)]",
+        "[From Context (Theme / Universe)]",
+        "[Random From Category]",
+        "[Random From Category]",
+        "",
+        "populate",
+        42
+      ]
+    }
+  ],
+  "links": [
+    [
+      1,
+      2,
+      0,
+      3,
+      0,
+      "ZIGGART_CONTEXT"
+    ],
+    [
+      2,
+      2,
+      0,
+      4,
+      0,
+      "ZIGGART_CONTEXT"
+    ],
+    [
+      3,
+      2,
+      0,
+      5,
+      0,
+      "ZIGGART_CONTEXT"
+    ],
+    [
+      4,
+      3,
+      0,
+      6,
+      0,
+      "ZIGGART_CHAR_SLOT"
+    ],
+    [
+      5,
+      4,
+      0,
+      6,
+      2,
+      "ZIGGART_CHAR_SLOT"
+    ],
+    [
+      6,
+      5,
+      0,
+      6,
+      1,
+      "ZIGGART_STAGE"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}

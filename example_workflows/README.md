@@ -108,3 +108,15 @@ Pipeline complet des **5 nœuds de génération 3D (`Ziggart/3D`)** optimisés p
   - Génère un maillage 3D **`.glb` texturé UV** et son nuage de points intermédiaire `.ply` en ~1 à 2 secondes avec **SPAR3D** (Stability AI).
 - **Branche 3 — `ZiggartHunyuan3DImageToMesh` (`Hunyuan3D-2mini`, `~5.5 Go` VRAM)** :
   - Génère un maillage 3D `.glb` haute précision avec déchargement séquentiel automatique du modèle Shape avant l'exécution optionnelle de `Hunyuan3DPaintPipeline`.
+
+---
+
+### 10. [`10_Krea2_Prompt_Director_Modular_and_Master_Suite.json`](./10_Krea2_Prompt_Director_Modular_and_Master_Suite.json)
+Pipeline complet des **5 nouveaux nœuds `Ziggart/Krea2 Prompt Director`** optimisés pour **Krea2 (Qwen3VL-4B)** :
+- **Pipeline Modulaire (4 nœuds chaînables)** :
+  1. **`ZiggartThemeUniverseContext`** : Sélectionne un Thème (`Collection/Themes`), un Univers (`Collection/Universes`), ou le mode `Free Crossover` (tous les dossiers : `Collection`, `ziggart`, `jff`, `Encours`), avec filtre d'ambiance (`mood_filter`) et exclusion stricte des wildcards de prompts complets (`exclude_full_prompts = True`).
+  2. **`ZiggartCharacterUnitBuilder` (Primary & Secondary)** : Construit chaque personnage avec liaison Personnage $\leftrightarrow$ Tenue héritée de **Wildcard-GPT** (`Canonical` 1:1, `Compatible`, `Free`, `Nude`) et **filtrage automatique d'occlusion Vêtement $\rightarrow$ Anatomie** (bloque automatiquement les descriptions de poitrine, tétons, taille/ventre, fesses ou zones intimes si la tenue tirée les recouvre).
+  3. **`ZiggartSceneStageAtmosphere`** : Sélectionne le Style, l'Action / Interaction Duo, l'Environnement, l'Éclairage et la Caméra.
+  4. **`ZiggartKrea2PromptAssembler`** : Compile le prompt final selon la structure `scoped` entre parenthèses avec ancre de dénombrement hors parenthèses (ou politiques `balanced`, `compact`, `rich`) et fournit les prompts individuels pour les Detailers ainsi que l'estimation de tokens Qwen3VL-4B.
+- **Nœud All-in-One (`ZiggartKrea2MasterPromptDirector`)** :
+  - Regroupe l'ensemble de la création Solo / Duo, des filtres Tenue/Anatomie et du compilateur Krea2 dans un seul nœud.

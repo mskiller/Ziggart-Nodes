@@ -47,12 +47,33 @@ from .nodes import (
     _resolve_gguf,
     image_to_data_uri,
 )
+from .krea2_compiler import (
+    ANATOMY_ZONES,
+    DUO_INTERACTIONS_BANK,
+    CharacterSlotData,
+    OutfitOcclusionReport,
+    SceneStageData,
+    analyze_outfit_occlusion,
+    assemble_krea2_structured_prompt,
+    classify_anatomy_wildcard_zone,
+    clean_outfit_prefix,
+    estimate_qwen_tokens,
+    filter_anatomy_text_by_occlusion,
+    get_theme_outfit_choices,
+    is_full_prompt_wildcard_key,
+    is_full_scene_line,
+    load_theme_bundle,
+    load_universe_bundle,
+)
 
 
 NONE_OPTION = "[None]"
+FROM_CONTEXT_OPTION = "[From Context (Theme / Universe)]"
+RANDOM_POOL_OPTION = "[Random From Category]"
 SELECT_PLACEHOLDER = "[Select a Wildcard to Insert or Resolve]"
 LORA_PLACEHOLDER = "[Select a LoRA to Insert]"
 RANDOM_THEME_OPTION = "[Random Theme]"
+RANDOM_UNIVERSE_OPTION = "[Random Universe]"
 
 # Fast regex patterns for YAML byte-offset indexing and wildcard syntax
 _YAML_KEY_LINE_RE = re.compile(r"^(\s*)([A-Za-z0-9_.\-/ ]+?)\s*:\s*(.*)$")
@@ -295,7 +316,19 @@ class ZiggartWildcardIndex:
             "style_camera_light": [],
             "mixed_other": [],
         }
+        # Pure facet component pools (excluding full pre-assembled scene prompts!) across Collection, ziggart, jff, Encours, Outfits, Characters
+        self.facets: dict[str, list[str]] = {
+            "styles": [],
+            "characters": [],
+            "anatomy": [],
+            "outfits": [],
+            "poses_actions": [],
+            "environments": [],
+            "lighting": [],
+            "camera": [],
+        }
         self.theme_folders: dict[str, str] = {}  # theme_name -> absolute folder path
+        self.universe_folders: dict[str, str] = {}  # universe_name -> absolute folder path
         self._dropdown_items: list[str] = []
         self._initialized = False
 
@@ -324,8 +357,11 @@ class ZiggartWildcardIndex:
             self._options_cache.clear()
             self._glob_files_cache.clear()
             self.theme_folders.clear()
+            self.universe_folders.clear()
             for k in self.pillars:
                 self.pillars[k] = []
+            for fk in self.facets:
+                self.facets[fk] = []
 
             cache_file = self._cache_file_path()
             disk_cache: dict[str, Any] = {}
@@ -444,6 +480,9 @@ class ZiggartWildcardIndex:
                         seen_all.add(low)
                         all_combined.append(it)
                 self.pillars[pk] = dedup
+
+            # Populate pure component facets (excluding full scene prompts) from curated_txt_map and Ziggart.yaml
+            self._populate_pure_facets()
 
             if cache_dirty:
                 try:
@@ -566,6 +605,8 @@ class ZiggartWildcardIndex:
                 try:
                     for entry in sorted(os.scandir(m_dir), key=lambda e: e.name.lower()):
                         if entry.is_dir():
+                            if macro_sub == "Universes":
+                                self.universe_folders[entry.name] = entry.path
                             self.pillars["mixed_other"].append(f"__Collection/{macro_sub}/{entry.name}/ALL__")
                         elif entry.is_file() and entry.name.lower().endswith(".txt"):
                             rel = os.path.relpath(entry.path, root_dir).replace("\\", "/")
@@ -589,6 +630,115 @@ class ZiggartWildcardIndex:
             except OSError:
                 pass
 
+    def _populate_pure_facets(self) -> None:
+        """
+        Classifies all non-full-prompt wildcards from Collection, ziggart, jff, Encours, Outfits,
+        Characters, and Ziggart.yaml into the 8 pure component facets:
+        styles, characters, anatomy, outfits, poses_actions, environments, lighting, camera.
+        """
+        seen_per_facet: dict[str, set[str]] = {fk: set() for fk in self.facets}
+
+        def _add_facet(facet_name: str, token: str) -> None:
+            low = token.lower()
+            if low not in seen_per_facet[facet_name]:
+                seen_per_facet[facet_name].add(low)
+                self.facets[facet_name].append(token)
+
+        # 1. Classify .txt files from _curated_txt_map
+        for norm_k, full_path in sorted(self._curated_txt_map.items()):
+            if is_full_prompt_wildcard_key(norm_k):
+                continue
+
+            # Reconstruct readable relative stem
+            token = f"__{norm_k}__"
+            for base_d in self._dirs:
+                try:
+                    if os.path.normcase(full_path).startswith(os.path.normcase(base_d)):
+                        rel = os.path.relpath(full_path, base_d).replace("\\", "/")
+                        stem = os.path.splitext(rel)[0]
+                        token = f"__{stem}__"
+                        break
+                except ValueError:
+                    continue
+
+            k_low = norm_k.lower()
+            base_name = k_low.rsplit("/", 1)[-1]
+
+            # Collection structured folders
+            if k_low.startswith("collection/style/") or k_low.startswith("collection/medium/") or k_low.startswith("ziggart/style/"):
+                _add_facet("styles", token)
+            elif k_low.startswith("collection/characters/") or k_low.startswith("characters/") or k_low.startswith("collection/bestiary/") or k_low.startswith("collection/duosteams/") or k_low.startswith("collection/disneyprincesses/") or k_low.startswith("collection/pixiehollow/"):
+                _add_facet("characters", token)
+            elif k_low.startswith("collection/anatomy/"):
+                _add_facet("anatomy", token)
+            elif k_low.startswith("collection/outfits/") or k_low.startswith("outfits/") or k_low.startswith("ziggart/outfits/"):
+                _add_facet("outfits", token)
+            elif k_low.startswith("collection/pose/") or k_low.startswith("collection/expression/"):
+                _add_facet("poses_actions", token)
+            elif k_low.startswith("collection/environment/") or k_low.startswith("collection/iconicplaces/"):
+                _add_facet("environments", token)
+            elif k_low.startswith("collection/lighting/"):
+                _add_facet("lighting", token)
+            elif k_low.startswith("collection/camera/"):
+                _add_facet("camera", token)
+            else:
+                # Root, jff/, Encours/, ziggart/ root files classification
+                if any(w in k_low for w in ("style", "styl", "artists-art-nouveau", "artstyletheme")):
+                    _add_facet("styles", token)
+                elif any(w in k_low for w in ("camera-angle", "camerafocus", "camerashotangle", "photoshoot-type")):
+                    _add_facet("camera", token)
+                elif any(w in k_low for w in ("ambiance-light", "art-deco-lighting")) or base_name == "light":
+                    _add_facet("lighting", token)
+                elif any(w in k_low for w in ("breast-shape", "jffbreast-size", "female-body", "femme-body-description", "pussies", "women-faces")):
+                    _add_facet("anatomy", token)
+                elif any(w in k_low for w in ("outfit", "clothe", "lingerie", "vetement", "bikini", "swimsuit", "armors", "uniform", "cosplay", "sandralinge", "stucklinge", "man-underwear", "women-bottom", "collar")):
+                    _add_facet("outfits", token)
+                elif any(w in k_low for w in ("pose", "action", "sex-position", "position_hentai", "sex-act", "villains-act", "emotion-expression")):
+                    _add_facet("poses_actions", token)
+                elif any(w in k_low for w in ("environnement", "environment", "scenery", "lieu", "location", "maison", "garden-summer", "train-station")):
+                    _add_facet("environments", token)
+                elif any(
+                    w in base_name
+                    for w in (
+                        "female-all", "female-full", "male-all", "male-full", "creature-all", "creature-full",
+                        "actors", "actress", "celeb-female", "1680-elves", "20females", "aln-superheroine",
+                        "chinese-myth-women", "cyborg", "dcmheroes", "dcmvillains", "disney-princess",
+                        "egypt-myth-women", "eur-myth-women", "females-sexy", "females123", "femme-",
+                        "greek-myth-women", "greekgod", "indian-myth-women", "jap-myth-women", "jff-fem-",
+                        "jff-female-names", "jff-redheads", "jff-superheroine", "jff-xsuperheroine",
+                        "jffprincess", "jffsuperheroine", "mklan-female-card", "monsters", "monstres-list",
+                        "myh-heroes", "myth-women", "norse-myth-women", "vilsfw", "vsangel", "french-maiden",
+                        "english_maids", "wildcard_teacher",
+                    )
+                ):
+                    _add_facet("characters", token)
+
+        # 2. Classify non-scene Ziggart.yaml keys into pure facets
+        for y_key in sorted(self._yaml_offsets.keys()):
+            if is_full_prompt_wildcard_key(y_key):
+                continue
+            parts = y_key.split("/")
+            if len(parts) < 2 or parts[0] != "ziggart":
+                continue
+            sec = parts[1]
+            token = f"__{y_key}__"
+            if sec in ("style", "medium", "art_medium"):
+                _add_facet("styles", token)
+            elif sec in ("character", "bestiary"):
+                _add_facet("characters", token)
+            elif sec == "anatomy":
+                _add_facet("anatomy", token)
+            elif sec == "outfit":
+                _add_facet("outfits", token)
+            elif sec in ("pose", "action_pose", "expression", "expressions"):
+                _add_facet("poses_actions", token)
+            elif sec == "environment":
+                _add_facet("environments", token)
+            elif sec == "lighting":
+                _add_facet("lighting", token)
+            elif sec == "camera":
+                _add_facet("camera", token)
+
     def get_dropdown_list(self, extra_dir: str = "") -> list[str]:
         self.ensure_loaded(extra_dir=extra_dir)
         return [SELECT_PLACEHOLDER] + self._dropdown_items
@@ -598,10 +748,32 @@ class ZiggartWildcardIndex:
         items = self.pillars.get(pillar_key, [])
         return [placeholder] + (items if items else [SELECT_PLACEHOLDER])
 
+    def get_facet_dropdown(
+        self,
+        facet_key: str,
+        include_context_option: bool = True,
+        include_random_option: bool = True,
+        extra_dir: str = "",
+    ) -> list[str]:
+        """Returns dropdown choices for a pure component facet (`styles`, `characters`, `anatomy`, `outfits`, `poses_actions`, `environments`, `lighting`, `camera`)."""
+        self.ensure_loaded(extra_dir=extra_dir)
+        header: list[str] = [NONE_OPTION]
+        if include_context_option:
+            header.append(FROM_CONTEXT_OPTION)
+        if include_random_option:
+            header.append(RANDOM_POOL_OPTION)
+        items = self.facets.get(facet_key, [])
+        return header + items
+
     def get_theme_list(self, extra_dir: str = "") -> list[str]:
         self.ensure_loaded(extra_dir=extra_dir)
         names = sorted(self.theme_folders.keys())
         return [RANDOM_THEME_OPTION] + names
+
+    def get_universe_list(self, extra_dir: str = "") -> list[str]:
+        self.ensure_loaded(extra_dir=extra_dir)
+        names = sorted(self.universe_folders.keys())
+        return [RANDOM_UNIVERSE_OPTION] + names
 
     def search_wildcards(self, query: str, limit: int = 100, extra_dir: str = "") -> list[str]:
         """Searches across YAML keys, Collection pillars, and Theme folders matching `query`."""
@@ -2035,6 +2207,1254 @@ class ZiggartWildcardRecipeSaver:
 
 
 # ---------------------------------------------------------------------------
+# Krea2 (Qwen3VL-4B) Modular & Master Prompt Director Nodes
+# ---------------------------------------------------------------------------
+
+MOOD_FILTER_OPTIONS = [
+    "[Any / No Filter]",
+    "SFW Only (Exclude NSFW / Erotic / Intimate)",
+    "NSFW / Sensual / Glamour",
+    "Fantasy / Mythology / Medieval",
+    "Sci-Fi / Cyberpunk / Mecha",
+    "Anime / Manga / Cel Animation",
+    "Dark / Gothic / Horror",
+    "Urban / Modern / Streetwear",
+]
+
+OUTFIT_LINK_MODES = [
+    "Canonical (1:1 Strict Character Outfit)",
+    "Compatible (Same Theme/Universe + Gender)",
+    "Free (All Outfit Wildcards across Folders)",
+    "Nude / Unclothed (All Anatomy Visible)",
+]
+
+KREA2_COMPILER_POLICIES = [
+    "scoped (Parentheses Blocks + Count Anchor)",
+    "balanced (Krea2 v2 9-Block Linear Prose)",
+    "compact (Solo Focus / Condensed Environment)",
+    "rich (Full Detail + Quality Constraints)",
+]
+
+DUO_ACTION_PRESET_OPTIONS = [
+    NONE_OPTION,
+    FROM_CONTEXT_OPTION,
+    RANDOM_POOL_OPTION,
+    *list(DUO_INTERACTIONS_BANK.keys()),
+]
+
+_NSFW_TOKEN_RE = re.compile(
+    r"(?:nsfw|erotic|hentai|sex|xxx|lingerie|bikini|microbikini|nude|naked|nudity|boudoir|intimate|vulva|penis|pussies|cum|alluring|sugg-pose|striptease|bdsm|wetlook|seethrough)",
+    re.I,
+)
+
+
+def _matches_mood_and_keyword(
+    candidate_token_or_line: str,
+    mood_filter: str = "[Any / No Filter]",
+    custom_keyword: str = "",
+) -> bool:
+    """Checks if a wildcard token or line matches the active mood_filter and optional custom_keyword."""
+    low = candidate_token_or_line.lower()
+    if mood_filter == "SFW Only (Exclude NSFW / Erotic / Intimate)":
+        if _NSFW_TOKEN_RE.search(low) and "sfw" not in low:
+            return False
+    elif mood_filter == "NSFW / Sensual / Glamour":
+        if not (_NSFW_TOKEN_RE.search(low) or any(w in low for w in ("glamour", "sensual", "swimsuit", "swimwear", "plage", "sexy"))):
+            return False
+    elif mood_filter == "Fantasy / Mythology / Medieval":
+        if not any(w in low for w in ("fantasy", "myth", "medieval", "elf", "elves", "dwarv", "dragon", "magic", "sorcer", "armors", "armor", "ancient", "goddess", "greekgod")):
+            return False
+    elif mood_filter == "Sci-Fi / Cyberpunk / Mecha":
+        if not any(w in low for w in ("scifi", "sci-fi", "cyber", "mecha", "robot", "alien", "space", "cosmic", "synthwave", "neon", "future")):
+            return False
+    elif mood_filter == "Anime / Manga / Cel Animation":
+        if not any(w in low for w in ("anime", "manga", "cel", "toonz", "sentai", "magical-girl", "sexymagical", "ova", "shonen", "seinen", "shojo")):
+            return False
+    elif mood_filter == "Dark / Gothic / Horror":
+        if not any(w in low for w in ("dark", "gothic", "horror", "horreur", "vampir", "asylum", "underworld", "monster", "monstres", "cryptid", "noir")):
+            return False
+    elif mood_filter == "Urban / Modern / Streetwear":
+        if not any(w in low for w in ("urban", "city", "street", "casual", "sport", "gym", "tennis", "modern", "fashion", "academy", "uniform", "maid")):
+            return False
+
+    if custom_keyword and custom_keyword.strip():
+        kw_parts = [k.strip().lower() for k in custom_keyword.split(",") if k.strip()]
+        if kw_parts and not any(k in low for k in kw_parts):
+            return False
+    return True
+
+
+def _pick_filtered_wildcard_line(
+    facet_key: str,
+    selected_option: str,
+    rng: random.Random,
+    *,
+    context_bundle: dict[str, Any] | None = None,
+    context_field: str = "",
+    mood_filter: str = "[Any / No Filter]",
+    custom_keyword: str = "",
+    gender_filter: str = "Auto / Any",
+    exclude_full_prompts: bool = True,
+    extra_dir: str = "",
+) -> tuple[str, str]:
+    """
+    Resolves a single component facet into `(expanded_text, unexpanded_token_or_source)`.
+    Supports:
+    - `[None]` -> `("", "")`
+    - `[From Context (Theme / Universe)]` -> picks from `context_bundle[context_field]`, falling back to random facet pool
+    - `[Random From Category]` -> picks a matching wildcard from `WILDCARD_INDEX.facets[facet_key]`
+    - Specific `__wildcard__` token -> resolves that wildcard with full-scene line filtering.
+    """
+    WILDCARD_INDEX.ensure_loaded(extra_dir=extra_dir)
+
+    if not selected_option or selected_option == NONE_OPTION:
+        return ("", "")
+
+    # 1. From Context (Theme / Universe)
+    if selected_option == FROM_CONTEXT_OPTION:
+        if context_bundle and context_field:
+            ctx_items = context_bundle.get(context_field) or []
+            if isinstance(ctx_items, list) and ctx_items:
+                chosen_ctx = str(rng.choice(ctx_items)).strip()
+                expanded_ctx = process_wildcards(chosen_ctx, seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+                return (expanded_ctx, chosen_ctx)
+        # Fallback if context has no items for this field (e.g. Lighting or Camera which are not in Theme folders)
+        selected_option = RANDOM_POOL_OPTION
+
+    # 2. Random Pool from Category
+    chosen_token = selected_option
+    if selected_option == RANDOM_POOL_OPTION:
+        pool = list(WILDCARD_INDEX.facets.get(facet_key, []))
+        if exclude_full_prompts:
+            pool = [t for t in pool if not is_full_prompt_wildcard_key(t)]
+        if gender_filter in ("Female", "Male", "Creature"):
+            g_low = gender_filter.lower()
+            other_genders = {"female", "male", "creature"} - {g_low}
+            g_filtered = [
+                t for t in pool
+                if g_low in t.lower() or not any(f"/{og}/" in t.lower() or f"{og}-" in t.lower() for og in other_genders)
+            ]
+            if g_filtered:
+                pool = g_filtered
+        if mood_filter != "[Any / No Filter]" or custom_keyword.strip():
+            m_filtered = [t for t in pool if _matches_mood_and_keyword(t, mood_filter, custom_keyword)]
+            if m_filtered:
+                pool = m_filtered
+        if not pool:
+            return ("", "")
+        chosen_token = rng.choice(pool)
+
+    # 3. Resolve the chosen wildcard token and filter out full-scene lines if exclude_full_prompts is True
+    raw_key = chosen_token.strip().strip("_")
+    options = WILDCARD_INDEX.resolve_key_options(raw_key, rng)
+    if options:
+        valid_lines = list(options)
+        if exclude_full_prompts:
+            non_scene = [ln for ln in valid_lines if not is_full_scene_line(ln)]
+            if non_scene:
+                valid_lines = non_scene
+        if mood_filter == "SFW Only (Exclude NSFW / Erotic / Intimate)":
+            sfw_lines = [ln for ln in valid_lines if not _NSFW_TOKEN_RE.search(ln)]
+            if sfw_lines:
+                valid_lines = sfw_lines
+        if custom_keyword.strip():
+            kw_lines = [ln for ln in valid_lines if _matches_mood_and_keyword(ln, "[Any / No Filter]", custom_keyword)]
+            if kw_lines:
+                valid_lines = kw_lines
+        chosen_line = _weighted_choice(valid_lines, 1, rng)[0]
+        expanded = process_wildcards(chosen_line, seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+        return (expanded, chosen_token)
+
+    # Fallback direct wildcard expansion
+    expanded = process_wildcards(chosen_token, seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+    return (expanded, chosen_token)
+
+
+def _resolve_character_unit(
+    *,
+    slot_role: str,
+    context: dict[str, Any] | None,
+    character_source: str,
+    gender_filter: str,
+    character_wildcard: str,
+    custom_character_text: str,
+    outfit_link_mode: str,
+    outfit_wildcard: str,
+    custom_outfit_text: str,
+    enable_anatomy: bool,
+    auto_filter_anatomy_by_outfit: bool,
+    anatomy_wildcard: str,
+    custom_anatomy_text: str,
+    individual_action_wildcard: str,
+    custom_action_text: str,
+    seed: int,
+    used_char_ids: set[str] | None = None,
+    extra_dir: str = "",
+) -> tuple[CharacterSlotData, str, str]:
+    """
+    Core builder logic shared between `ZiggartCharacterUnitBuilder` and `ZiggartKrea2MasterPromptDirector`.
+    Resolves character identity, applies 1:1 Canonical / Compatible / Free / Nude outfit linking,
+    and runs automatic Outfit -> Anatomy occlusion filtering.
+    """
+    WILDCARD_INDEX.ensure_loaded(extra_dir=extra_dir)
+    rng = random.Random((int(seed) ^ (0xA5A5A5A5 if slot_role == "Secondary" else 0x13579BDF)) & 0xFFFFFFFFFFFFFFFF)
+
+    ctx_bundle: dict[str, Any] | None = context.get("bundle") if isinstance(context, dict) else None
+    mood_filter = str(context.get("mood_filter", "[Any / No Filter]")) if isinstance(context, dict) else "[Any / No Filter]"
+    kw_filter = str(context.get("keyword_filter", "")) if isinstance(context, dict) else ""
+    exclude_full = bool(context.get("exclude_full_prompts", True)) if isinstance(context, dict) else True
+    theme_or_univ_name = str(context.get("name", "Free Crossover")) if isinstance(context, dict) else "Free Crossover"
+
+    resolved_gender = gender_filter if gender_filter in ("Female", "Male", "Creature") else "Female"
+    char_desc = ""
+    selected_char_obj: dict[str, Any] | None = None
+    unexpanded_char_token = ""
+
+    # 1. Resolve Character Identity
+    if custom_character_text and custom_character_text.strip():
+        unexpanded_char_token = custom_character_text.strip()
+        char_desc = process_wildcards(unexpanded_char_token, seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+        if gender_filter == "Auto / Any":
+            c_low = char_desc.lower()
+            if any(w in c_low for w in ("boy", "man", "male", "he ", "his ", "gentleman", "warrior man")):
+                resolved_gender = "Male"
+            elif any(w in c_low for w in ("beast", "creature", "monster", "dragon", "wyvern")):
+                resolved_gender = "Creature"
+    elif (
+        character_source == "From Context (Theme / Universe)"
+        or (character_wildcard == FROM_CONTEXT_OPTION and ctx_bundle)
+    ) and ctx_bundle and ctx_bundle.get("characters"):
+        candidates = list(ctx_bundle["characters"])
+        if gender_filter in ("Female", "Male"):
+            g_cands = [c for c in candidates if str(c.get("gender", "")).lower() == gender_filter.lower()]
+            if g_cands:
+                candidates = g_cands
+        elif gender_filter == "Creature" and ctx_bundle.get("creatures"):
+            cre_line = rng.choice(ctx_bundle["creatures"])
+            char_desc = process_wildcards(cre_line, seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+            resolved_gender = "Creature"
+            candidates = []
+
+        if candidates:
+            if used_char_ids:
+                unused = [c for c in candidates if str(c.get("id", c.get("description", ""))) not in used_char_ids]
+                if unused:
+                    candidates = unused
+            selected_char_obj = rng.choice(candidates)
+            if used_char_ids is not None:
+                used_char_ids.add(str(selected_char_obj.get("id", selected_char_obj.get("description", ""))))
+            char_desc = str(selected_char_obj.get("description", "")).strip()
+            resolved_gender = str(selected_char_obj.get("gender", resolved_gender)).capitalize()
+            unexpanded_char_token = f"[{theme_or_univ_name}:{selected_char_obj.get('id', 'Char')}]"
+    else:
+        wc_choice = character_wildcard
+        if wc_choice in (NONE_OPTION, FROM_CONTEXT_OPTION):
+            wc_choice = RANDOM_POOL_OPTION
+        char_desc, unexpanded_char_token = _pick_filtered_wildcard_line(
+            "characters",
+            wc_choice,
+            rng,
+            context_bundle=ctx_bundle,
+            context_field="characters",
+            mood_filter=mood_filter,
+            custom_keyword=kw_filter,
+            gender_filter=gender_filter,
+            exclude_full_prompts=exclude_full,
+            extra_dir=extra_dir,
+        )
+        if gender_filter == "Auto / Any":
+            tok_low = f"{unexpanded_char_token} {char_desc}".lower()
+            if any(w in tok_low for w in ("/male", "male-", "actors", " man,", " boy,")):
+                resolved_gender = "Male"
+            elif any(w in tok_low for w in ("creature", "bestiary", "monster", "dragon")):
+                resolved_gender = "Creature"
+            else:
+                resolved_gender = "Female"
+
+    # Note: some jff character cards (like femme-krea-list.txt) include a built-in outfit after the character trait.
+    # If the user selects an explicit outfit mode or override, we keep `char_desc` clean.
+
+    # 2. Resolve Outfit according to `outfit_link_mode`
+    outfit_desc = ""
+    unexpanded_outfit_token = ""
+    mode_low = outfit_link_mode.lower()
+
+    if "nude" in mode_low:
+        outfit_desc = "nude, completely unclothed"
+        unexpanded_outfit_token = "nude"
+    elif custom_outfit_text and custom_outfit_text.strip():
+        unexpanded_outfit_token = custom_outfit_text.strip()
+        outfit_desc = process_wildcards(unexpanded_outfit_token, seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+    elif "canonical" in mode_low and selected_char_obj is not None and ctx_bundle is not None:
+        choices = get_theme_outfit_choices(ctx_bundle, selected_char_obj, "canonical")
+        if choices:
+            outfit_desc = process_wildcards(rng.choice(choices), seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+            unexpanded_outfit_token = f"[{theme_or_univ_name}:CanonicalOutfit]"
+        else:
+            # Fallback to compatible outfits in the same theme
+            compat_choices = get_theme_outfit_choices(ctx_bundle, selected_char_obj, "compatible")
+            if compat_choices:
+                outfit_desc = process_wildcards(rng.choice(compat_choices), seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+                unexpanded_outfit_token = f"[{theme_or_univ_name}:CompatibleOutfit]"
+    elif "compatible" in mode_low and ctx_bundle is not None and outfit_wildcard in (NONE_OPTION, FROM_CONTEXT_OPTION):
+        dummy_char = selected_char_obj or {"gender": resolved_gender}
+        compat_choices = get_theme_outfit_choices(ctx_bundle, dummy_char, "compatible")
+        if compat_choices:
+            outfit_desc = process_wildcards(rng.choice(compat_choices), seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+            unexpanded_outfit_token = f"[{theme_or_univ_name}:{resolved_gender}-Outfit]"
+
+    # If still empty (e.g. Free mode, or Compatible with a wildcard selected, or no theme context):
+    if not outfit_desc and "nude" not in mode_low:
+        o_choice = outfit_wildcard
+        if o_choice == NONE_OPTION and ("compatible" in mode_low or "free" in mode_low or "canonical" in mode_low):
+            o_choice = RANDOM_POOL_OPTION
+        if o_choice != NONE_OPTION:
+            g_for_outfit = resolved_gender if ("compatible" in mode_low or "canonical" in mode_low) else gender_filter
+            outfit_desc, unexpanded_outfit_token = _pick_filtered_wildcard_line(
+                "outfits",
+                o_choice,
+                rng,
+                context_bundle=ctx_bundle,
+                context_field="outfits",
+                mood_filter=mood_filter,
+                custom_keyword=kw_filter,
+                gender_filter=g_for_outfit,
+                exclude_full_prompts=exclude_full,
+                extra_dir=extra_dir,
+            )
+
+    outfit_desc = clean_outfit_prefix(outfit_desc)
+
+    # 3. Analyze Outfit Occlusion -> Filter Anatomy automatically!
+    occlusion = analyze_outfit_occlusion(outfit_desc, unexpanded_outfit_token)
+    anatomy_desc = ""
+
+    # Block intimate anatomy if character age is minor
+    is_minor = bool(selected_char_obj and str(selected_char_obj.get("age", "adult")).lower() == "minor")
+    if is_minor:
+        occlusion = OutfitOcclusionReport(
+            outfit_text=outfit_desc,
+            is_nude=False,
+            allowed_zones={z: False for z in ANATOMY_ZONES},
+            blocked_zones=ANATOMY_ZONES,
+            visible_zones=(),
+            reason_summary="Minor character age policy: all intimate/body anatomy zones blocked.",
+        )
+
+    if enable_anatomy and not is_minor:
+        if custom_anatomy_text and custom_anatomy_text.strip():
+            raw_anat = process_wildcards(custom_anatomy_text.strip(), seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+            anatomy_desc = (
+                filter_anatomy_text_by_occlusion(raw_anat, occlusion, gender=resolved_gender)
+                if auto_filter_anatomy_by_outfit
+                else raw_anat
+            )
+        elif anatomy_wildcard not in (NONE_OPTION, FROM_CONTEXT_OPTION, RANDOM_POOL_OPTION):
+            # Specific anatomy wildcard chosen by user: check if its zone is allowed by the outfit
+            zone = classify_anatomy_wildcard_zone(anatomy_wildcard)
+            if auto_filter_anatomy_by_outfit and zone is not None and not occlusion.allowed_zones.get(zone, True):
+                anatomy_desc = ""
+            else:
+                raw_anat, _ = _pick_filtered_wildcard_line(
+                    "anatomy",
+                    anatomy_wildcard,
+                    rng,
+                    mood_filter=mood_filter,
+                    custom_keyword=kw_filter,
+                    gender_filter=resolved_gender,
+                    exclude_full_prompts=exclude_full,
+                    extra_dir=extra_dir,
+                )
+                anatomy_desc = (
+                    filter_anatomy_text_by_occlusion(raw_anat, occlusion, gender=resolved_gender)
+                    if auto_filter_anatomy_by_outfit
+                    else raw_anat
+                )
+        else:
+            # Automatic multi-zone anatomy assembly based on visible zones & gender!
+            anat_Pool = list(WILDCARD_INDEX.facets.get("anatomy", []))
+            g_low = resolved_gender.lower()
+            gender_anat_pool = [
+                t for t in anat_Pool
+                if f"/{g_low}/" in t.lower()
+                or (g_low == "female" and any(w in t.lower() for w in ("breast-shape", "jffbreast", "female-body", "femme-body")))
+            ]
+            # Filter out ALL.txt so we can pick specific allowed zone files
+            zone_files = [t for t in gender_anat_pool if not t.lower().endswith("/all__")]
+            allowed_files: list[str] = []
+            for tf in zone_files:
+                z = classify_anatomy_wildcard_zone(tf)
+                if mood_filter == "SFW Only (Exclude NSFW / Erotic / Intimate)" and z in ("NIPPLES_AREOLAS", "INTIMATE_GENITALS"):
+                    continue
+                if auto_filter_anatomy_by_outfit:
+                    if z is None or occlusion.allowed_zones.get(z, False):
+                        # Only auto-include INTIMATE_GENITALS if outfit is explicitly nude/bottomless and mood is not SFW
+                        if z == "INTIMATE_GENITALS" and not occlusion.is_nude:
+                            continue
+                        allowed_files.append(tf)
+                else:
+                    if z != "INTIMATE_GENITALS" or occlusion.is_nude:
+                        allowed_files.append(tf)
+
+            if allowed_files:
+                # Prioritize visible body contour zones (e.g. Breasts-Chest, Waist-Midriff, Buttocks-Glutes, Build-Musculature)
+                body_zone_files = [tf for tf in allowed_files if classify_anatomy_wildcard_zone(tf) is not None]
+                chosen_anat_tokens = rng.sample(body_zone_files, min(2, len(body_zone_files))) if body_zone_files else [rng.choice(allowed_files)]
+                anat_parts: list[str] = []
+                for tok in chosen_anat_tokens:
+                    line_exp, _ = _pick_filtered_wildcard_line(
+                        "anatomy",
+                        tok,
+                        rng,
+                        mood_filter=mood_filter,
+                        gender_filter=resolved_gender,
+                        exclude_full_prompts=exclude_full,
+                        extra_dir=extra_dir,
+                    )
+                    if line_exp:
+                        anat_parts.append(line_exp)
+                raw_anat = ", ".join(anat_parts)
+                anatomy_desc = (
+                    filter_anatomy_text_by_occlusion(raw_anat, occlusion, gender=resolved_gender)
+                    if auto_filter_anatomy_by_outfit
+                    else raw_anat
+                )
+
+    # 4. Resolve Individual Action (if any)
+    indiv_action = ""
+    if custom_action_text and custom_action_text.strip():
+        indiv_action = process_wildcards(custom_action_text.strip(), seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+    elif individual_action_wildcard and individual_action_wildcard != NONE_OPTION:
+        indiv_action, _ = _pick_filtered_wildcard_line(
+            "poses_actions",
+            individual_action_wildcard,
+            rng,
+            context_bundle=ctx_bundle,
+            context_field="poses",
+            mood_filter=mood_filter,
+            custom_keyword=kw_filter,
+            gender_filter=resolved_gender,
+            exclude_full_prompts=exclude_full,
+            extra_dir=extra_dir,
+        )
+
+    slot_data = CharacterSlotData(
+        slot_role=slot_role,
+        gender=resolved_gender,
+        character_desc=char_desc,
+        anatomy_desc=anatomy_desc,
+        outfit_desc=outfit_desc,
+        individual_action=indiv_action,
+        outfit_link_mode=outfit_link_mode,
+        occlusion_report=occlusion,
+        theme_or_universe=theme_or_univ_name,
+    )
+    char_block_str = slot_data.format_character_block(encapsulate_subparts=False)
+    debug_info = (
+        f"[{slot_role} | {resolved_gender} | Mode: {outfit_link_mode}]\n"
+        f"Character: {char_desc[:120]}\n"
+        f"Outfit: {outfit_desc[:120]}\n"
+        f"Occlusion: {occlusion.reason_summary}\n"
+        f"Filtered Anatomy: {anatomy_desc or '[None / Occluded]'}"
+    )
+    return (slot_data, char_block_str, debug_info)
+
+
+# ---------------------------------------------------------------------------
+# Modular Node 1: ZiggartThemeUniverseContext
+# ---------------------------------------------------------------------------
+
+
+class ZiggartThemeUniverseContext:
+    """
+    Selects a Theme (`Collection/Themes`), a Universe (`Collection/Universes`), or Free Crossover mode,
+    and sets global filtering rules (Mood/Tag filter, Full-Scene Prompt exclusion, Seed) that propagate
+    to Character and Scene Stage nodes.
+    """
+
+    DESCRIPTION = (
+        "Selects a Theme (1,518+ folders with Character-Outfits.json), a Universe (with source.json branches), "
+        "or Free Multi-Folder Crossover mode, and configures mood/tag filtering and full-prompt exclusion."
+    )
+    CATEGORY = "Ziggart/Krea2 Prompt Director"
+    FUNCTION = "build_context"
+    RETURN_TYPES = ("ZIGGART_CONTEXT", "STRING", "STRING", "STRING")
+    RETURN_NAMES = ("context", "active_theme_or_universe", "default_style", "default_environment")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "source_mode": (
+                    [
+                        "Theme (Collection/Themes)",
+                        "Universe (Collection/Universes)",
+                        "Random Theme",
+                        "Random Universe",
+                        "Free Crossover (All Folders: Collection, ziggart, jff, Encours)",
+                    ],
+                    {"default": "Theme (Collection/Themes)"},
+                ),
+                "theme_selection": (
+                    WILDCARD_INDEX.get_theme_list(),
+                    {"default": RANDOM_THEME_OPTION},
+                ),
+                "universe_selection": (
+                    WILDCARD_INDEX.get_universe_list(),
+                    {"default": RANDOM_UNIVERSE_OPTION},
+                ),
+                "mood_filter": (
+                    MOOD_FILTER_OPTIONS,
+                    {"default": "[Any / No Filter]"},
+                ),
+                "exclude_full_prompts": (
+                    "BOOLEAN",
+                    {
+                        "default": True,
+                        "tooltip": "Strictly ignores pre-assembled full scene wildcards (*-scene, *-prompts, Themes/ALL, Combos, Formats) when picking components.",
+                    },
+                ),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF}),
+            },
+            "optional": {
+                "search_or_keyword_filter": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "tooltip": "Optional keyword to filter random Themes/Universes or wildcard files (e.g. 'cyberpunk', 'albator', 'dragonball').",
+                    },
+                ),
+                "custom_wildcards_dir": ("STRING", {"default": ""}),
+            },
+        }
+
+    def build_context(
+        self,
+        source_mode: str = "Theme (Collection/Themes)",
+        theme_selection: str = RANDOM_THEME_OPTION,
+        universe_selection: str = RANDOM_UNIVERSE_OPTION,
+        mood_filter: str = "[Any / No Filter]",
+        exclude_full_prompts: bool = True,
+        seed: int = 0,
+        search_or_keyword_filter: str = "",
+        custom_wildcards_dir: str = "",
+    ) -> tuple[dict[str, Any], str, str, str]:
+        WILDCARD_INDEX.ensure_loaded(extra_dir=custom_wildcards_dir)
+        rng = random.Random(int(seed) & 0xFFFFFFFFFFFFFFFF)
+        kw = search_or_keyword_filter.strip()
+
+        bundle: dict[str, Any] | None = None
+        active_name = "Free Crossover"
+
+        if "Theme" in source_mode:
+            t_name = theme_selection
+            if source_mode == "Random Theme" or t_name == RANDOM_THEME_OPTION or t_name not in WILDCARD_INDEX.theme_folders:
+                candidates = sorted(WILDCARD_INDEX.theme_folders.keys())
+                if kw:
+                    filtered = [c for c in candidates if kw.lower() in c.lower()]
+                    if filtered:
+                        candidates = filtered
+                if candidates:
+                    t_name = rng.choice(candidates)
+            t_dir = WILDCARD_INDEX.theme_folders.get(t_name)
+            if t_dir:
+                bundle = load_theme_bundle(t_dir)
+                active_name = t_name
+
+        elif "Universe" in source_mode:
+            u_name = universe_selection
+            if source_mode == "Random Universe" or u_name == RANDOM_UNIVERSE_OPTION or u_name not in WILDCARD_INDEX.universe_folders:
+                candidates = sorted(WILDCARD_INDEX.universe_folders.keys())
+                if kw:
+                    filtered = [c for c in candidates if kw.lower() in c.lower()]
+                    if filtered:
+                        candidates = filtered
+                if candidates:
+                    u_name = rng.choice(candidates)
+            u_dir = WILDCARD_INDEX.universe_folders.get(u_name)
+            if u_dir:
+                bundle = load_universe_bundle(u_dir)
+                active_name = u_name
+
+        def_style = ""
+        def_env = ""
+        if bundle:
+            if bundle.get("styles"):
+                def_style = process_wildcards(rng.choice(bundle["styles"]), seed=rng.randint(0, 0x7FFFFFFF), extra_dir=custom_wildcards_dir)
+            if bundle.get("environments"):
+                def_env = process_wildcards(rng.choice(bundle["environments"]), seed=rng.randint(0, 0x7FFFFFFF), extra_dir=custom_wildcards_dir)
+
+        ctx = {
+            "source_mode": source_mode,
+            "name": active_name,
+            "bundle": bundle,
+            "mood_filter": mood_filter,
+            "keyword_filter": kw,
+            "exclude_full_prompts": bool(exclude_full_prompts),
+            "seed": int(seed),
+            "custom_wildcards_dir": custom_wildcards_dir,
+            "default_style": def_style,
+            "default_environment": def_env,
+        }
+        return (ctx, active_name, def_style, def_env)
+
+
+# ---------------------------------------------------------------------------
+# Modular Node 2: ZiggartCharacterUnitBuilder
+# ---------------------------------------------------------------------------
+
+
+class ZiggartCharacterUnitBuilder:
+    """
+    Builds a complete Character Unit (Primary or Secondary) with:
+    - Character selection from Theme/Universe or any pure character wildcard pool
+    - Wildcard-GPT Outfit Linker: Canonical (1:1), Compatible (Theme+Gender), Free, or Nude
+    - Automatic Outfit -> Anatomy Occlusion Filter (blocks covered zones like chest/nipples/midriff/intimate when covered by armor/clothes)
+    """
+
+    DESCRIPTION = (
+        "Builds a Primary or Secondary Character slot with 1:1 Canonical/Compatible/Free Outfit linking "
+        "and automatic Outfit -> Anatomy occlusion filtering (hides anatomy descriptions covered by the chosen outfit)."
+    )
+    CATEGORY = "Ziggart/Krea2 Prompt Director"
+    FUNCTION = "build_character"
+    RETURN_TYPES = ("ZIGGART_CHAR_SLOT", "STRING", "STRING")
+    RETURN_NAMES = ("char_slot", "character_prompt_block", "occlusion_debug_info")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "slot_role": (["Primary", "Secondary"], {"default": "Primary"}),
+                "character_source": (
+                    [
+                        "From Context (Theme / Universe)",
+                        "Wildcard Selector / Category Pool",
+                    ],
+                    {"default": "From Context (Theme / Universe)"},
+                ),
+                "gender_filter": (
+                    ["Auto / Any", "Female", "Male", "Creature"],
+                    {"default": "Auto / Any"},
+                ),
+                "character_wildcard": (
+                    WILDCARD_INDEX.get_facet_dropdown("characters"),
+                    {"default": FROM_CONTEXT_OPTION},
+                ),
+                "outfit_link_mode": (
+                    OUTFIT_LINK_MODES,
+                    {"default": "Canonical (1:1 Strict Character Outfit)"},
+                ),
+                "outfit_wildcard": (
+                    WILDCARD_INDEX.get_facet_dropdown("outfits"),
+                    {"default": FROM_CONTEXT_OPTION},
+                ),
+                "enable_anatomy": ("BOOLEAN", {"default": False}),
+                "auto_filter_anatomy_by_outfit": (
+                    "BOOLEAN",
+                    {
+                        "default": True,
+                        "tooltip": "Automatically blocks anatomical descriptions (e.g. breasts, nipples, midriff, glutes, intimate) if the resolved outfit covers those zones!",
+                    },
+                ),
+                "anatomy_wildcard": (
+                    WILDCARD_INDEX.get_facet_dropdown("anatomy", include_context_option=False),
+                    {"default": RANDOM_POOL_OPTION},
+                ),
+                "individual_action_wildcard": (
+                    WILDCARD_INDEX.get_facet_dropdown("poses_actions"),
+                    {"default": NONE_OPTION},
+                ),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF}),
+            },
+            "optional": {
+                "context": ("ZIGGART_CONTEXT",),
+                "custom_character_text": ("STRING", {"default": "", "multiline": False}),
+                "custom_outfit_text": ("STRING", {"default": "", "multiline": False}),
+                "custom_anatomy_text": ("STRING", {"default": "", "multiline": False}),
+                "custom_action_text": ("STRING", {"default": "", "multiline": False}),
+            },
+        }
+
+    def build_character(
+        self,
+        slot_role: str = "Primary",
+        character_source: str = "From Context (Theme / Universe)",
+        gender_filter: str = "Auto / Any",
+        character_wildcard: str = FROM_CONTEXT_OPTION,
+        outfit_link_mode: str = "Canonical (1:1 Strict Character Outfit)",
+        outfit_wildcard: str = FROM_CONTEXT_OPTION,
+        enable_anatomy: bool = False,
+        auto_filter_anatomy_by_outfit: bool = True,
+        anatomy_wildcard: str = RANDOM_POOL_OPTION,
+        individual_action_wildcard: str = NONE_OPTION,
+        seed: int = 0,
+        context: dict[str, Any] | None = None,
+        custom_character_text: str = "",
+        custom_outfit_text: str = "",
+        custom_anatomy_text: str = "",
+        custom_action_text: str = "",
+    ) -> tuple[CharacterSlotData, str, str]:
+        eff_seed = int(seed) if seed != 0 else (int(context.get("seed", 0)) if isinstance(context, dict) else 0)
+        extra_dir = str(context.get("custom_wildcards_dir", "")) if isinstance(context, dict) else ""
+        return _resolve_character_unit(
+            slot_role=slot_role,
+            context=context,
+            character_source=character_source,
+            gender_filter=gender_filter,
+            character_wildcard=character_wildcard,
+            custom_character_text=custom_character_text,
+            outfit_link_mode=outfit_link_mode,
+            outfit_wildcard=outfit_wildcard,
+            custom_outfit_text=custom_outfit_text,
+            enable_anatomy=enable_anatomy,
+            auto_filter_anatomy_by_outfit=auto_filter_anatomy_by_outfit,
+            anatomy_wildcard=anatomy_wildcard,
+            custom_anatomy_text=custom_anatomy_text,
+            individual_action_wildcard=individual_action_wildcard,
+            custom_action_text=custom_action_text,
+            seed=eff_seed,
+            extra_dir=extra_dir,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Modular Node 3: ZiggartSceneStageAtmosphere
+# ---------------------------------------------------------------------------
+
+
+class ZiggartSceneStageAtmosphere:
+    """
+    Selects and resolves the Scene Stage facets:
+    (style), (action / duo interaction), (environment), (lighting), (camera)
+    across `Collection`, `ziggart`, `jff`, and `Encours` while ignoring pre-built full scene prompts.
+    """
+
+    DESCRIPTION = (
+        "Builds the Scene Stage (Style, Action/Interaction, Environment, Lighting, Camera) "
+        "from Theme/Universe context or any pure component wildcard across Collection, ziggart, jff, and Encours."
+    )
+    CATEGORY = "Ziggart/Krea2 Prompt Director"
+    FUNCTION = "build_stage"
+    RETURN_TYPES = ("ZIGGART_STAGE", "STRING", "STRING", "STRING", "STRING", "STRING")
+    RETURN_NAMES = ("stage_data", "style_str", "action_str", "environment_str", "lighting_str", "camera_str")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        action_choices = list(DUO_ACTION_PRESET_OPTIONS) + [
+            t for t in WILDCARD_INDEX.get_facet_dropdown("poses_actions")
+            if t not in DUO_ACTION_PRESET_OPTIONS
+        ]
+        return {
+            "required": {
+                "style_wildcard": (
+                    WILDCARD_INDEX.get_facet_dropdown("styles"),
+                    {"default": FROM_CONTEXT_OPTION},
+                ),
+                "action_or_interaction_wildcard": (
+                    action_choices,
+                    {"default": FROM_CONTEXT_OPTION},
+                ),
+                "environment_wildcard": (
+                    WILDCARD_INDEX.get_facet_dropdown("environments"),
+                    {"default": FROM_CONTEXT_OPTION},
+                ),
+                "lighting_wildcard": (
+                    WILDCARD_INDEX.get_facet_dropdown("lighting", include_context_option=False),
+                    {"default": RANDOM_POOL_OPTION},
+                ),
+                "camera_wildcard": (
+                    WILDCARD_INDEX.get_facet_dropdown("camera", include_context_option=False),
+                    {"default": RANDOM_POOL_OPTION},
+                ),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF}),
+            },
+            "optional": {
+                "context": ("ZIGGART_CONTEXT",),
+                "custom_style": ("STRING", {"default": "", "multiline": False}),
+                "custom_action": ("STRING", {"default": "", "multiline": False}),
+                "custom_environment": ("STRING", {"default": "", "multiline": False}),
+                "custom_lighting": ("STRING", {"default": "", "multiline": False}),
+                "custom_camera": ("STRING", {"default": "", "multiline": False}),
+            },
+        }
+
+    def build_stage(
+        self,
+        style_wildcard: str = FROM_CONTEXT_OPTION,
+        action_or_interaction_wildcard: str = FROM_CONTEXT_OPTION,
+        environment_wildcard: str = FROM_CONTEXT_OPTION,
+        lighting_wildcard: str = RANDOM_POOL_OPTION,
+        camera_wildcard: str = RANDOM_POOL_OPTION,
+        seed: int = 0,
+        context: dict[str, Any] | None = None,
+        custom_style: str = "",
+        custom_action: str = "",
+        custom_environment: str = "",
+        custom_lighting: str = "",
+        custom_camera: str = "",
+    ) -> tuple[SceneStageData, str, str, str, str, str]:
+        eff_seed = int(seed) if seed != 0 else (int(context.get("seed", 0)) if isinstance(context, dict) else 0)
+        rng = random.Random((eff_seed ^ 0x5F3759DF) & 0xFFFFFFFFFFFFFFFF)
+        ctx_bundle: dict[str, Any] | None = context.get("bundle") if isinstance(context, dict) else None
+        mood_filter = str(context.get("mood_filter", "[Any / No Filter]")) if isinstance(context, dict) else "[Any / No Filter]"
+        kw_filter = str(context.get("keyword_filter", "")) if isinstance(context, dict) else ""
+        exclude_full = bool(context.get("exclude_full_prompts", True)) if isinstance(context, dict) else True
+        extra_dir = str(context.get("custom_wildcards_dir", "")) if isinstance(context, dict) else ""
+        theme_name = str(context.get("name", "Free Crossover")) if isinstance(context, dict) else "Free Crossover"
+
+        # 1. Style
+        if custom_style.strip():
+            style_str = process_wildcards(custom_style.strip(), seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+        else:
+            style_str, _ = _pick_filtered_wildcard_line(
+                "styles",
+                style_wildcard,
+                rng,
+                context_bundle=ctx_bundle,
+                context_field="styles",
+                mood_filter=mood_filter,
+                custom_keyword=kw_filter,
+                exclude_full_prompts=exclude_full,
+                extra_dir=extra_dir,
+            )
+
+        # 2. Action / Duo Interaction
+        if custom_action.strip():
+            action_str = process_wildcards(custom_action.strip(), seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+        elif action_or_interaction_wildcard in DUO_INTERACTIONS_BANK:
+            action_str = rng.choice(DUO_INTERACTIONS_BANK[action_or_interaction_wildcard])
+        else:
+            action_str, _ = _pick_filtered_wildcard_line(
+                "poses_actions",
+                action_or_interaction_wildcard,
+                rng,
+                context_bundle=ctx_bundle,
+                context_field="poses",
+                mood_filter=mood_filter,
+                custom_keyword=kw_filter,
+                exclude_full_prompts=exclude_full,
+                extra_dir=extra_dir,
+            )
+
+        # 3. Environment
+        if custom_environment.strip():
+            env_str = process_wildcards(custom_environment.strip(), seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+        else:
+            env_str, _ = _pick_filtered_wildcard_line(
+                "environments",
+                environment_wildcard,
+                rng,
+                context_bundle=ctx_bundle,
+                context_field="environments",
+                mood_filter=mood_filter,
+                custom_keyword=kw_filter,
+                exclude_full_prompts=exclude_full,
+                extra_dir=extra_dir,
+            )
+
+        # 4. Lighting
+        if custom_lighting.strip():
+            light_str = process_wildcards(custom_lighting.strip(), seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+        else:
+            light_str, _ = _pick_filtered_wildcard_line(
+                "lighting",
+                lighting_wildcard,
+                rng,
+                mood_filter=mood_filter,
+                custom_keyword=kw_filter,
+                exclude_full_prompts=exclude_full,
+                extra_dir=extra_dir,
+            )
+
+        # 5. Camera
+        if custom_camera.strip():
+            cam_str = process_wildcards(custom_camera.strip(), seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+        else:
+            cam_str, _ = _pick_filtered_wildcard_line(
+                "camera",
+                camera_wildcard,
+                rng,
+                mood_filter=mood_filter,
+                custom_keyword=kw_filter,
+                exclude_full_prompts=exclude_full,
+                extra_dir=extra_dir,
+            )
+
+        stage = SceneStageData(
+            style_desc=style_str,
+            action_desc=action_str,
+            environment_desc=env_str,
+            lighting_desc=light_str,
+            camera_desc=cam_str,
+            theme_or_universe=theme_name,
+        )
+        return (stage, style_str, action_str, env_str, light_str, cam_str)
+
+
+# ---------------------------------------------------------------------------
+# Modular Node 4: ZiggartKrea2PromptAssembler
+# ---------------------------------------------------------------------------
+
+
+class ZiggartKrea2PromptAssembler:
+    """
+    Assembles Character 1, optional Character 2, and Scene Stage into a Krea2 (Qwen3VL-4B)
+    prompt using your exact parenthesized structure or Krea2CompilerV2 policies (scoped, balanced, compact, rich).
+    """
+
+    DESCRIPTION = (
+        "Assembles Primary Character, optional Secondary Character, and Scene Stage into an optimal "
+        "Krea2 (Qwen3VL-4B) prompt: (style), (char1), (char1_anatomy), (char1_outfit), [(char1_action) OR "
+        "(char2), (char2_anatomy), (char2_outfit), (shared_action)], (environment), (lighting), (camera)."
+    )
+    CATEGORY = "Ziggart/Krea2 Prompt Director"
+    FUNCTION = "assemble"
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING")
+    RETURN_NAMES = (
+        "krea2_compiled_prompt",
+        "char_1_detailer_prompt",
+        "char_2_detailer_prompt",
+        "krea2_stats_and_metadata_json",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "char_1_slot": ("ZIGGART_CHAR_SLOT",),
+                "stage_data": ("ZIGGART_STAGE",),
+                "krea2_policy": (
+                    KREA2_COMPILER_POLICIES,
+                    {"default": "scoped (Parentheses Blocks + Count Anchor)"},
+                ),
+                "separate_parentheses_per_facet": (
+                    "BOOLEAN",
+                    {
+                        "default": True,
+                        "tooltip": "When True in scoped mode, wraps each facet in its own parentheses: (style) (char1) (char1_anatomy) (wearing char1_outfit)... When False, groups (char1, anatomy, wearing outfit).",
+                    },
+                ),
+                "include_count_anchor": (
+                    "BOOLEAN",
+                    {
+                        "default": True,
+                        "tooltip": "Prepends the subject count anchor ('1 woman,', '2 characters, a woman and a man,') outside parentheses for Qwen3VL-4B.",
+                    },
+                ),
+            },
+            "optional": {
+                "char_2_slot": ("ZIGGART_CHAR_SLOT",),
+                "custom_prefix": ("STRING", {"default": "", "multiline": False}),
+                "custom_suffix": ("STRING", {"default": "", "multiline": False}),
+            },
+        }
+
+    def assemble(
+        self,
+        char_1_slot: CharacterSlotData,
+        stage_data: SceneStageData,
+        krea2_policy: str = "scoped (Parentheses Blocks + Count Anchor)",
+        separate_parentheses_per_facet: bool = True,
+        include_count_anchor: bool = True,
+        char_2_slot: CharacterSlotData | None = None,
+        custom_prefix: str = "",
+        custom_suffix: str = "",
+    ) -> tuple[str, str, str, str]:
+        compiled, stats = assemble_krea2_structured_prompt(
+            char1=char_1_slot,
+            char2=char_2_slot,
+            stage=stage_data,
+            policy=krea2_policy,
+            separate_parentheses_per_facet=separate_parentheses_per_facet,
+            include_count_anchor=include_count_anchor,
+            custom_prefix=custom_prefix,
+            custom_suffix=custom_suffix,
+        )
+        c1_det = char_1_slot.format_character_block(encapsulate_subparts=False) if char_1_slot else ""
+        c2_det = char_2_slot.format_character_block(encapsulate_subparts=False) if char_2_slot else ""
+        return (compiled, c1_det, c2_det, json.dumps(stats, indent=2))
+
+
+# ---------------------------------------------------------------------------
+# Node 5 (All-in-One): ZiggartKrea2MasterPromptDirector
+# ---------------------------------------------------------------------------
+
+
+class ZiggartKrea2MasterPromptDirector:
+    """
+    All-in-One Krea2 (Qwen3VL-4B) Prompt Director combining Theme/Universe selection,
+    Solo or Duo character builder, 1:1 Canonical/Compatible/Free Outfit linking,
+    automatic Outfit -> Anatomy occlusion filtering, Scene Stage selectors, and Krea2CompilerV2.
+    """
+
+    DESCRIPTION = (
+        "All-in-One Krea2 (Qwen3VL-4B) Prompt Director. Builds structured Solo or Duo prompts directly "
+        "from your Themes, Universes, Collection, ziggart, jff, and Encours wildcards with automatic "
+        "Character-Outfit linking and Outfit -> Anatomy occlusion filtering."
+    )
+    CATEGORY = "Ziggart/Krea2 Prompt Director"
+    FUNCTION = "direct_prompt"
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING", "STRING")
+    RETURN_NAMES = (
+        "krea2_compiled_prompt",
+        "populated_text",
+        "char_1_detailer_prompt",
+        "char_2_detailer_prompt",
+        "krea2_stats_and_metadata_json",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        action_choices = list(DUO_ACTION_PRESET_OPTIONS) + [
+            t for t in WILDCARD_INDEX.get_facet_dropdown("poses_actions")
+            if t not in DUO_ACTION_PRESET_OPTIONS
+        ]
+        return {
+            "required": {
+                "source_mode": (
+                    [
+                        "Theme (Collection/Themes)",
+                        "Universe (Collection/Universes)",
+                        "Random Theme",
+                        "Random Universe",
+                        "Free Crossover (All Folders: Collection, ziggart, jff, Encours)",
+                    ],
+                    {"default": "Theme (Collection/Themes)"},
+                ),
+                "theme_selection": (
+                    WILDCARD_INDEX.get_theme_list(),
+                    {"default": RANDOM_THEME_OPTION},
+                ),
+                "universe_selection": (
+                    WILDCARD_INDEX.get_universe_list(),
+                    {"default": RANDOM_UNIVERSE_OPTION},
+                ),
+                "cast_mode": (
+                    [
+                        "Solo (1 Character)",
+                        "Duo (2 Characters + Shared Action)",
+                    ],
+                    {"default": "Solo (1 Character)"},
+                ),
+                "krea2_policy": (
+                    KREA2_COMPILER_POLICIES,
+                    {"default": "scoped (Parentheses Blocks + Count Anchor)"},
+                ),
+                "separate_parentheses_per_facet": ("BOOLEAN", {"default": True}),
+                "include_count_anchor": ("BOOLEAN", {"default": True}),
+                "mood_filter": (MOOD_FILTER_OPTIONS, {"default": "[Any / No Filter]"}),
+                "exclude_full_prompts": ("BOOLEAN", {"default": True}),
+                # --- Style ---
+                "style_wildcard": (
+                    WILDCARD_INDEX.get_facet_dropdown("styles"),
+                    {"default": FROM_CONTEXT_OPTION},
+                ),
+                # --- Character 1 ---
+                "char_1_gender": (["Auto / Any", "Female", "Male", "Creature"], {"default": "Auto / Any"}),
+                "char_1_wildcard": (
+                    WILDCARD_INDEX.get_facet_dropdown("characters"),
+                    {"default": FROM_CONTEXT_OPTION},
+                ),
+                "char_1_outfit_link_mode": (
+                    OUTFIT_LINK_MODES,
+                    {"default": "Canonical (1:1 Strict Character Outfit)"},
+                ),
+                "char_1_outfit_wildcard": (
+                    WILDCARD_INDEX.get_facet_dropdown("outfits"),
+                    {"default": FROM_CONTEXT_OPTION},
+                ),
+                "char_1_enable_anatomy": ("BOOLEAN", {"default": False}),
+                "char_1_auto_filter_anatomy": ("BOOLEAN", {"default": True}),
+                "char_1_anatomy_wildcard": (
+                    WILDCARD_INDEX.get_facet_dropdown("anatomy", include_context_option=False),
+                    {"default": RANDOM_POOL_OPTION},
+                ),
+                # --- Character 2 (Active when cast_mode is Duo) ---
+                "char_2_gender": (["Auto / Any", "Female", "Male", "Creature"], {"default": "Auto / Any"}),
+                "char_2_wildcard": (
+                    WILDCARD_INDEX.get_facet_dropdown("characters"),
+                    {"default": FROM_CONTEXT_OPTION},
+                ),
+                "char_2_outfit_link_mode": (
+                    OUTFIT_LINK_MODES,
+                    {"default": "Canonical (1:1 Strict Character Outfit)"},
+                ),
+                "char_2_outfit_wildcard": (
+                    WILDCARD_INDEX.get_facet_dropdown("outfits"),
+                    {"default": FROM_CONTEXT_OPTION},
+                ),
+                "char_2_enable_anatomy": ("BOOLEAN", {"default": False}),
+                "char_2_auto_filter_anatomy": ("BOOLEAN", {"default": True}),
+                "char_2_anatomy_wildcard": (
+                    WILDCARD_INDEX.get_facet_dropdown("anatomy", include_context_option=False),
+                    {"default": RANDOM_POOL_OPTION},
+                ),
+                # --- Action / Environment / Lighting / Camera ---
+                "action_or_interaction_wildcard": (
+                    action_choices,
+                    {"default": FROM_CONTEXT_OPTION},
+                ),
+                "environment_wildcard": (
+                    WILDCARD_INDEX.get_facet_dropdown("environments"),
+                    {"default": FROM_CONTEXT_OPTION},
+                ),
+                "lighting_wildcard": (
+                    WILDCARD_INDEX.get_facet_dropdown("lighting", include_context_option=False),
+                    {"default": RANDOM_POOL_OPTION},
+                ),
+                "camera_wildcard": (
+                    WILDCARD_INDEX.get_facet_dropdown("camera", include_context_option=False),
+                    {"default": RANDOM_POOL_OPTION},
+                ),
+                "populated_text": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "dynamicPrompts": False,
+                        "tooltip": "Displays the generated Krea2 prompt (or overrides it when mode is 'fixed').",
+                    },
+                ),
+                "mode": (["populate", "fixed"], {"default": "populate"}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF}),
+            },
+            "optional": {
+                "search_or_keyword_filter": ("STRING", {"default": ""}),
+                "custom_prefix": ("STRING", {"default": ""}),
+                "custom_suffix": ("STRING", {"default": ""}),
+            },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+            },
+        }
+
+    def direct_prompt(
+        self,
+        source_mode: str = "Theme (Collection/Themes)",
+        theme_selection: str = RANDOM_THEME_OPTION,
+        universe_selection: str = RANDOM_UNIVERSE_OPTION,
+        cast_mode: str = "Solo (1 Character)",
+        krea2_policy: str = "scoped (Parentheses Blocks + Count Anchor)",
+        separate_parentheses_per_facet: bool = True,
+        include_count_anchor: bool = True,
+        mood_filter: str = "[Any / No Filter]",
+        exclude_full_prompts: bool = True,
+        style_wildcard: str = FROM_CONTEXT_OPTION,
+        char_1_gender: str = "Auto / Any",
+        char_1_wildcard: str = FROM_CONTEXT_OPTION,
+        char_1_outfit_link_mode: str = "Canonical (1:1 Strict Character Outfit)",
+        char_1_outfit_wildcard: str = FROM_CONTEXT_OPTION,
+        char_1_enable_anatomy: bool = False,
+        char_1_auto_filter_anatomy: bool = True,
+        char_1_anatomy_wildcard: str = RANDOM_POOL_OPTION,
+        char_2_gender: str = "Auto / Any",
+        char_2_wildcard: str = FROM_CONTEXT_OPTION,
+        char_2_outfit_link_mode: str = "Canonical (1:1 Strict Character Outfit)",
+        char_2_outfit_wildcard: str = FROM_CONTEXT_OPTION,
+        char_2_enable_anatomy: bool = False,
+        char_2_auto_filter_anatomy: bool = True,
+        char_2_anatomy_wildcard: str = RANDOM_POOL_OPTION,
+        action_or_interaction_wildcard: str = FROM_CONTEXT_OPTION,
+        environment_wildcard: str = FROM_CONTEXT_OPTION,
+        lighting_wildcard: str = RANDOM_POOL_OPTION,
+        camera_wildcard: str = RANDOM_POOL_OPTION,
+        populated_text: str = "",
+        mode: str = "populate",
+        seed: int = 0,
+        search_or_keyword_filter: str = "",
+        custom_prefix: str = "",
+        custom_suffix: str = "",
+        unique_id: Any = None,
+    ) -> tuple[str, str, str, str, str]:
+        if mode == "fixed" and populated_text.strip():
+            fixed_out = process_wildcards(populated_text.strip(), seed=seed)
+            return (fixed_out, fixed_out, "", "", json.dumps({"mode": "fixed"}))
+
+        ctx_node = ZiggartThemeUniverseContext()
+        ctx, active_name, _, _ = ctx_node.build_context(
+            source_mode=source_mode,
+            theme_selection=theme_selection,
+            universe_selection=universe_selection,
+            mood_filter=mood_filter,
+            exclude_full_prompts=exclude_full_prompts,
+            seed=seed,
+            search_or_keyword_filter=search_or_keyword_filter,
+        )
+
+        used_ids: set[str] = set()
+        c1_src = "From Context (Theme / Universe)" if char_1_wildcard == FROM_CONTEXT_OPTION else "Wildcard Selector / Category Pool"
+        c1_slot, c1_block, _ = _resolve_character_unit(
+            slot_role="Primary",
+            context=ctx,
+            character_source=c1_src,
+            gender_filter=char_1_gender,
+            character_wildcard=char_1_wildcard,
+            custom_character_text="",
+            outfit_link_mode=char_1_outfit_link_mode,
+            outfit_wildcard=char_1_outfit_wildcard,
+            custom_outfit_text="",
+            enable_anatomy=char_1_enable_anatomy,
+            auto_filter_anatomy_by_outfit=char_1_auto_filter_anatomy,
+            anatomy_wildcard=char_1_anatomy_wildcard,
+            custom_anatomy_text="",
+            individual_action_wildcard=NONE_OPTION,
+            custom_action_text="",
+            seed=seed,
+            used_char_ids=used_ids,
+        )
+
+        c2_slot: CharacterSlotData | None = None
+        c2_block = ""
+        if "Duo" in cast_mode:
+            c2_src = "From Context (Theme / Universe)" if char_2_wildcard == FROM_CONTEXT_OPTION else "Wildcard Selector / Category Pool"
+            c2_slot, c2_block, _ = _resolve_character_unit(
+                slot_role="Secondary",
+                context=ctx,
+                character_source=c2_src,
+                gender_filter=char_2_gender,
+                character_wildcard=char_2_wildcard,
+                custom_character_text="",
+                outfit_link_mode=char_2_outfit_link_mode,
+                outfit_wildcard=char_2_outfit_wildcard,
+                custom_outfit_text="",
+                enable_anatomy=char_2_enable_anatomy,
+                auto_filter_anatomy_by_outfit=char_2_auto_filter_anatomy,
+                anatomy_wildcard=char_2_anatomy_wildcard,
+                custom_anatomy_text="",
+                individual_action_wildcard=NONE_OPTION,
+                custom_action_text="",
+                seed=seed + 1,
+                used_char_ids=used_ids,
+            )
+
+        stage_node = ZiggartSceneStageAtmosphere()
+        stage_data, _, _, _, _, _ = stage_node.build_stage(
+            style_wildcard=style_wildcard,
+            action_or_interaction_wildcard=action_or_interaction_wildcard,
+            environment_wildcard=environment_wildcard,
+            lighting_wildcard=lighting_wildcard,
+            camera_wildcard=camera_wildcard,
+            seed=seed,
+            context=ctx,
+        )
+
+        compiled, stats = assemble_krea2_structured_prompt(
+            char1=c1_slot,
+            char2=c2_slot,
+            stage=stage_data,
+            policy=krea2_policy,
+            separate_parentheses_per_facet=separate_parentheses_per_facet,
+            include_count_anchor=include_count_anchor,
+            custom_prefix=custom_prefix,
+            custom_suffix=custom_suffix,
+        )
+        stats["active_theme_or_universe"] = active_name
+        _send_node_feedback(unique_id, "populated_text", compiled)
+        return (compiled, compiled, c1_block, c2_block, json.dumps(stats, indent=2))
+
+
+# ---------------------------------------------------------------------------
 # Optional Fast HTTP Endpoints for ComfyUI Frontend Extension
 # ---------------------------------------------------------------------------
 
@@ -2156,6 +3576,11 @@ NODE_CLASS_MAPPINGS = {
     "ZiggartCanonicalThemeResolver": ZiggartCanonicalThemeResolver,
     "ZiggartWildcardVLMEnhancer": ZiggartWildcardVLMEnhancer,
     "ZiggartWildcardRecipeSaver": ZiggartWildcardRecipeSaver,
+    "ZiggartThemeUniverseContext": ZiggartThemeUniverseContext,
+    "ZiggartCharacterUnitBuilder": ZiggartCharacterUnitBuilder,
+    "ZiggartSceneStageAtmosphere": ZiggartSceneStageAtmosphere,
+    "ZiggartKrea2PromptAssembler": ZiggartKrea2PromptAssembler,
+    "ZiggartKrea2MasterPromptDirector": ZiggartKrea2MasterPromptDirector,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -2166,4 +3591,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZiggartCanonicalThemeResolver": "Ziggart Canonical Theme & Character-Outfit Resolver",
     "ZiggartWildcardVLMEnhancer": "Wildcard-to-VLM Prompt Harmonizer",
     "ZiggartWildcardRecipeSaver": "Ziggart Prompt Recipe & Comparison Saver",
+    "ZiggartThemeUniverseContext": "Ziggart Krea2 Theme & Universe Context",
+    "ZiggartCharacterUnitBuilder": "Ziggart Krea2 Character Unit Builder (Outfit & Anatomy Filter)",
+    "ZiggartSceneStageAtmosphere": "Ziggart Krea2 Scene Stage (Style, Action, Env, Light, Camera)",
+    "ZiggartKrea2PromptAssembler": "Ziggart Krea2 Prompt Assembler (Qwen3VL-4B)",
+    "ZiggartKrea2MasterPromptDirector": "Ziggart Krea2 Master Prompt Director (All-in-One)",
 }
