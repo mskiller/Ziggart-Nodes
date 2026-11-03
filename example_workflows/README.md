@@ -1,6 +1,6 @@
 # Ziggart Nodes — Workflows Exemples (`example_workflows/`)
 
-Ce dossier contient **10 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 28 nœuds Ziggart** dans tous leurs modes et cas d'usage.
+Ce dossier contient **10 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 29 nœuds Ziggart** dans tous leurs modes et cas d'usage.
 
 ---
 
@@ -112,11 +112,13 @@ Pipeline complet des **5 nœuds de génération 3D (`Ziggart/3D`)** optimisés p
 ---
 
 ### 10. [`10_Krea2_Prompt_Director_Modular_and_Master_Suite.json`](./10_Krea2_Prompt_Director_Modular_and_Master_Suite.json)
-Pipeline complet des **5 nouveaux nœuds `Ziggart/Krea2 Prompt Director`** optimisés pour **Krea2 (Qwen3VL-4B)** :
+Pipeline complet des **6 nœuds `Ziggart/Krea2 Prompt Director`** optimisés pour **Krea2 (Qwen3VL-4B)** :
 - **Pipeline Modulaire (4 nœuds chaînables)** :
   1. **`ZiggartThemeUniverseContext`** : Sélectionne un Thème (`Collection/Themes`), un Univers (`Collection/Universes`), ou le mode `Free Crossover` (tous les dossiers : `Collection`, `ziggart`, `jff`, `Encours`), avec filtre d'ambiance (`mood_filter`) et exclusion stricte des wildcards de prompts complets (`exclude_full_prompts = True`).
-  2. **`ZiggartCharacterUnitBuilder` (Primary & Secondary)** : Construit chaque personnage avec liaison Personnage $\leftrightarrow$ Tenue héritée de **Wildcard-GPT** (`Canonical` 1:1, `Compatible`, `Free`, `Nude`) et **filtrage automatique d'occlusion Vêtement $\rightarrow$ Anatomie** (bloque automatiquement les descriptions de poitrine, tétons, taille/ventre, fesses ou zones intimes si la tenue tirée les recouvre).
-  3. **`ZiggartSceneStageAtmosphere`** : Sélectionne le Style, l'Action / Interaction Duo, l'Environnement, l'Éclairage et la Caméra.
+  2. **`ZiggartCharacterUnitBuilder` (Primary & Secondary)** : Construit chaque personnage avec liaison Personnage $\leftrightarrow$ Tenue héritée de **Wildcard-GPT** (`Canonical` 1:1, `Compatible`, `Free`, `Nude`) et **filtrage automatique d'occlusion Vêtement $\rightarrow$ Anatomie sur 9 zones** (bloque automatiquement les descriptions de poitrine, tétons, taille/ventre, dos, épaules/bras, fesses, zones intimes, cuisses/jambes ou pieds/chevilles si la tenue tirée les recouvre).
+  3. **`ZiggartSceneStageAtmosphere`** : Sélectionne le Style, l'Action / Interaction Duo, l'Environnement (incluant `ziggart/Env/*`), l'Éclairage et la Caméra.
   4. **`ZiggartKrea2PromptAssembler`** : Compile le prompt final selon la structure `scoped` entre parenthèses avec ancre de dénombrement hors parenthèses (ou politiques `balanced`, `compact`, `rich`) et fournit les prompts individuels pour les Detailers ainsi que l'estimation de tokens Qwen3VL-4B.
+- **Créateur de Personnage de la Tête aux Pieds (`ZiggartAnatomyCharacterCreator`)** :
+  - Construit un personnage (`Female`, `Male`, `Creature`) à travers **28 sections anatomiques** où chaque section peut être mise sur `[None]` ou pilotée par un préréglage de vue (`Full Body Front`, `Back View / Seen From Behind`, `Back Over-the-Shoulder`, `Upper Body Portrait`, `Close-Up Face Only`, `Lower Body & Legs`).
 - **Nœud All-in-One (`ZiggartKrea2MasterPromptDirector`)** :
   - Regroupe l'ensemble de la création Solo / Duo, des filtres Tenue/Anatomie et du compilateur Krea2 dans un seul nœud.

@@ -50,6 +50,8 @@ from .nodes import (
 from .krea2_compiler import (
     ANATOMY_ZONES,
     DUO_INTERACTIONS_BANK,
+    HEAD_TO_TOE_ANATOMY_SECTIONS,
+    VIEW_VISIBILITY_PRESETS,
     CharacterSlotData,
     OutfitOcclusionReport,
     SceneStageData,
@@ -62,12 +64,15 @@ from .krea2_compiler import (
     get_theme_outfit_choices,
     is_full_prompt_wildcard_key,
     is_full_scene_line,
+    is_section_enabled_by_view_preset,
     load_theme_bundle,
     load_universe_bundle,
 )
 
 
 NONE_OPTION = "[None]"
+AUTO_VIEW_OPTION = "[Auto (From View Preset)]"
+RANDOM_GENDER_DEFAULT_OPTION = "[Random (Gender Default)]"
 FROM_CONTEXT_OPTION = "[From Context (Theme / Universe)]"
 RANDOM_POOL_OPTION = "[Random From Category]"
 SELECT_PLACEHOLDER = "[Select a Wildcard to Insert or Resolve]"
@@ -675,8 +680,10 @@ class ZiggartWildcardIndex:
                 _add_facet("outfits", token)
             elif k_low.startswith("collection/pose/") or k_low.startswith("collection/expression/"):
                 _add_facet("poses_actions", token)
-            elif k_low.startswith("collection/environment/") or k_low.startswith("collection/iconicplaces/"):
+            elif k_low.startswith("collection/environment/") or k_low.startswith("collection/iconicplaces/") or k_low.startswith("ziggart/env/"):
                 _add_facet("environments", token)
+                if k_low.startswith("ziggart/env/") and token not in self.pillars["env_vehicle"]:
+                    self.pillars["env_vehicle"].append(token)
             elif k_low.startswith("collection/lighting/"):
                 _add_facet("lighting", token)
             elif k_low.startswith("collection/camera/"):
@@ -695,7 +702,7 @@ class ZiggartWildcardIndex:
                     _add_facet("outfits", token)
                 elif any(w in k_low for w in ("pose", "action", "sex-position", "position_hentai", "sex-act", "villains-act", "emotion-expression")):
                     _add_facet("poses_actions", token)
-                elif any(w in k_low for w in ("environnement", "environment", "scenery", "lieu", "location", "maison", "garden-summer", "train-station")):
+                elif any(w in k_low for w in ("environnement", "environment", "scenery", "lieu", "location", "maison", "garden-summer", "train-station", "/env/", "-env")):
                     _add_facet("environments", token)
                 elif any(
                     w in base_name
@@ -2597,8 +2604,12 @@ def _resolve_character_unit(
                         allowed_files.append(tf)
 
             if allowed_files:
-                # Prioritize visible body contour zones (e.g. Breasts-Chest, Waist-Midriff, Buttocks-Glutes, Build-Musculature)
-                body_zone_files = [tf for tf in allowed_files if classify_anatomy_wildcard_zone(tf) is not None]
+                # Prioritize visible body contour zones (e.g. Breasts-Chest, Waist-Midriff, Back-Spine, Arms-Shoulders, Buttocks-Glutes, Legs-Thighs, Feet-Ankles, Build-Silhouette/Musculature)
+                body_zone_files = [
+                    tf for tf in allowed_files
+                    if classify_anatomy_wildcard_zone(tf) is not None
+                    or any(w in tf.lower() for w in ("build-silhouette", "build-musculature", "size-stature"))
+                ]
                 chosen_anat_tokens = rng.sample(body_zone_files, min(2, len(body_zone_files))) if body_zone_files else [rng.choice(allowed_files)]
                 anat_parts: list[str] = []
                 for tok in chosen_anat_tokens:
@@ -2869,6 +2880,12 @@ class ZiggartCharacterUnitBuilder:
             },
             "optional": {
                 "context": ("ZIGGART_CONTEXT",),
+                "custom_char_slot_override": (
+                    "ZIGGART_CHAR_SLOT",
+                    {
+                        "tooltip": "Optional character slot from Ziggart Krea2 Head-to-Toe Anatomy Character Creator to dress or re-filter.",
+                    },
+                ),
                 "custom_character_text": ("STRING", {"default": "", "multiline": False}),
                 "custom_outfit_text": ("STRING", {"default": "", "multiline": False}),
                 "custom_anatomy_text": ("STRING", {"default": "", "multiline": False}),
@@ -2890,6 +2907,7 @@ class ZiggartCharacterUnitBuilder:
         individual_action_wildcard: str = NONE_OPTION,
         seed: int = 0,
         context: dict[str, Any] | None = None,
+        custom_char_slot_override: CharacterSlotData | None = None,
         custom_character_text: str = "",
         custom_outfit_text: str = "",
         custom_anatomy_text: str = "",
@@ -2897,6 +2915,14 @@ class ZiggartCharacterUnitBuilder:
     ) -> tuple[CharacterSlotData, str, str]:
         eff_seed = int(seed) if seed != 0 else (int(context.get("seed", 0)) if isinstance(context, dict) else 0)
         extra_dir = str(context.get("custom_wildcards_dir", "")) if isinstance(context, dict) else ""
+        if isinstance(custom_char_slot_override, CharacterSlotData):
+            if not custom_character_text.strip() and custom_char_slot_override.character_desc.strip():
+                custom_character_text = custom_char_slot_override.character_desc
+            if not custom_anatomy_text.strip() and custom_char_slot_override.anatomy_desc.strip():
+                custom_anatomy_text = custom_char_slot_override.anatomy_desc
+                enable_anatomy = True
+            if gender_filter == "Auto / Any" and custom_char_slot_override.gender:
+                gender_filter = custom_char_slot_override.gender
         return _resolve_character_unit(
             slot_role=slot_role,
             context=context,
@@ -3455,6 +3481,389 @@ class ZiggartKrea2MasterPromptDirector:
 
 
 # ---------------------------------------------------------------------------
+# Modular Node 6: ZiggartAnatomyCharacterCreator (Head-to-Toe Character Creator)
+# ---------------------------------------------------------------------------
+
+
+def _get_anatomy_section_options(section_def: dict[str, Any]) -> list[str]:
+    """Builds the dropdown list for a single Head-to-Toe anatomical section."""
+    sec_id = section_def["id"]
+    if sec_id == "age_group":
+        return [
+            AUTO_VIEW_OPTION,
+            NONE_OPTION,
+            "Age-YoungAdult",
+            "Age-Adult",
+            "Age-Maturity",
+            "Age-Elders",
+            RANDOM_GENDER_DEFAULT_OPTION,
+        ]
+    opts: list[str] = [
+        AUTO_VIEW_OPTION,
+        NONE_OPTION,
+        RANDOM_GENDER_DEFAULT_OPTION,
+    ]
+    for g_key in ("Female", "Male", "Creature"):
+        rel_path = section_def.get(g_key)
+        if rel_path:
+            tok = f"__{rel_path}__"
+            if tok not in opts:
+                opts.append(tok)
+    if sec_id == "arms_shoulders":
+        extra_tok = "__Collection/Anatomy/Creature/Extra-Limbs-MultiArms__"
+        if extra_tok not in opts:
+            opts.append(extra_tok)
+    elif sec_id == "chest_breasts":
+        extra_tok = "__jff/breast-shape__"
+        if extra_tok not in opts:
+            opts.append(extra_tok)
+    return opts
+
+
+class ZiggartAnatomyCharacterCreator:
+    """
+    Builds a complete Character Description from Head to Toe using the 28 anatomical
+    sections of `Collection/Anatomy/{Female,Male,Creature}`.
+    Every single section can be set to `[None]` (e.g. when a character is seen from behind
+    and does not show their eyes/face/front chest, or in a portrait where legs/feet are out of frame),
+    controlled individually or via `view_visibility_preset`, and optionally filtered by Outfit occlusion!
+    """
+
+    DESCRIPTION = (
+        "Head-to-Toe Character Creator powered by Collection/Anatomy (Female, Male, Creature). "
+        "Every anatomical section from Hair, Eyes, Nose, Lips, Neck, Shoulders, Chest, Back, Waist, "
+        "Hips, Glutes, Legs to Feet can be toggled to [None], [Random], or controlled via View Presets "
+        "(Front, Back View / Seen From Behind, Over-the-Shoulder, Portrait, Face Close-Up, Lower Body)."
+    )
+    CATEGORY = "Ziggart/Krea2 Prompt Director"
+    FUNCTION = "create_anatomy_character"
+    RETURN_TYPES = ("ZIGGART_CHAR_SLOT", "STRING", "STRING", "STRING", "STRING")
+    RETURN_NAMES = (
+        "char_slot",
+        "character_full_prompt",
+        "head_and_face_prompt",
+        "body_and_outfit_prompt",
+        "anatomy_breakdown_json",
+    )
+    OUTPUT_TOOLTIPS = (
+        "Structured CharacterSlotData ready to wire into Ziggart Krea2 Prompt Assembler or Ziggart Character Unit Builder.",
+        "Complete head-to-toe character prompt combining all active sections (and optional outfit/action).",
+        "Resolved Hair + Head + Face + Eyes description (ideal for Face/Eye Detailers).",
+        "Resolved Silhouette + Body Anatomy + Outfit description.",
+        "JSON breakdown of active sections, [None] sections, and outfit-occluded sections.",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        req: dict[str, Any] = {
+            "slot_role": (["Primary", "Secondary"], {"default": "Primary"}),
+            "gender": (["Female", "Male", "Creature"], {"default": "Female"}),
+            "view_visibility_preset": (
+                list(VIEW_VISIBILITY_PRESETS),
+                {
+                    "default": "Full Body — Front / 3-Quarter View",
+                    "tooltip": (
+                        "Automatically enables/disables head-to-toe sections that are set to [Auto (From View Preset)]. "
+                        "For example, 'Back View / Seen From Behind' disables eyes/face/front chest and enables Back-Spine & Buttocks-Glutes. "
+                        "Any section explicitly set to [None] or [Random (Gender Default)] always overrides the preset!"
+                    ),
+                },
+            ),
+        }
+        for sec_def in HEAD_TO_TOE_ANATOMY_SECTIONS:
+            sec_id = sec_def["id"]
+            opts = _get_anatomy_section_options(sec_def)
+            default_val = NONE_OPTION if sec_id in ("nipples_areolas", "intimate_anatomy") else AUTO_VIEW_OPTION
+            req[sec_id] = (opts, {"default": default_val})
+
+        req["outfit_mode"] = (
+            [
+                "[None / Pure Anatomy Only]",
+                "Compatible (Theme/Universe + Gender)",
+                "Free (Outfit Wildcard)",
+                "Nude / Unclothed",
+            ],
+            {"default": "[None / Pure Anatomy Only]"},
+        )
+        req["outfit_wildcard"] = (
+            WILDCARD_INDEX.get_facet_dropdown("outfits"),
+            {"default": NONE_OPTION},
+        )
+        req["auto_filter_anatomy_by_outfit"] = (
+            "BOOLEAN",
+            {
+                "default": True,
+                "tooltip": "When an outfit is active, automatically filters out body sections covered by that outfit (across all 9 body zones).",
+            },
+        )
+        req["individual_action_wildcard"] = (
+            WILDCARD_INDEX.get_facet_dropdown("poses_actions"),
+            {"default": NONE_OPTION},
+        )
+        req["seed"] = ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF})
+
+        return {
+            "required": req,
+            "optional": {
+                "context": ("ZIGGART_CONTEXT",),
+                "custom_identity_prefix": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": False,
+                        "tooltip": "Optional character name or archetype prefix (e.g. 'elven shieldmaiden', 'cyberpunk netrunner').",
+                    },
+                ),
+                "custom_outfit_text": ("STRING", {"default": "", "multiline": False}),
+                "custom_action_text": ("STRING", {"default": "", "multiline": False}),
+            },
+        }
+
+    def create_anatomy_character(
+        self,
+        slot_role: str = "Primary",
+        gender: str = "Female",
+        view_visibility_preset: str = "Full Body — Front / 3-Quarter View",
+        outfit_mode: str = "[None / Pure Anatomy Only]",
+        outfit_wildcard: str = NONE_OPTION,
+        auto_filter_anatomy_by_outfit: bool = True,
+        individual_action_wildcard: str = NONE_OPTION,
+        seed: int = 0,
+        context: dict[str, Any] | None = None,
+        custom_identity_prefix: str = "",
+        custom_outfit_text: str = "",
+        custom_action_text: str = "",
+        **section_kwargs: Any,
+    ) -> tuple[CharacterSlotData, str, str, str, str]:
+        eff_seed = int(seed) if seed != 0 else (int(context.get("seed", 0)) if isinstance(context, dict) else 0)
+        extra_dir = str(context.get("custom_wildcards_dir", "")) if isinstance(context, dict) else ""
+        WILDCARD_INDEX.ensure_loaded(extra_dir=extra_dir)
+        rng = random.Random((eff_seed ^ (0x5A5A5A5A if slot_role == "Secondary" else 0x2468ACE0)) & 0xFFFFFFFFFFFFFFFF)
+
+        ctx_bundle: dict[str, Any] | None = context.get("bundle") if isinstance(context, dict) else None
+        mood_filter = str(context.get("mood_filter", "[Any / No Filter]")) if isinstance(context, dict) else "[Any / No Filter]"
+        kw_filter = str(context.get("keyword_filter", "")) if isinstance(context, dict) else ""
+        exclude_full = bool(context.get("exclude_full_prompts", True)) if isinstance(context, dict) else True
+        theme_or_univ_name = str(context.get("name", "Head-to-Toe Anatomy")) if isinstance(context, dict) else "Head-to-Toe Anatomy"
+
+        # 1. Resolve Optional Outfit first so we can apply 9-zone occlusion filtering to body sections if enabled
+        outfit_desc = ""
+        unexpanded_outfit_token = ""
+        om_low = outfit_mode.lower()
+
+        if "nude" in om_low:
+            outfit_desc = "nude, completely unclothed"
+            unexpanded_outfit_token = "nude"
+        elif custom_outfit_text and custom_outfit_text.strip():
+            unexpanded_outfit_token = custom_outfit_text.strip()
+            outfit_desc = process_wildcards(unexpanded_outfit_token, seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+        elif "none" not in om_low:
+            if "compatible" in om_low and ctx_bundle is not None and outfit_wildcard in (NONE_OPTION, FROM_CONTEXT_OPTION):
+                compat_choices = get_theme_outfit_choices(ctx_bundle, {"gender": gender}, "compatible")
+                if compat_choices:
+                    outfit_desc = process_wildcards(rng.choice(compat_choices), seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+                    unexpanded_outfit_token = f"[{theme_or_univ_name}:{gender}-Outfit]"
+            if not outfit_desc:
+                o_choice = outfit_wildcard if outfit_wildcard not in (NONE_OPTION, "") else RANDOM_POOL_OPTION
+                outfit_desc, unexpanded_outfit_token = _pick_filtered_wildcard_line(
+                    "outfits",
+                    o_choice,
+                    rng,
+                    context_bundle=ctx_bundle,
+                    context_field="outfits",
+                    mood_filter=mood_filter,
+                    custom_keyword=kw_filter,
+                    gender_filter=gender if "compatible" in om_low else "Auto / Any",
+                    exclude_full_prompts=exclude_full,
+                    extra_dir=extra_dir,
+                )
+
+        outfit_desc = clean_outfit_prefix(outfit_desc)
+        has_outfit = bool(outfit_desc) and "none" not in om_low
+        occlusion = (
+            analyze_outfit_occlusion(outfit_desc, unexpanded_outfit_token)
+            if has_outfit
+            else OutfitOcclusionReport(
+                outfit_text="",
+                is_nude=True,
+                allowed_zones={z: True for z in ANATOMY_ZONES},
+                blocked_zones=(),
+                visible_zones=ANATOMY_ZONES,
+                reason_summary="Pure Anatomy / No Outfit occlusion.",
+            )
+        )
+
+        # 2. Walk Head-to-Toe Sections in anatomical order
+        profile_parts: list[str] = []
+        head_face_parts: list[str] = []
+        body_parts: list[str] = []
+
+        active_sections: list[str] = []
+        disabled_sections: list[str] = []
+        occluded_sections: list[str] = []
+        resolved_map: dict[str, str] = {}
+
+        if custom_identity_prefix and custom_identity_prefix.strip():
+            pref_exp = process_wildcards(custom_identity_prefix.strip(), seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+            if pref_exp.strip():
+                profile_parts.append(pref_exp.strip().rstrip(".,"))
+                resolved_map["custom_identity_prefix"] = pref_exp.strip()
+
+        for sec_def in HEAD_TO_TOE_ANATOMY_SECTIONS:
+            sec_id = sec_def["id"]
+            sec_group = sec_def["group"]
+            sec_zone = sec_def.get("zone")
+            user_val = str(section_kwargs.get(sec_id, AUTO_VIEW_OPTION) or AUTO_VIEW_OPTION)
+
+            # Determine if section is enabled or [None]
+            if user_val == NONE_OPTION:
+                disabled_sections.append(sec_id)
+                continue
+            if user_val == AUTO_VIEW_OPTION:
+                if not is_section_enabled_by_view_preset(sec_id, view_visibility_preset):
+                    disabled_sections.append(sec_id)
+                    continue
+
+            # Determine target wildcard token for this section & gender
+            target_token = ""
+            if sec_id == "age_group":
+                if gender == "Creature":
+                    disabled_sections.append(sec_id)
+                    continue
+                if user_val in ("Age-YoungAdult", "Age-Adult", "Age-Maturity", "Age-Elders"):
+                    target_token = f"__Collection/Anatomy/{gender}/{user_val}__"
+                elif user_val == RANDOM_GENDER_DEFAULT_OPTION:
+                    age_file = rng.choice(["Age-YoungAdult", "Age-Adult", "Age-Maturity", "Age-Elders"])
+                    target_token = f"__Collection/Anatomy/{gender}/{age_file}__"
+                else:
+                    target_token = f"__Collection/Anatomy/{gender}/Age-Adult__"
+            elif user_val.startswith("__") and user_val.endswith("__"):
+                target_token = user_val
+            else:
+                # AUTO_VIEW_OPTION or RANDOM_GENDER_DEFAULT_OPTION -> use gender default path
+                rel_p = sec_def.get(gender)
+                if not rel_p:
+                    disabled_sections.append(sec_id)
+                    continue
+                target_token = f"__{rel_p}__"
+
+            # Check SFW mood filter & Outfit -> Anatomy occlusion for body zones
+            if mood_filter == "SFW Only (Exclude NSFW / Erotic / Intimate)" and sec_zone in ("NIPPLES_AREOLAS", "INTIMATE_GENITALS"):
+                occluded_sections.append(sec_id)
+                continue
+
+            if has_outfit and auto_filter_anatomy_by_outfit and sec_zone is not None:
+                if not occlusion.allowed_zones.get(sec_zone, True):
+                    occluded_sections.append(sec_id)
+                    continue
+
+            resolved_line, _ = _pick_filtered_wildcard_line(
+                "anatomy",
+                target_token,
+                rng,
+                mood_filter=mood_filter,
+                custom_keyword=kw_filter,
+                gender_filter=gender,
+                exclude_full_prompts=exclude_full,
+                extra_dir=extra_dir,
+            )
+            cleaned_line = resolved_line.strip().rstrip(".,")
+            if not cleaned_line:
+                disabled_sections.append(sec_id)
+                continue
+
+            active_sections.append(sec_id)
+            resolved_map[sec_id] = cleaned_line
+            if sec_group == "profile":
+                profile_parts.append(cleaned_line)
+            elif sec_group in ("head", "face"):
+                head_face_parts.append(cleaned_line)
+            else:
+                body_parts.append(cleaned_line)
+
+        # 3. Resolve Optional Individual Action
+        indiv_action = ""
+        if custom_action_text and custom_action_text.strip():
+            indiv_action = process_wildcards(custom_action_text.strip(), seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
+        elif individual_action_wildcard and individual_action_wildcard not in (NONE_OPTION, ""):
+            indiv_action, _ = _pick_filtered_wildcard_line(
+                "poses_actions",
+                individual_action_wildcard,
+                rng,
+                context_bundle=ctx_bundle,
+                context_field="poses",
+                mood_filter=mood_filter,
+                custom_keyword=kw_filter,
+                gender_filter=gender,
+                exclude_full_prompts=exclude_full,
+                extra_dir=extra_dir,
+            )
+
+        # Assemble outputs
+        head_and_face_str = ", ".join(profile_parts + head_face_parts)
+        body_anatomy_str = ", ".join(body_parts)
+
+        # Ensure `character_desc` is non-empty even in Lower Body Focus mode
+        if head_and_face_str:
+            char_desc_for_slot = head_and_face_str
+            anat_desc_for_slot = body_anatomy_str
+        else:
+            char_desc_for_slot = body_anatomy_str
+            anat_desc_for_slot = ""
+
+        slot_data = CharacterSlotData(
+            slot_role=slot_role,
+            gender=gender,
+            character_desc=char_desc_for_slot,
+            anatomy_desc=anat_desc_for_slot,
+            outfit_desc=outfit_desc if has_outfit else "",
+            individual_action=indiv_action,
+            outfit_link_mode=outfit_mode,
+            occlusion_report=occlusion,
+            theme_or_universe=theme_or_univ_name,
+        )
+
+        body_and_outfit_items: list[str] = []
+        if body_anatomy_str:
+            body_and_outfit_items.append(body_anatomy_str)
+        if has_outfit and outfit_desc:
+            if "nude" in om_low:
+                body_and_outfit_items.append(outfit_desc)
+            else:
+                body_and_outfit_items.append(f"wearing {outfit_desc}")
+        body_and_outfit_str = ", ".join(body_and_outfit_items)
+
+        full_items: list[str] = []
+        base_block = slot_data.format_character_block(encapsulate_subparts=False)
+        if base_block:
+            full_items.append(base_block)
+        if indiv_action:
+            full_items.append(indiv_action.strip().rstrip(".,"))
+        character_full_prompt = ", ".join(full_items)
+
+        breakdown = {
+            "slot_role": slot_role,
+            "gender": gender,
+            "view_visibility_preset": view_visibility_preset,
+            "outfit_mode": outfit_mode,
+            "resolved_outfit": outfit_desc if has_outfit else "",
+            "occlusion_summary": occlusion.reason_summary,
+            "active_sections_count": len(active_sections),
+            "active_sections": active_sections,
+            "none_or_disabled_sections": disabled_sections,
+            "occluded_by_outfit_sections": occluded_sections,
+            "resolved_sections": resolved_map,
+        }
+        return (
+            slot_data,
+            character_full_prompt,
+            head_and_face_str,
+            body_and_outfit_str,
+            json.dumps(breakdown, indent=2, ensure_ascii=False),
+        )
+
+
+# ---------------------------------------------------------------------------
 # Optional Fast HTTP Endpoints for ComfyUI Frontend Extension
 # ---------------------------------------------------------------------------
 
@@ -3578,6 +3987,7 @@ NODE_CLASS_MAPPINGS = {
     "ZiggartWildcardRecipeSaver": ZiggartWildcardRecipeSaver,
     "ZiggartThemeUniverseContext": ZiggartThemeUniverseContext,
     "ZiggartCharacterUnitBuilder": ZiggartCharacterUnitBuilder,
+    "ZiggartAnatomyCharacterCreator": ZiggartAnatomyCharacterCreator,
     "ZiggartSceneStageAtmosphere": ZiggartSceneStageAtmosphere,
     "ZiggartKrea2PromptAssembler": ZiggartKrea2PromptAssembler,
     "ZiggartKrea2MasterPromptDirector": ZiggartKrea2MasterPromptDirector,
@@ -3593,6 +4003,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZiggartWildcardRecipeSaver": "Ziggart Prompt Recipe & Comparison Saver",
     "ZiggartThemeUniverseContext": "Ziggart Krea2 Theme & Universe Context",
     "ZiggartCharacterUnitBuilder": "Ziggart Krea2 Character Unit Builder (Outfit & Anatomy Filter)",
+    "ZiggartAnatomyCharacterCreator": "Ziggart Krea2 Head-to-Toe Anatomy Character Creator",
     "ZiggartSceneStageAtmosphere": "Ziggart Krea2 Scene Stage (Style, Action, Env, Light, Camera)",
     "ZiggartKrea2PromptAssembler": "Ziggart Krea2 Prompt Assembler (Qwen3VL-4B)",
     "ZiggartKrea2MasterPromptDirector": "Ziggart Krea2 Master Prompt Director (All-in-One)",

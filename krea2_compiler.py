@@ -101,8 +101,12 @@ ANATOMY_ZONES = (
     "BREASTS_CHEST",
     "NIPPLES_AREOLAS",
     "WAIST_MIDRIFF",
+    "BACK_SPINE",
+    "ARMS_SHOULDERS",
     "BUTTOCKS_HIPS",
     "INTIMATE_GENITALS",
+    "LEGS_THIGHS",
+    "FEET_ANKLES",
 )
 
 # Keywords indicating the outfit is completely nude or absent
@@ -154,7 +158,27 @@ _MIDRIFF_REVEAL_RE = re.compile(
     re.I,
 )
 
-# Buttocks / Hips / Legs coverage vs exposure
+# Back / Spine coverage vs exposure
+_BACK_COVER_RE = re.compile(
+    r"\b(?:full\s+plate|plate\s+armor|cuirass|breastplate|hauberk|heavy\s+coat|winter\s+coat|parka|trench\s+coat|cloak|cape|hoodie|sweater|turtleneck|tunic|jacket|shirt|blouse|dress|gown|robe|robes|jumpsuit|spacesuit|power\s+armor|mech\s+suit|uniform|suit)\b",
+    re.I,
+)
+_BACK_REVEAL_RE = re.compile(
+    r"\b(?:backless|open\s+back|open-back|low\s+back|low-back|bare\s+back|exposed\s+back|halter|strapless|tube\s+top|bikini|two-piece|bra|bralette|pasties|topless|shirtless|loincloth|cutout|cut-out)\b",
+    re.I,
+)
+
+# Arms / Shoulders coverage vs exposure
+_ARMS_COVER_RE = re.compile(
+    r"\b(?:full\s+plate|plate\s+armor|pauldrons|vambraces|long\s+sleeves?|long-sleeved|heavy\s+coat|winter\s+coat|parka|trench\s+coat|cloak|hoodie|sweater|spacesuit|power\s+armor|mech\s+suit|hazmat|jacket|suit|robe|robes)\b",
+    re.I,
+)
+_ARMS_REVEAL_RE = re.compile(
+    r"\b(?:sleeveless|strapless|off-shoulder|off-the-shoulder|bare\s+shoulders?|bare\s+arms?|tank\s+top|camisole|halter|tube\s+top|bikini|swimsuit|monokini|bra|bralette|corset|bustier|short\s+sleeves?|short-sleeved|rolled\s+sleeves|topless|shirtless|loincloth|leotard)\b",
+    re.I,
+)
+
+# Buttocks / Hips coverage vs exposure
 _GLUTES_HEAVY_COVER_RE = re.compile(
     r"\b(?:ballgown|long\s+skirt|floor-length|flowing\s+robes?|heavy\s+cloak|long\s+coat|trench\s+coat|travelling\s+cape|mantle|baggy\s+pants|cargo\s+pants|trousers|pants|jeans|plate\s+armor|tassets|greaves|riding\s+boots|high\s+leather\s+boots)\b",
     re.I,
@@ -174,6 +198,26 @@ _INTIMATE_EXPOSED_RE = re.compile(
     re.I,
 )
 
+# Legs / Thighs coverage vs exposure
+_LEGS_COVER_RE = re.compile(
+    r"\b(?:full\s+plate|plate\s+armor|greaves|cuisse|trousers|pants|jeans|cargo\s+pants|baggy\s+pants|ballgown|floor-length|long\s+skirt|maxi\s+skirt|maxi\s+dress|flowing\s+robes?|jumpsuit|overalls|spacesuit|power\s+armor|mech\s+suit|suit)\b",
+    re.I,
+)
+_LEGS_REVEAL_RE = re.compile(
+    r"\b(?:shorts|hot\s+pants|booty\s+shorts|miniskirt|mini\s+skirt|micro-skirt|micro\s+skirt|short\s+skirt|short\s+dress|high\s+slit|high-slit|side\s+slit|thigh-high|garter|bikini|swimsuit|monokini|leotard|bodysuit|loincloth|leggings|yoga\s+pants|skin-tight|skintight|bottomless|bare\s+legs|exposed\s+thighs?)\b",
+    re.I,
+)
+
+# Feet / Ankles coverage vs exposure
+_FEET_COVER_RE = re.compile(
+    r"\b(?:boots|greaves|sabatons|shoes|sneakers|combat\s+boots|riding\s+boots|thigh-high\s+boots|knee-high\s+boots|ankle\s+boots|loafers|oxfords|pumps|closed-toe|socks|stockings|spacesuit|power\s+armor|mech\s+suit)\b",
+    re.I,
+)
+_FEET_REVEAL_RE = re.compile(
+    r"\b(?:barefoot|bare\s+feet|bare\s+ankles?|sandals|strappy\s+sandals|open-toe|flip-flops|thong\s+sandals|anklet|foot\s+jewelry|toeless)\b",
+    re.I,
+)
+
 
 @dataclass(frozen=True)
 class OutfitOcclusionReport:
@@ -189,7 +233,7 @@ class OutfitOcclusionReport:
 def analyze_outfit_occlusion(outfit_text: str, outfit_wildcard_key: str = "") -> OutfitOcclusionReport:
     """
     Deterministically analyzes `outfit_text` (and optional `outfit_wildcard_key`) to determine
-    which of the 5 anatomical zones are visible vs covered.
+    which of the 9 anatomical zones are visible vs covered.
     """
     combined = f"{outfit_wildcard_key} {outfit_text}".strip()
     if not combined or _NUDE_OUTFIT_RE.search(combined):
@@ -226,22 +270,46 @@ def analyze_outfit_occlusion(outfit_text: str, outfit_wildcard_key: str = "") ->
     midriff_revealed = bool(_MIDRIFF_REVEAL_RE.search(combined)) or is_sheer_or_torn
     allow_waist_midriff = (not midriff_covered) or midriff_revealed
 
-    # 4. BUTTOCKS_HIPS (hips, pelvis, glutes contour)
+    # 4. BACK_SPINE (back, spine, shoulder blades)
+    back_covered = bool(_BACK_COVER_RE.search(combined))
+    back_revealed = bool(_BACK_REVEAL_RE.search(combined)) or is_sheer_or_torn
+    allow_back_spine = (not back_covered) or back_revealed
+
+    # 5. ARMS_SHOULDERS (arms, shoulders, biceps, deltoids)
+    arms_covered = bool(_ARMS_COVER_RE.search(combined))
+    arms_revealed = bool(_ARMS_REVEAL_RE.search(combined)) or is_sheer_or_torn
+    allow_arms_shoulders = (not arms_covered) or arms_revealed
+
+    # 6. BUTTOCKS_HIPS (hips, pelvis, glutes contour)
     glutes_covered = bool(_GLUTES_HEAVY_COVER_RE.search(combined))
     glutes_revealed = bool(_GLUTES_REVEAL_RE.search(combined)) or is_sheer_or_torn
     allow_buttocks_hips = (not glutes_covered) or glutes_revealed
 
-    # 5. INTIMATE_GENITALS (vulva / penis)
+    # 7. INTIMATE_GENITALS (vulva / penis)
     has_lower = bool(_LOWER_GARMENT_RE.search(combined))
     intimate_exposed = bool(_INTIMATE_EXPOSED_RE.search(combined))
     allow_intimate = (not has_lower and not has_upper) or intimate_exposed
+
+    # 8. LEGS_THIGHS (thighs, knees, calves, legs)
+    legs_covered = bool(_LEGS_COVER_RE.search(combined))
+    legs_revealed = bool(_LEGS_REVEAL_RE.search(combined)) or is_sheer_or_torn
+    allow_legs_thighs = (not legs_covered) or legs_revealed
+
+    # 9. FEET_ANKLES (feet, ankles, toes, soles)
+    feet_covered = bool(_FEET_COVER_RE.search(combined))
+    feet_revealed = bool(_FEET_REVEAL_RE.search(combined))
+    allow_feet_ankles = (not feet_covered) or feet_revealed
 
     allowed_map = {
         "BREASTS_CHEST": allow_breasts_chest,
         "NIPPLES_AREOLAS": allow_nipples,
         "WAIST_MIDRIFF": allow_waist_midriff,
+        "BACK_SPINE": allow_back_spine,
+        "ARMS_SHOULDERS": allow_arms_shoulders,
         "BUTTOCKS_HIPS": allow_buttocks_hips,
         "INTIMATE_GENITALS": allow_intimate,
+        "LEGS_THIGHS": allow_legs_thighs,
+        "FEET_ANKLES": allow_feet_ankles,
     }
     visible = tuple(z for z in ANATOMY_ZONES if allowed_map[z])
     blocked = tuple(z for z in ANATOMY_ZONES if not allowed_map[z])
@@ -261,21 +329,436 @@ def analyze_outfit_occlusion(outfit_text: str, outfit_wildcard_key: str = "") ->
 
 def classify_anatomy_wildcard_zone(wildcard_key_or_text: str) -> str | None:
     """
-    Maps an anatomy wildcard key or anatomical text fragment to one of the 5 occludable zones,
-    or None if it is a non-occludable general trait (e.g. Age-Adult, Beard-FacialHair, Build-Musculature, Creature traits).
+    Maps an anatomy wildcard key or anatomical text fragment to one of the 9 occludable body zones,
+    or None if it is a head/face/hair/skin/build/age trait not occluded by body apparel.
     """
     k = wildcard_key_or_text.lower()
     if any(w in k for w in ("nipple", "areola", "nipples-areolas")):
         return "NIPPLES_AREOLAS"
     if any(w in k for w in ("vulva", "pussies", "pussy", "penis", "intimate", "genital", "labia", "clitoris")):
         return "INTIMATE_GENITALS"
-    if any(w in k for w in ("breasts-chest", "breast-shape", "jffbreast", "chest-torso", "breast", "cleavage", "bosom", "bustline", "decollet")):
+    if any(w in k for w in ("back-spine", "dorsal-spines", "spinal furrow", "lower back", "arched back", "toned back", "shoulder blade", "scapulae", "dimples of venus")):
+        return "BACK_SPINE"
+    if any(w in k for w in ("feet-ankles", "paws-talons", "malleolus", "foot arch", "dancer feet", "petite feet", "toenails", "metatarsal", "soles and heels", "instep")):
+        return "FEET_ANKLES"
+    if any(w in k for w in ("arms-shoulders", "wings-appendages", "extra-limbs", "biceps", "triceps", "deltoids", "forearms")):
+        return "ARMS_SHOULDERS"
+    if any(w in k for w in ("breasts-chest", "breast-shape", "jffbreast", "chest-torso", "torso-carapace", "breast", "cleavage", "bosom", "bustline", "decollet", "pectoral")):
         return "BREASTS_CHEST"
-    if any(w in k for w in ("waist-midriff", "abs-core", "waist", "midriff", "navel", "abdomen", "abdominal", "washboard", "rectus", "v-line", "six-pack", "obliques", "hourglass")):
+    if any(w in k for w in ("waist-midriff", "hips-waist", "abs-core", "waist", "midriff", "navel", "abdomen", "abdominal", "washboard", "rectus", "v-line", "six-pack", "obliques", "hourglass")):
         return "WAIST_MIDRIFF"
-    if any(w in k for w in ("buttocks", "glutes", "hips-pelvis", "hips", "pelvis", "buttock", "glutes-legs", "quadricep", "quads", "quad", "calves", "femoral", "thighs")):
+    if any(w in k for w in ("legs-thighs", "legs-paws-hooves", "dancer legs", "toned legs", "curvy thighs", "rounded thighs", "quadricep", "quads", "hamstrings", "calves", "achilles", "shins")):
+        return "LEGS_THIGHS"
+    if any(w in k for w in ("buttocks", "glutes", "hips-pelvis", "hips", "pelvis", "buttock", "glutes-legs", "tails-stingers", "gluteal")):
         return "BUTTOCKS_HIPS"
     return None
+
+
+# ---------------------------------------------------------------------------
+# 2B. Head-to-Toe Anatomy Section Definitions & View Presets
+# ---------------------------------------------------------------------------
+
+VIEW_VISIBILITY_PRESETS: tuple[str, ...] = (
+    "Full Body — Front / 3-Quarter View",
+    "Back View / Seen From Behind (No Face / No Front Chest)",
+    "Back Over-the-Shoulder (Back + Side Gaze)",
+    "Upper Body / Waist-Up Portrait",
+    "Close-Up Face & Hair Only",
+    "Lower Body & Legs Focus",
+    "Custom (Use Individual Section Settings)",
+)
+
+HEAD_TO_TOE_ANATOMY_SECTIONS: tuple[dict[str, Any], ...] = (
+    # --- 1. Base Profile & Skin ---
+    {
+        "id": "age_group",
+        "group": "profile",
+        "Female": "Collection/Anatomy/Female/Age-Adult",
+        "Male": "Collection/Anatomy/Male/Age-Adult",
+        "Creature": None,
+        "zone": None,
+    },
+    {
+        "id": "build_silhouette",
+        "group": "body",
+        "Female": "Collection/Anatomy/Female/Build-Silhouette",
+        "Male": "Collection/Anatomy/Male/Build-Musculature",
+        "Creature": "Collection/Anatomy/Creature/Size-Stature",
+        "zone": None,
+    },
+    {
+        "id": "skin_complexion",
+        "group": "profile",
+        "Female": "Collection/Anatomy/Female/Skin-Complexion",
+        "Male": "Collection/Anatomy/Male/Skin-Complexion",
+        "Creature": "Collection/Anatomy/Creature/Skin-Fur-Scales",
+        "zone": None,
+    },
+    {
+        "id": "skin_texture_finish",
+        "group": "profile",
+        "Female": "Collection/Anatomy/Female/Skin-Texture-Finish",
+        "Male": "Collection/Anatomy/Male/Skin-Texture-Finish",
+        "Creature": "Collection/Anatomy/Creature/Aura-Elements",
+        "zone": None,
+    },
+    {
+        "id": "skin_marks",
+        "group": "profile",
+        "Female": "Collection/Anatomy/Female/Skin-Marks-Freckles",
+        "Male": "Collection/Anatomy/Male/Skin-Marks-Scars",
+        "Creature": None,
+        "zone": None,
+    },
+    # --- 2. Hair & Head Appendages ---
+    {
+        "id": "hair_cut_style",
+        "group": "head",
+        "Female": "Collection/Anatomy/Female/Hair-Cut-Style",
+        "Male": "Collection/Anatomy/Male/Hair-Cut-Style",
+        "Creature": "Collection/Anatomy/Creature/Horns-Antlers",
+        "zone": None,
+    },
+    {
+        "id": "hair_color",
+        "group": "head",
+        "Female": "Collection/Anatomy/Female/Hair-Color",
+        "Male": "Collection/Anatomy/Male/Hair-Color",
+        "Creature": None,
+        "zone": None,
+    },
+    {
+        "id": "hair_texture",
+        "group": "head",
+        "Female": "Collection/Anatomy/Female/Hair-Texture",
+        "Male": "Collection/Anatomy/Male/Hair-Texture",
+        "Creature": "Collection/Anatomy/Creature/Facial-Sensory-Antennae",
+        "zone": None,
+    },
+    {
+        "id": "beard_facial_hair",
+        "group": "face",
+        "Female": None,
+        "Male": "Collection/Anatomy/Male/Beard-FacialHair",
+        "Creature": None,
+        "zone": None,
+    },
+    # --- 3. Face & Gaze (Can all be [None], e.g. when character is seen from behind) ---
+    {
+        "id": "forehead_brow",
+        "group": "face",
+        "Female": "Collection/Anatomy/Female/Forehead-Brow",
+        "Male": "Collection/Anatomy/Male/Forehead-Brow",
+        "Creature": None,
+        "zone": None,
+    },
+    {
+        "id": "eyebrows_eyelashes",
+        "group": "face",
+        "Female": "Collection/Anatomy/Female/Eyebrows-Eyelashes",
+        "Male": "Collection/Anatomy/Male/Eyebrows-Eyelashes",
+        "Creature": None,
+        "zone": None,
+    },
+    {
+        "id": "eyes_shape",
+        "group": "face",
+        "Female": "Collection/Anatomy/Female/Eyes-Shape",
+        "Male": "Collection/Anatomy/Male/Eyes-Shape",
+        "Creature": "Collection/Anatomy/Creature/Creature-Eyes-Sensory",
+        "zone": None,
+    },
+    {
+        "id": "eyes_iris_color",
+        "group": "face",
+        "Female": "Collection/Anatomy/Female/Eyes-Iris-Color",
+        "Male": "Collection/Anatomy/Male/Eyes-Iris-Color",
+        "Creature": "Collection/Anatomy/Creature/Eyes-Sensory",
+        "zone": None,
+    },
+    {
+        "id": "ears",
+        "group": "face",
+        "Female": "Collection/Anatomy/Female/Ears",
+        "Male": "Collection/Anatomy/Male/Ears",
+        "Creature": None,
+        "zone": None,
+    },
+    {
+        "id": "nose",
+        "group": "face",
+        "Female": "Collection/Anatomy/Female/Nose",
+        "Male": "Collection/Anatomy/Male/Nose",
+        "Creature": None,
+        "zone": None,
+    },
+    {
+        "id": "cheeks_cheekbones",
+        "group": "face",
+        "Female": "Collection/Anatomy/Female/Cheeks-Cheekbones",
+        "Male": "Collection/Anatomy/Male/Cheeks-Cheekbones",
+        "Creature": None,
+        "zone": None,
+    },
+    {
+        "id": "mouth_lips",
+        "group": "face",
+        "Female": "Collection/Anatomy/Female/Mouth-Lips",
+        "Male": "Collection/Anatomy/Male/Mouth-Lips",
+        "Creature": "Collection/Anatomy/Creature/Jaws-Beaks-Mandibles",
+        "zone": None,
+    },
+    {
+        "id": "teeth_smile",
+        "group": "face",
+        "Female": "Collection/Anatomy/Female/Teeth-Smile",
+        "Male": "Collection/Anatomy/Male/Teeth-Smile",
+        "Creature": "Collection/Anatomy/Creature/Jaws-Fangs-Claws",
+        "zone": None,
+    },
+    {
+        "id": "chin_jawline",
+        "group": "face",
+        "Female": "Collection/Anatomy/Female/Chin-Jawline",
+        "Male": "Collection/Anatomy/Male/Chin-Jawline",
+        "Creature": None,
+        "zone": None,
+    },
+    # --- 4. Neck, Shoulders, Arms & Hands ---
+    {
+        "id": "neck_collarbones",
+        "group": "body",
+        "Female": "Collection/Anatomy/Female/Neck-Collarbones",
+        "Male": "Collection/Anatomy/Male/Neck-Throat",
+        "Creature": "Collection/Anatomy/Creature/Neck-Throat",
+        "zone": None,
+    },
+    {
+        "id": "arms_shoulders",
+        "group": "body",
+        "Female": "Collection/Anatomy/Female/Arms-Shoulders",
+        "Male": "Collection/Anatomy/Male/Arms-Shoulders",
+        "Creature": "Collection/Anatomy/Creature/Wings-Appendages",
+        "zone": "ARMS_SHOULDERS",
+    },
+    {
+        "id": "hands_fingers",
+        "group": "body",
+        "Female": "Collection/Anatomy/Female/Hands-Fingers",
+        "Male": "Collection/Anatomy/Male/Hands-Fingers",
+        "Creature": "Collection/Anatomy/Creature/Paws-Talons-Claws",
+        "zone": None,
+    },
+    # --- 5. Torso, Chest, Waist & Back ---
+    {
+        "id": "chest_breasts",
+        "group": "body",
+        "Female": "Collection/Anatomy/Female/Breasts-Chest",
+        "Male": "Collection/Anatomy/Male/Chest-Torso",
+        "Creature": "Collection/Anatomy/Creature/Torso-Carapace",
+        "zone": "BREASTS_CHEST",
+    },
+    {
+        "id": "nipples_areolas",
+        "group": "body",
+        "Female": "Collection/Anatomy/Female/Nipples-Areolas",
+        "Male": None,
+        "Creature": None,
+        "zone": "NIPPLES_AREOLAS",
+    },
+    {
+        "id": "waist_midriff",
+        "group": "body",
+        "Female": "Collection/Anatomy/Female/Waist-Midriff",
+        "Male": "Collection/Anatomy/Male/Hips-Waist",
+        "Creature": None,
+        "zone": "WAIST_MIDRIFF",
+    },
+    {
+        "id": "abs_core",
+        "group": "body",
+        "Female": "Collection/Anatomy/Female/Abs-Core",
+        "Male": "Collection/Anatomy/Male/Abs-Core",
+        "Creature": None,
+        "zone": "WAIST_MIDRIFF",
+    },
+    {
+        "id": "back_spine",
+        "group": "body",
+        "Female": "Collection/Anatomy/Female/Back-Spine",
+        "Male": "Collection/Anatomy/Male/Back-Spine",
+        "Creature": "Collection/Anatomy/Creature/Dorsal-Spines-Crests",
+        "zone": "BACK_SPINE",
+    },
+    # --- 6. Pelvis, Glutes, Legs & Feet ---
+    {
+        "id": "hips_pelvis",
+        "group": "body",
+        "Female": "Collection/Anatomy/Female/Hips-Pelvis",
+        "Male": "Collection/Anatomy/Male/Hips-Waist",
+        "Creature": None,
+        "zone": "BUTTOCKS_HIPS",
+    },
+    {
+        "id": "buttocks_glutes",
+        "group": "body",
+        "Female": "Collection/Anatomy/Female/Buttocks-Glutes",
+        "Male": "Collection/Anatomy/Male/Glutes-Legs",
+        "Creature": "Collection/Anatomy/Creature/Tails-Stingers",
+        "zone": "BUTTOCKS_HIPS",
+    },
+    {
+        "id": "intimate_anatomy",
+        "group": "body",
+        "Female": "Collection/Anatomy/Female/Vulva-Intimate",
+        "Male": "Collection/Anatomy/Male/Penis-Intimate",
+        "Creature": None,
+        "zone": "INTIMATE_GENITALS",
+    },
+    {
+        "id": "legs_thighs",
+        "group": "body",
+        "Female": "Collection/Anatomy/Female/Legs-Thighs",
+        "Male": "Collection/Anatomy/Male/Glutes-Legs",
+        "Creature": "Collection/Anatomy/Creature/Legs-Paws-Hooves",
+        "zone": "LEGS_THIGHS",
+    },
+    {
+        "id": "feet_ankles",
+        "group": "body",
+        "Female": "Collection/Anatomy/Female/Feet-Ankles",
+        "Male": "Collection/Anatomy/Male/Feet-Ankles",
+        "Creature": None,
+        "zone": "FEET_ANKLES",
+    },
+)
+
+
+def is_section_enabled_by_view_preset(section_id: str, view_preset: str) -> bool:
+    """
+    Determines whether a given anatomical section is enabled by default under `view_preset`
+    when its widget is set to `[Auto (From View Preset)]`.
+    (Note: `nipples_areolas` and `intimate_anatomy` default to False in `[Auto]` unless explicitly selected or Nude).
+    """
+    if section_id in ("nipples_areolas", "intimate_anatomy"):
+        return False
+
+    vp = view_preset.lower()
+    if "back view" in vp or "seen from behind" in vp:
+        # Seen from behind: hide face/eyes/nose/mouth/front chest/abs; enable hair, back, buttocks, legs, feet
+        return section_id in {
+            "age_group",
+            "build_silhouette",
+            "skin_complexion",
+            "skin_texture_finish",
+            "hair_cut_style",
+            "hair_color",
+            "hair_texture",
+            "ears",
+            "neck_collarbones",
+            "arms_shoulders",
+            "hands_fingers",
+            "back_spine",
+            "waist_midriff",
+            "hips_pelvis",
+            "buttocks_glutes",
+            "legs_thighs",
+            "feet_ankles",
+        }
+    if "over-the-shoulder" in vp:
+        # Back over-the-shoulder: back + glutes + legs + side gaze (eyes, eyebrows, cheeks, lips, jawline)
+        return section_id in {
+            "age_group",
+            "build_silhouette",
+            "skin_complexion",
+            "skin_texture_finish",
+            "skin_marks",
+            "hair_cut_style",
+            "hair_color",
+            "hair_texture",
+            "eyebrows_eyelashes",
+            "eyes_shape",
+            "eyes_iris_color",
+            "ears",
+            "nose",
+            "cheeks_cheekbones",
+            "mouth_lips",
+            "chin_jawline",
+            "neck_collarbones",
+            "arms_shoulders",
+            "back_spine",
+            "waist_midriff",
+            "hips_pelvis",
+            "buttocks_glutes",
+            "legs_thighs",
+        }
+    if "upper body" in vp or "portrait" in vp:
+        # Upper body / waist-up portrait: head, face, hair, neck, shoulders/arms/hands, chest, waist; no legs/feet/buttocks
+        return section_id in {
+            "age_group",
+            "build_silhouette",
+            "skin_complexion",
+            "skin_texture_finish",
+            "skin_marks",
+            "hair_cut_style",
+            "hair_color",
+            "hair_texture",
+            "beard_facial_hair",
+            "forehead_brow",
+            "eyebrows_eyelashes",
+            "eyes_shape",
+            "eyes_iris_color",
+            "ears",
+            "nose",
+            "cheeks_cheekbones",
+            "mouth_lips",
+            "teeth_smile",
+            "chin_jawline",
+            "neck_collarbones",
+            "arms_shoulders",
+            "hands_fingers",
+            "chest_breasts",
+            "waist_midriff",
+            "abs_core",
+        }
+    if "close-up face" in vp:
+        # Extreme close-up face & hair only
+        return section_id in {
+            "age_group",
+            "skin_complexion",
+            "skin_texture_finish",
+            "skin_marks",
+            "hair_cut_style",
+            "hair_color",
+            "hair_texture",
+            "beard_facial_hair",
+            "forehead_brow",
+            "eyebrows_eyelashes",
+            "eyes_shape",
+            "eyes_iris_color",
+            "ears",
+            "nose",
+            "cheeks_cheekbones",
+            "mouth_lips",
+            "teeth_smile",
+            "chin_jawline",
+        }
+    if "lower body" in vp:
+        # Lower body & legs focus
+        return section_id in {
+            "build_silhouette",
+            "skin_complexion",
+            "skin_texture_finish",
+            "waist_midriff",
+            "abs_core",
+            "hips_pelvis",
+            "buttocks_glutes",
+            "legs_thighs",
+            "feet_ankles",
+        }
+
+    # Default: "Full Body — Front / 3-Quarter View" or "Custom"
+    return section_id not in {"back_spine", "buttocks_glutes", "nipples_areolas", "intimate_anatomy"}
 
 
 def filter_anatomy_text_by_occlusion(

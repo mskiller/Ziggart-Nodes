@@ -1,8 +1,8 @@
 # Ziggart Nodes for ComfyUI (`v1.4.0`)
 
-A complete collection of **28 local, in-process ComfyUI nodes** combining:
+A complete collection of **29 local, in-process ComfyUI nodes** combining:
 - **Zero-Freeze 700+ MB Wildcard & Canonical Theme Engines** (Way A + Way C architectures)
-- **Krea2 (`Qwen3VL-4B` CLIP) Prompt Director Suite** (Modular & All-in-One Theme/Universe context, 1:1 Character-Outfit linking, and automatic 5-zone Outfit $\rightarrow$ Anatomy occlusion filtering)
+- **Krea2 (`Qwen3VL-4B` CLIP) Prompt Director Suite** (Modular & All-in-One Theme/Universe context, Head-to-Toe 28-Section Anatomy Character Creator with per-section `[None]` & View Presets, 1:1 Character-Outfit linking, and automatic 9-zone Outfit $\rightarrow$ Anatomy occlusion filtering)
 - **GGUF Vision-Language Models (VLMs)** via `llama-cpp-python`
 - **WeVisOne-VL Open-Vocabulary Visual Grounding**
 - **Krea 2 Turbo** High-Resolution Detailing & Tiled Upscaling
@@ -10,7 +10,7 @@ A complete collection of **28 local, in-process ComfyUI nodes** combining:
 
 ---
 
-## Included Nodes (28 Nodes)
+## Included Nodes (29 Nodes)
 
 | Display Name | Internal Class | Category | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -22,8 +22,9 @@ A complete collection of **28 local, in-process ComfyUI nodes** combining:
 | **Wildcard-to-VLM Prompt Harmonizer** | `ZiggartWildcardVLMEnhancer` | `Ziggart/Wildcards` | Uses your local GGUF LLM/VLM to rewrite stitched wildcard fragments into cohesive natural-language prose for **Krea 2 Turbo / Flux** while keeping character/outfit locks intact. |
 | **Ziggart Prompt Recipe & Comparison Saver** | `ZiggartWildcardRecipeSaver` | `Ziggart/Wildcards` | Saves images (or side-by-side `Base vs Refined` comparison grids) with embedded PNG metadata (`wildcard_template`, `populated_text`, `seed`) and a `.json` recipe sidecar. |
 | **Ziggart Krea2 Theme & Universe Context** | `ZiggartThemeUniverseContext` | `Ziggart/Krea2 Prompt Director` | Selects a Theme (`Collection/Themes/*`), Universe (`Collection/Universes/*` with `source.json` branches), or `Free Crossover` context + `mood_filter` and full-prompt exclusion rules. |
-| **Ziggart Krea2 Character Unit Builder** | `ZiggartCharacterUnitBuilder` | `Ziggart/Krea2 Prompt Director` | Builds a Primary or Secondary Character slot with 1:1 `Canonical` / `Compatible` / `Free` / `Nude` outfit linking and automatic 5-zone Outfit $\rightarrow$ Anatomy occlusion filtering. |
-| **Ziggart Krea2 Scene Stage (Style, Action, Env, Light, Camera)** | `ZiggartSceneStageAtmosphere` | `Ziggart/Krea2 Prompt Director` | Selects and resolves pure `(style)`, `(action / duo interaction)`, `(environment)`, `(lighting)`, and `(camera)` components across `Collection/`, `ziggart/`, `jff/`, and `Encours/`. |
+| **Ziggart Krea2 Character Unit Builder (Outfit & Anatomy Filter)** | `ZiggartCharacterUnitBuilder` | `Ziggart/Krea2 Prompt Director` | Builds a Primary or Secondary Character slot with 1:1 `Canonical` / `Compatible` / `Free` / `Nude` outfit linking and automatic 9-zone Outfit $\rightarrow$ Anatomy occlusion filtering. |
+| **Ziggart Krea2 Head-to-Toe Anatomy Character Creator** | `ZiggartAnatomyCharacterCreator` | `Ziggart/Krea2 Prompt Director` | Builds a character from Head to Toe across **28 anatomical sections** (`Collection/Anatomy/{Female,Male,Creature}`) where any section can be set to `[None]` or controlled via View Presets (`Front`, `Back View`, `Over-the-Shoulder`, `Portrait`, `Face Only`, `Lower Body`). |
+| **Ziggart Krea2 Scene Stage (Style, Action, Env, Light, Camera)** | `ZiggartSceneStageAtmosphere` | `Ziggart/Krea2 Prompt Director` | Selects and resolves pure `(style)`, `(action / duo interaction)`, `(environment)` (including `ziggart/Env/*`), `(lighting)`, and `(camera)` components across `Collection/`, `ziggart/`, `jff/`, and `Encours/`. |
 | **Ziggart Krea2 Prompt Assembler (Qwen3VL-4B)** | `ZiggartKrea2PromptAssembler` | `Ziggart/Krea2 Prompt Director` | Compiles `char_1_slot`, optional `char_2_slot`, and `stage_data` into **Krea2 (`Qwen3VL-4B`)** prompts (`scoped`, `balanced`, `compact`, `rich`) with token estimation and detailer outputs. |
 | **Ziggart Krea2 Master Prompt Director (All-in-One)** | `ZiggartKrea2MasterPromptDirector` | `Ziggart/Krea2 Prompt Director` | Combines Theme/Universe selection, Solo/Duo Character & Outfit Linker, automatic Anatomy Occlusion filtering, Scene Stage, and Krea2 compilation into a single all-in-one node. |
 | **Detailers Krea2** | `ZiggartDetailerKrea2` | `Ziggart/Detailer` | Open-vocabulary object detection (**WeVisOne-VL**) paired with high-resolution **Krea 2 Turbo** resampling, latent noise masking, and Gaussian feathered blending. |
@@ -60,6 +61,7 @@ A complete collection of **28 local, in-process ComfyUI nodes** combining:
 4. [Krea2 (`Qwen3VL-4B`) Prompt Director Suite (`Ziggart/Krea2 Prompt Director`)](#krea2-qwen3vl-4b-prompt-director-suite-ziggartkrea2-prompt-director)
    - [8. Ziggart Krea2 Theme & Universe Context](#8-ziggart-krea2-theme--universe-context)
    - [9. Ziggart Krea2 Character Unit Builder](#9-ziggart-krea2-character-unit-builder)
+   - [9B. Ziggart Krea2 Head-to-Toe Anatomy Character Creator](#9b-ziggart-krea2-head-to-toe-anatomy-character-creator)
    - [10. Ziggart Krea2 Scene Stage (Style, Action, Env, Light, Camera)](#10-ziggart-krea2-scene-stage-style-action-env-light-camera)
    - [11. Ziggart Krea2 Prompt Assembler (`Qwen3VL-4B`)](#11-ziggart-krea2-prompt-assembler-qwen3vl-4b)
    - [12. Ziggart Krea2 Master Prompt Director (All-in-One)](#12-ziggart-krea2-master-prompt-director-all-in-one)
@@ -300,7 +302,7 @@ Saves generated images (and an optional side-by-side `Base vs Refined` compariso
 
 ## Krea2 (`Qwen3VL-4B`) Prompt Director Suite (`Ziggart/Krea2 Prompt Director`)
 
-The 5 **Krea2 Prompt Director** nodes build structured Solo or Duo prompts directly from your component wildcards (`Collection/Themes`, `Collection/Universes`, `Collection/`, `ziggart/`, `jff/`, `Encours/`, `Outfits/`, `Characters/`) while **strictly excluding pre-assembled full-scene prompts** (`*-scene.txt`, `*-prompts.txt`, `Themes/*/ALL.txt`, `Universes/*/ALL.txt`, `Combos/*`, `Formats/*`).
+The 6 **Krea2 Prompt Director** nodes build structured Solo or Duo prompts directly from your component wildcards (`Collection/Themes`, `Collection/Universes`, `Collection/Anatomy`, `Collection/`, `ziggart/`, `ziggart/Env/`, `jff/`, `Encours/`, `Outfits/`, `Characters/`) while **strictly excluding pre-assembled full-scene prompts** (`*-scene.txt`, `*-prompts.txt`, `Themes/*/ALL.txt`, `Universes/*/ALL.txt`, `Combos/*`, `Formats/*`).
 
 ### Target Prompt Structure for Krea2 (`Qwen3VL-4B` CLIP)
 
@@ -309,17 +311,21 @@ The 5 **Krea2 Prompt Director** nodes build structured Solo or Duo prompts direc
 - **Duo / Interaction Mode (2 Characters)**:
   > `2 characters, (Render Style: <style>) (<char_1>) [(<char_1_anatomy>)] (wearing <char_1_outfit>) (<char_2>) [(<char_2_anatomy>)] (wearing <char_2_outfit>) (<shared_action>) (<environment>) (<lighting>) (<camera>).`
 
-### Automatic 5-Zone Outfit $\rightarrow$ Anatomy Occlusion Filter
+### Automatic 9-Zone Outfit $\rightarrow$ Anatomy Occlusion Filter
 
-When `auto_filter_anatomy_by_outfit = True` (default), `OutfitOcclusionAnalyzer` inspects the resolved outfit text and only keeps anatomical descriptions for zones that are actually visible:
+When `auto_filter_anatomy_by_outfit = True` (default), `OutfitOcclusionAnalyzer` inspects the resolved outfit text and only keeps anatomical descriptions for body zones that are actually visible:
 
 | Anatomical Zone | Associated Anatomy Wildcards | Covered / Blocked By | Re-Allowed By (Transparency / Cutout / Open Modifiers) |
 | :--- | :--- | :--- | :--- |
-| **`BREASTS_CHEST`** *(Bust / Cleavage / Chest)* | `Breasts-Chest.txt`, `Chest-Torso.txt`, `jff/breast-shape.txt` | Heavy/full upper coverage (`full plate armor`, `cuirass`, `breastplate`, `heavy coat`, `cloak`, `parka`, `turtleneck`, `sweater`, `hoodie`, `spacesuit`) | `cleavage`, `plunging`, `low-cut`, `open-chest`, `bikini`, `bra`, `corset`, `bustier`, `sheer`, `see-through`, `translucent`, `lace`, `wet`, `torn`, `skin-tight`, `latex` |
+| **`BREASTS_CHEST`** *(Bust / Cleavage / Chest)* | `Breasts-Chest.txt`, `Chest-Torso.txt`, `Torso-Carapace.txt`, `jff/breast-shape.txt` | Heavy/full upper coverage (`full plate armor`, `cuirass`, `breastplate`, `heavy coat`, `cloak`, `parka`, `turtleneck`, `sweater`, `hoodie`, `spacesuit`) | `cleavage`, `plunging`, `low-cut`, `open-chest`, `bikini`, `bra`, `corset`, `bustier`, `sheer`, `see-through`, `translucent`, `lace`, `wet`, `torn`, `skin-tight`, `latex` |
 | **`NIPPLES_AREOLAS`** *(Nipples / Areolas)* | `Nipples-Areolas.txt` | Any upper garment (`shirt`, `tunic`, `dress`, `gown`, `armor`, `bikini`, `swimsuit`, `bra`, `bodysuit`, `corset`, `jacket`, `top`, `kimono`) | `sheer`, `see-through`, `transparent`, `translucent`, `mesh`, `fishnet`, `lace unlined`, `wet`, `clinging`, `topless`, `open-cup`, `cupless`, `pasties`, `torn`, `micro-bikini`, `nude` |
-| **`WAIST_MIDRIFF`** *(Waist / Midriff / Abs)* | `Waist-Midriff.txt`, `Abs-Core.txt` | Full-torso garments (`dress`, `gown`, `robe`, `one-piece`, `bodysuit`, `tunic`, `hauberk`, `full armor`, `jumpsuit`, `coat`, `suit`) | `crop top`, `bare midriff`, `exposed midriff`, `bikini`, `two-piece`, `loincloth`, `low-rise`, `belly dancer`, `torn`, `cutout`, `open front`, `sheer` |
-| **`BUTTOCKS_HIPS`** *(Buttocks / Hips / Glutes)* | `Buttocks-Glutes.txt`, `Hips-Pelvis.txt`, `Glutes-Legs.txt` | Heavy/loose lower garments (`long skirt`, `ballgown`, `flowing robes`, `cloak`, `baggy pants`, `plate greaves`, `trench coat`) | `thong`, `g-string`, `micro-skirt`, `miniskirt`, `high-cut`, `cheeky`, `leotard`, `leggings`, `yoga pants`, `skin-tight`, `sheer`, `torn`, `loincloth`, `bottomless` |
+| **`WAIST_MIDRIFF`** *(Waist / Midriff / Abs)* | `Waist-Midriff.txt`, `Hips-Waist.txt`, `Abs-Core.txt` | Full-torso garments (`dress`, `gown`, `robe`, `one-piece`, `bodysuit`, `tunic`, `hauberk`, `full armor`, `jumpsuit`, `coat`, `suit`) | `crop top`, `bare midriff`, `exposed midriff`, `bikini`, `two-piece`, `loincloth`, `low-rise`, `belly dancer`, `torn`, `cutout`, `open front`, `sheer` |
+| **`BACK_SPINE`** *(Back / Spine / Scapulae)* | `Back-Spine.txt`, `Dorsal-Spines-Crests.txt` | Upper garments covering the back (`cloak`, `cape`, `full armor`, `coat`, `jacket`, `sweater`, `hoodie`, `tunic`, `shirt`, `dress`, `gown`) | `backless`, `open back`, `low back`, `bare back`, `halter`, `strapless`, `tube top`, `bikini`, `topless`, `shirtless`, `sheer`, `torn`, `nude` |
+| **`ARMS_SHOULDERS`** *(Shoulders / Arms)* | `Arms-Shoulders.txt`, `Wings-Appendages.txt`, `Extra-Limbs-MultiArms.txt` | Long-sleeved or armored upper wear (`full plate armor`, `pauldrons`, `vambraces`, `long sleeves`, `heavy coat`, `parka`, `hoodie`, `sweater`, `jacket`, `suit`) | `sleeveless`, `strapless`, `off-shoulder`, `bare shoulders`, `tank top`, `halter`, `bikini`, `swimsuit`, `short sleeves`, `topless`, `sheer`, `torn`, `nude` |
+| **`BUTTOCKS_HIPS`** *(Buttocks / Hips / Glutes)* | `Buttocks-Glutes.txt`, `Hips-Pelvis.txt`, `Glutes-Legs.txt`, `Tails-Stingers.txt` | Heavy/loose lower garments (`long skirt`, `ballgown`, `flowing robes`, `cloak`, `baggy pants`, `plate greaves`, `trench coat`) | `thong`, `g-string`, `micro-skirt`, `miniskirt`, `high-cut`, `cheeky`, `leotard`, `leggings`, `yoga pants`, `skin-tight`, `sheer`, `torn`, `loincloth`, `bottomless` |
 | **`INTIMATE_GENITALS`** *(Intimate Lower Anatomy)* | `Vulva-Intimate.txt`, `Penis-Intimate.txt` | Any lower garment (`pants`, `trousers`, `skirt`, `dress`, `shorts`, `bikini`, `panties`, `underwear`, `briefs`, `swimsuit`, `loincloth`, `armor`, `leggings`) | `nude`, `naked`, `bottomless`, `crotchless`, `open-crotch`, `pulled aside`, `unclothed` |
+| **`LEGS_THIGHS`** *(Thighs / Legs / Calves)* | `Legs-Thighs.txt`, `Glutes-Legs.txt`, `Legs-Paws-Hooves.txt` | Full leg coverage (`trousers`, `pants`, `jeans`, `ballgown`, `floor-length`, `long skirt`, `maxi dress`, `greaves`, `full plate armor`, `jumpsuit`) | `shorts`, `miniskirt`, `micro-skirt`, `high slit`, `thigh-high`, `bikini`, `swimsuit`, `leotard`, `loincloth`, `leggings`, `skin-tight`, `sheer`, `torn`, `nude` |
+| **`FEET_ANKLES`** *(Feet / Ankles / Toes)* | `Feet-Ankles.txt`, `Paws-Talons-Claws.txt` | Footwear covering feet/ankles (`boots`, `greaves`, `sabatons`, `shoes`, `sneakers`, `heels`, `loafers`, `socks`, `stockings`, `spacesuit`) | `barefoot`, `bare feet`, `bare ankles`, `sandals`, `strappy sandals`, `open-toe`, `anklet`, `foot jewelry`, `toeless`, `nude` |
 
 ---
 
@@ -333,11 +339,10 @@ Defines the narrative context (Theme, Universe, or Multi-Folder Free Crossover) 
   - `source_mode`: `Theme (Collection/Themes)`, `Universe (Collection/Universes)`, `Random Theme`, `Random Universe`, or `Free Crossover (All Wildcard Folders)`.
   - `theme_selection`: Choose any of the 1,500+ themes or `[Random Theme]`.
   - `universe_selection`: Choose any multi-branch Universe (`Collection/Universes/*` with `source.json` metadata) or `[Random Universe]`.
-  - `universe_branch`: `Auto (Random Branch)` or a specific branch name / index.
-  - `mood_filter`: `[Any]`, `SFW Only`, `NSFW / Sensual`, `Fantasy / Medieval`, `Sci-Fi / Cyberpunk`, `Anime / Manga`, `Dark / Gothic`, or `Modern / Urban`.
+  - `mood_filter`: `[Any / No Filter]`, `SFW Only`, `NSFW / Sensual / Glamour`, `Fantasy / Mythology / Medieval`, `Sci-Fi / Cyberpunk / Mecha`, `Anime / Manga / Cel Animation`, `Dark / Gothic / Horror`, or `Urban / Modern / Streetwear`.
   - `exclude_full_prompts` (`BOOLEAN`, default `True`): Excludes pre-assembled full-scene prompts from component rolls.
-  - `seed` (`INT`), optional `search_filter` (`STRING`), `custom_wildcards_dir`, `refresh_index`.
-- **Outputs**: `context` (`ZIGGART_CONTEXT`), `active_theme_or_universe` (`STRING`), `default_style` (`STRING`), `default_environment` (`STRING`), `context_summary_json` (`STRING`).
+  - `seed` (`INT`), optional `search_or_keyword_filter` (`STRING`), `custom_wildcards_dir`.
+- **Outputs**: `context` (`ZIGGART_CONTEXT`), `active_theme_or_universe` (`STRING`), `default_style` (`STRING`), `default_environment` (`STRING`).
 
 ---
 
@@ -345,24 +350,50 @@ Defines the narrative context (Theme, Universe, or Multi-Folder Free Crossover) 
 
 *Class: `ZiggartCharacterUnitBuilder` | Category: `Ziggart/Krea2 Prompt Director`*
 
-Builds a **Primary** or **Secondary** Character slot with linked Outfit selection and automatic Outfit $\rightarrow$ Anatomy occlusion filtering.
+Builds a **Primary** or **Secondary** Character slot with linked Outfit selection and automatic 9-zone Outfit $\rightarrow$ Anatomy occlusion filtering.
 
 - **Inputs**:
-  - `role_slot`: `Primary Character (Char 1)` or `Secondary Character (Char 2)`.
-  - `character_source`: `From Context (Theme / Universe)`, `Specific Wildcard File`, `Random Pool by Gender`, or `Custom Text`.
+  - `slot_role`: `Primary` or `Secondary`.
+  - `character_source`: `From Context (Theme / Universe)` or `Wildcard Selector / Category Pool`.
   - `gender_filter`: `Auto / Any`, `Female`, `Male`, `Creature`.
   - `character_wildcard`: Pure character wildcard selector (`Collection/Characters/*`, `ziggart/character/*`, `jff/actress`, `female-all`, etc.).
   - `outfit_link_mode`:
     - `Canonical (1:1 Strict Character Outfit)`: Uses the exact character's `canonical_outfits` from `Character-Outfits.json` or `source.json`.
     - `Compatible (Same Theme/Universe + Gender)`: Restricts outfits to the matching gender pool of the active Theme/Universe or gender-matched `Collection/Outfits/<Gender>/*` and `ziggart/Outfits/*`.
     - `Free (All Outfit Wildcards across Folders)`: Unlocks all pure outfit wildcards across `Collection/Outfits`, `ziggart/Outfits`, `jff/`, and `Encours/`.
-    - `Nude / Unclothed`: No clothing; unlocks all anatomical zones.
+    - `Nude / Unclothed`: No clothing; unlocks all 9 anatomical zones.
   - `outfit_wildcard`: Optional specific outfit wildcard when in `Compatible` or `Free` mode.
-  - `enable_anatomy` (`BOOLEAN`, default `True`) & `auto_filter_anatomy_by_outfit` (`BOOLEAN`, default `True`).
-  - `anatomy_wildcard`: `[Auto by Gender & Visible Zones]` or a specific anatomy wildcard from `Collection/Anatomy/*` / `jff/breast-shape`.
-  - `individual_action_wildcard`: Optional character pose/action wildcard (`[From Stage / Context]` or any pose wildcard).
-  - `seed` (`INT`), optional `context` (`ZIGGART_CONTEXT`), `custom_character_text`, `custom_outfit_text`, `custom_anatomy_text`, `character_index_override`.
-- **Outputs**: `char_slot` (`ZIGGART_CHAR_SLOT`), `character_prompt_block` (`STRING` — ready for Detailer nodes), `resolved_outfit` (`STRING`), `filtered_anatomy` (`STRING`), `occlusion_report_json` (`STRING`).
+  - `enable_anatomy` (`BOOLEAN`) & `auto_filter_anatomy_by_outfit` (`BOOLEAN`, default `True`).
+  - `anatomy_wildcard`: `[Random From Category]` or a specific anatomy wildcard from `Collection/Anatomy/*` / `jff/breast-shape`.
+  - `individual_action_wildcard`: Optional character pose/action wildcard.
+  - `seed` (`INT`), optional `context` (`ZIGGART_CONTEXT`), `custom_char_slot_override` (`ZIGGART_CHAR_SLOT`), `custom_character_text`, `custom_outfit_text`, `custom_anatomy_text`, `custom_action_text`.
+- **Outputs**: `char_slot` (`ZIGGART_CHAR_SLOT`), `character_prompt_block` (`STRING` — ready for Detailer nodes), `occlusion_debug_info` (`STRING`).
+
+---
+
+### 9B. Ziggart Krea2 Head-to-Toe Anatomy Character Creator
+
+*Class: `ZiggartAnatomyCharacterCreator` | Category: `Ziggart/Krea2 Prompt Director`*
+
+Builds a complete character description **from Head to Toe** directly from the **28 anatomical sections** of `Collection/Anatomy/{Female,Male,Creature}`. Every single section can be set to **`[None]`** (for instance when a character is seen from behind and does not show their eyes, nose, lips, or front chest, or in an upper-body portrait where legs and feet are out of frame), `[Random (Gender Default)]`, a specific wildcard, or controlled automatically via **`view_visibility_preset`**:
+
+- **View Visibility Presets (`view_visibility_preset`)**:
+  1. `Full Body — Front / 3-Quarter View` *(Default: enables head-to-toe front/3-quarter sections; sets `back_spine` and `buttocks_glutes` to `[None]`)*
+  2. `Back View / Seen From Behind (No Face / No Front Chest)` *(Automatically sets `forehead_brow`, `eyebrows_eyelashes`, `eyes_shape`, `eyes_iris_color`, `nose`, `cheeks_cheekbones`, `mouth_lips`, `teeth_smile`, `chin_jawline`, `chest_breasts`, `nipples_areolas`, `abs_core`, and `intimate_anatomy` to `[None]`, while enabling `hair_*`, `neck_collarbones`, `arms_shoulders`, `back_spine`, `waist_midriff`, `hips_pelvis`, `buttocks_glutes`, `legs_thighs`, and `feet_ankles`)*
+  3. `Back Over-the-Shoulder (Back + Side Gaze)` *(Back view + enables `eyes_shape`, `eyes_iris_color`, `eyebrows_eyelashes`, `cheeks_cheekbones`, `mouth_lips`, `chin_jawline` for an over-the-shoulder gaze)*
+  4. `Upper Body / Waist-Up Portrait` *(Enables head, hair, full face, neck, shoulders/arms/hands, chest, and waist; sets hips, glutes, legs, and feet to `[None]`)*
+  5. `Close-Up Face & Hair Only` *(Enables hair, skin, and all 10 facial/eye sections; sets all torso and limb sections to `[None]`)*
+  6. `Lower Body & Legs Focus` *(Enables waist, hips, glutes, legs/thighs, and feet/ankles; sets head, face, and upper body to `[None]`)*
+  7. `Custom (Use Individual Section Settings)`
+- **28 Head-to-Toe Sections**:
+  - **Profile & Skin**: `age_group`, `build_silhouette`, `skin_complexion`, `skin_texture_finish`, `skin_marks`
+  - **Hair & Head**: `hair_cut_style`, `hair_color`, `hair_texture`, `beard_facial_hair`
+  - **Face & Gaze**: `forehead_brow`, `eyebrows_eyelashes`, `eyes_shape`, `eyes_iris_color`, `ears`, `nose`, `cheeks_cheekbones`, `mouth_lips`, `teeth_smile`, `chin_jawline`
+  - **Neck, Arms & Hands**: `neck_collarbones`, `arms_shoulders`, `hands_fingers`
+  - **Torso, Chest, Waist & Back**: `chest_breasts`, `nipples_areolas`, `waist_midriff`, `abs_core`, `back_spine`
+  - **Pelvis, Glutes, Legs & Feet**: `hips_pelvis`, `buttocks_glutes`, `intimate_anatomy`, `legs_thighs`, `feet_ankles`
+- **Optional Outfit Link & 9-Zone Occlusion**: Choose `[None / Pure Anatomy Only]`, `Compatible (Theme/Universe + Gender)`, `Free (Outfit Wildcard)`, or `Nude / Unclothed` with `auto_filter_anatomy_by_outfit = True`.
+- **Outputs**: `char_slot` (`ZIGGART_CHAR_SLOT` — wires directly into `ZiggartKrea2PromptAssembler` or `ZiggartCharacterUnitBuilder`), `character_full_prompt` (`STRING`), `head_and_face_prompt` (`STRING` — ideal for Face/Eyes Detailers), `body_and_outfit_prompt` (`STRING`), `anatomy_breakdown_json` (`STRING`).
 
 ---
 
@@ -370,16 +401,16 @@ Builds a **Primary** or **Secondary** Character slot with linked Outfit selectio
 
 *Class: `ZiggartSceneStageAtmosphere` | Category: `Ziggart/Krea2 Prompt Director`*
 
-Selects and resolves the 5 staging facets across `Collection/`, `ziggart/`, `jff/`, and `Encours/`.
+Selects and resolves the 5 staging facets across `Collection/`, `ziggart/` (including `ziggart/Env/*` and `ziggart/Style/*`), `jff/`, and `Encours/`.
 
 - **Inputs**:
-  - `style_selector`: `[From Context (Theme/Universe)]`, `[Random Style Pool]`, or any pure style wildcard (`Collection/Style/*`, `Collection/Medium/*`, `ziggart/Style/*`, `jff/jff-styles`, `style-full-v2`, etc.).
-  - `action_selector`: `[From Context (Theme/Universe PoseAction)]`, `[Random Pose/Action Pool]`, `[Duo Interaction: Classic / Romantic]`, `[Duo Interaction: Action / Combat]`, `[Duo Interaction: Glamour / Sensual]`, or any pure pose/action wildcard.
-  - `environment_selector`: `[From Context (Theme/Universe Environment)]`, `[Random Environment Pool]`, or any pure environment wildcard (`Collection/Environment/*`, `Collection/IconicPlaces/*`, `ziggart/Zig-Location`, `jff/jfflieu`, `environnement-full`, etc.).
-  - `lighting_selector`: `[Random Lighting Pool]`, `[None]`, or any lighting wildcard (`Collection/Lighting/*`, `jff/ambiance-light`, etc.).
-  - `camera_selector`: `[Random Camera Pool]`, `[None]`, or any camera wildcard (`Collection/Camera/*`, `jff/camera-angle`, etc.).
-  - `seed` (`INT`), optional `context` (`ZIGGART_CONTEXT`), and optional `custom_style`, `custom_action`, `custom_environment`, `custom_lighting`, `custom_camera` overrides.
-- **Outputs**: `stage_data` (`ZIGGART_STAGE`), `style_text` (`STRING`), `action_text` (`STRING`), `environment_text` (`STRING`), `lighting_text` (`STRING`), `camera_text` (`STRING`).
+  - `style_wildcard`: `[From Context (Theme / Universe)]`, `[Random From Category]`, or any pure style wildcard (`Collection/Style/*`, `Collection/Medium/*`, `ziggart/Style/*`, `jff/jff-styles`, `style-full-v2`, etc.).
+  - `action_or_interaction_wildcard`: `[From Context (Theme / Universe)]`, `[Random From Category]`, `[Duo Bank: Action / Combat (Back-to-Back)]`, `[Duo Bank: Heroic / Iconic Partners (Camaraderie)]`, `[Duo Bank: Romantic / Sensual / Glamour]`, or any pure pose/action wildcard.
+  - `environment_wildcard`: `[From Context (Theme / Universe)]`, `[Random From Category]`, or any pure environment wildcard (`Collection/Environment/*`, `Collection/IconicPlaces/*`, `ziggart/Env/*` such as `Dance-env`, `ziggart/Zig-Location`, `jff/jfflieu`, `environnement-full`, etc.).
+  - `lighting_wildcard`: `[Random From Category]`, `[None]`, or any lighting wildcard (`Collection/Lighting/*`, `jff/ambiance-light`, etc.).
+  - `camera_wildcard`: `[Random From Category]`, `[None]`, or any camera wildcard (`Collection/Camera/*`, `jff/camera-angle`, etc.).
+  - `seed` (`INT`), optional `context` (`ZIGGART_CONTEXT`), and optional `custom_style_text`, `custom_action_text`, `custom_environment_text`, `custom_lighting_text`, `custom_camera_text` overrides.
+- **Outputs**: `stage_data` (`ZIGGART_STAGE`), `style_str` (`STRING`), `action_str` (`STRING`), `environment_str` (`STRING`), `lighting_str` (`STRING`), `camera_str` (`STRING`).
 
 ---
 
@@ -615,7 +646,7 @@ All 5 nodes in `Ziggart/3D` share `Ziggart3DModelManager`, which automatically e
 
 ### Ready-to-Load Example Workflows (`example_workflows/`)
 
-All **28 Ziggart nodes** and their distinct operating modes are provided as **10 ready-to-load ComfyUI workflow JSON files** inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
+All **29 Ziggart nodes** and their distinct operating modes are provided as **10 ready-to-load ComfyUI workflow JSON files** inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
 
 | Workflow File | Featured Ziggart Nodes | Covered Usage Modes |
 | :--- | :--- | :--- |
@@ -628,7 +659,7 @@ All **28 Ziggart nodes** and their distinct operating modes are provided as **10
 | [`07_Multimodal_VLM_Studio_VisionPrompt_and_Reference_Harmonizer.json`](./example_workflows/07_Multimodal_VLM_Studio_VisionPrompt_and_Reference_Harmonizer.json) | `ZiggartGGUFVisionPrompt`, `ZiggartWeVisOneDetector`, `ZiggartWildcardVLMEnhancer`, `ZiggartGGUFVLMLoader`, `ZiggartWildcardRecipeSaver` | Single-pass Image-to-Prompt, Multi-pass Specialist Analysis (`analyze_composition`, `analyze_subject`, `analyze_style`) with `detail_crop` + `reference_image`, and reference-guided wildcard harmonization. |
 | [`08_Master_All_18_Nodes_Complete_Showcase.json`](./example_workflows/08_Master_All_18_Nodes_Complete_Showcase.json) | **All 18 Core 2D/VLM Ziggart Nodes** | Complete 5-column master architecture pipeline connecting the 18 Wildcard, VLM, Detector, and Detailer nodes. |
 | [`09_3D_Generation_Idol_Gaussian_To_Mesh_SPAR3D_and_Hunyuan3D.json`](./example_workflows/09_3D_Generation_Idol_Gaussian_To_Mesh_SPAR3D_and_Hunyuan3D.json) | `ZiggartIdolImageToGaussian`, `ZiggartGaussianToMesh`, `ZiggartSPAR3DImageToMesh`, `ZiggartHunyuan3DImageToMesh`, `Ziggart3DTurntableRenderer` | Complete 3D showcase: **Path A** (Idol `.ply` Gaussian Splat $\rightarrow$ `.glb` Mesh + 360° Turntable), **Path B** (SPAR3D 7GB Low-VRAM Textured `.glb`), and **Path C** (Hunyuan3D-2mini 6GB `.glb`). |
-| [`10_Krea2_Prompt_Director_Modular_and_Master_Suite.json`](./example_workflows/10_Krea2_Prompt_Director_Modular_and_Master_Suite.json) | `ZiggartThemeUniverseContext`, `ZiggartCharacterUnitBuilder`, `ZiggartSceneStageAtmosphere`, `ZiggartKrea2PromptAssembler`, `ZiggartKrea2MasterPromptDirector`, `ZiggartWildcardEncode`, `ZiggartMultiSubjectDetailer`, `ZiggartWildcardRecipeSaver` | **Pipeline A (Modular 4-Node Chain)**: Theme/Universe Context $\rightarrow$ Primary & Secondary Character Unit Builders (1:1 Canonical Outfit Link + Auto Anatomy Occlusion) $\rightarrow$ Scene Stage $\rightarrow$ Krea2 Assembler (`Qwen3VL-4B` `scoped`) $\rightarrow$ Multi-Character Grounded Detailer; **Pipeline B (All-in-One Master Prompt Director)**. |
+| [`10_Krea2_Prompt_Director_Modular_and_Master_Suite.json`](./example_workflows/10_Krea2_Prompt_Director_Modular_and_Master_Suite.json) | `ZiggartThemeUniverseContext`, `ZiggartCharacterUnitBuilder`, `ZiggartAnatomyCharacterCreator`, `ZiggartSceneStageAtmosphere`, `ZiggartKrea2PromptAssembler`, `ZiggartKrea2MasterPromptDirector` | **Pipeline A (Modular 4-Node Chain)**: Theme/Universe Context $\rightarrow$ Primary & Secondary Character Unit Builders (1:1 Canonical Outfit Link + Auto 9-Zone Anatomy Occlusion) $\rightarrow$ Scene Stage (with `ziggart/Env/*`) $\rightarrow$ Krea2 Assembler (`Qwen3VL-4B` `scoped`); **Pipeline B (Head-to-Toe Anatomy Character Creator with per-section `[None]` & View Presets)**; **Pipeline C (All-in-One Master Prompt Director)**. |
 
 ### Workflow A: Krea2 (`Qwen3VL-4B`) Modular Prompt Director + Multi-Character Detailing
 

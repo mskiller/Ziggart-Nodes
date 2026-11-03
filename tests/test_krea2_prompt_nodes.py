@@ -122,17 +122,37 @@ class Krea2PromptDirectorTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-        # 3. Collection/Anatomy (Female & Male)
+        # 3. Collection/Anatomy (Head-to-Toe Female, Male, Creature)
         anat_f = self.wc_root / "Collection" / "Anatomy" / "Female"
         anat_f.mkdir(parents=True, exist_ok=True)
+        (anat_f / "Age-Adult.txt").write_text("adult woman in her prime\n", encoding="utf-8")
+        (anat_f / "Build-Silhouette.txt").write_text("graceful athletic feminine silhouette\n", encoding="utf-8")
+        (anat_f / "Skin-Complexion.txt").write_text("warm golden-olive skin complexion\n", encoding="utf-8")
+        (anat_f / "Skin-Texture-Finish.txt").write_text("smooth satin-like skin finish\n", encoding="utf-8")
+        (anat_f / "Hair-Cut-Style.txt").write_text("sleek asymmetrical angled bob haircut\n", encoding="utf-8")
+        (anat_f / "Hair-Color.txt").write_text("deep raven-black hair color\n", encoding="utf-8")
+        (anat_f / "Hair-Texture.txt").write_text("silky straight hair strands\n", encoding="utf-8")
+        (anat_f / "Eyes-Shape.txt").write_text("captivating almond-shaped eyes\n", encoding="utf-8")
+        (anat_f / "Eyes-Iris-Color.txt").write_text("luminous emerald-green iris\n", encoding="utf-8")
+        (anat_f / "Nose.txt").write_text("delicate straight nose bridge\n", encoding="utf-8")
+        (anat_f / "Mouth-Lips.txt").write_text("full plush rose-tinted lips\n", encoding="utf-8")
+        (anat_f / "Neck-Collarbones.txt").write_text("slender swan neck and defined collarbones\n", encoding="utf-8")
+        (anat_f / "Arms-Shoulders.txt").write_text("toned sculpted shoulders and slender arms\n", encoding="utf-8")
+        (anat_f / "Hands-Fingers.txt").write_text("graceful slender fingers\n", encoding="utf-8")
         (anat_f / "Breasts-Chest.txt").write_text("voluptuous rounded breasts, deep sculpted cleavage\n", encoding="utf-8")
         (anat_f / "Nipples-Areolas.txt").write_text("perky rose-pink nipples and taut areolas\n", encoding="utf-8")
         (anat_f / "Waist-Midriff.txt").write_text("toned hourglass waist, visible navel and sculpted midriff\n", encoding="utf-8")
+        (anat_f / "Back-Spine.txt").write_text("graceful arched spine, deep natural spinal furrow\n", encoding="utf-8")
+        (anat_f / "Hips-Pelvis.txt").write_text("flared feminine hips\n", encoding="utf-8")
+        (anat_f / "Buttocks-Glutes.txt").write_text("sculpted rounded glutes\n", encoding="utf-8")
         (anat_f / "Vulva-Intimate.txt").write_text("delicate anatomical vulva contour\n", encoding="utf-8")
+        (anat_f / "Legs-Thighs.txt").write_text("long shapely dancer legs and smooth thighs\n", encoding="utf-8")
+        (anat_f / "Feet-Ankles.txt").write_text("slender delicate ankles and high foot arches\n", encoding="utf-8")
 
         anat_m = self.wc_root / "Collection" / "Anatomy" / "Male"
         anat_m.mkdir(parents=True, exist_ok=True)
         (anat_m / "Build-Musculature.txt").write_text("broad muscular shoulders and athletic v-taper frame\n", encoding="utf-8")
+        (anat_m / "Beard-FacialHair.txt").write_text("designer heavy stubble along a chiseled jawline\n", encoding="utf-8")
 
         # 4. Collection/Lighting & Camera
         light_dir = self.wc_root / "Collection" / "Lighting"
@@ -143,10 +163,14 @@ class Krea2PromptDirectorTests(unittest.TestCase):
         cam_dir.mkdir(parents=True, exist_ok=True)
         (cam_dir / "Framing.txt").write_text("cinematic medium full shot, 50mm lens, shallow depth of field\n", encoding="utf-8")
 
-        # 5. ziggart, jff, Encours (including full-scene files that MUST be ignored)
+        # 5. ziggart (Style, Outfits, Env), jff, Encours (including full-scene files that MUST be ignored)
         zig_style = self.wc_root / "ziggart" / "Style"
         zig_style.mkdir(parents=True, exist_ok=True)
         (zig_style / "Painting_Style_Kimi.txt").write_text("expressive impasto oil painting brushwork\n", encoding="utf-8")
+
+        zig_env = self.wc_root / "ziggart" / "Env"
+        zig_env.mkdir(parents=True, exist_ok=True)
+        (zig_env / "Dance-env.txt").write_text("full-length mirrored walls of a professional dance studio, polished wooden floor\n", encoding="utf-8")
 
         zig_outfit = self.wc_root / "ziggart" / "Outfits"
         zig_outfit.mkdir(parents=True, exist_ok=True)
@@ -165,7 +189,7 @@ class Krea2PromptDirectorTests(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def test_full_scene_prompts_are_excluded_from_pure_facets(self):
+    def test_full_scene_prompts_are_excluded_and_ziggart_env_is_indexed(self):
         with mock.patch.object(
             wildcard_nodes, "discover_default_wildcard_dirs", return_value=[str(self.wc_root)]
         ):
@@ -180,30 +204,44 @@ class Krea2PromptDirectorTests(unittest.TestCase):
             self.assertFalse(any("anime-daprompt-scene" in t for t in all_facet_tokens))
             self.assertFalse(any("01-testtheme/all" in t for t in all_facet_tokens))
 
-            # Pure component files from ziggart/, Encours/, jff/ MUST appear in their respective facets
+            # Pure component files from ziggart/ (including ziggart/Env/*), Encours/, jff/ MUST appear in their respective facets
             self.assertTrue(any("painting_style_kimi" in t for t in (x.lower() for x in wildcard_nodes.WILDCARD_INDEX.facets["styles"])))
+            self.assertTrue(any("ziggart/env/dance-env" in t for t in (x.lower() for x in wildcard_nodes.WILDCARD_INDEX.facets["environments"])))
             self.assertTrue(any("woman-armors" in t for t in (x.lower() for x in wildcard_nodes.WILDCARD_INDEX.facets["outfits"])))
             self.assertTrue(any("vetements-200-krea" in t for t in (x.lower() for x in wildcard_nodes.WILDCARD_INDEX.facets["outfits"])))
             self.assertTrue(any("encours/action-pose" in t for t in (x.lower() for x in wildcard_nodes.WILDCARD_INDEX.facets["poses_actions"])))
 
-    def test_automatic_outfit_to_anatomy_occlusion_analyzer(self):
-        # Case 1: Heavy full plate armor blocks chest, nipples, midriff, glutes, intimate
+    def test_automatic_outfit_to_anatomy_occlusion_analyzer_9_zones(self):
+        # Case 1: Heavy full plate armor + greaves blocks all 9 body zones (chest, nipples, midriff, back, arms, glutes, intimate, legs, feet)
         rep_armor = krea2_compiler.analyze_outfit_occlusion(
-            "gilded celestial paladin full plate armor, heavy engraved bronze breastplate, steel-toed greaves"
+            "gilded celestial paladin full plate armor, heavy engraved bronze breastplate, steel-toed greaves, high leather boots"
         )
-        self.assertFalse(rep_armor.allowed_zones["BREASTS_CHEST"])
-        self.assertFalse(rep_armor.allowed_zones["NIPPLES_AREOLAS"])
-        self.assertFalse(rep_armor.allowed_zones["WAIST_MIDRIFF"])
-        self.assertFalse(rep_armor.allowed_zones["INTIMATE_GENITALS"])
+        for z in (
+            "BREASTS_CHEST",
+            "NIPPLES_AREOLAS",
+            "WAIST_MIDRIFF",
+            "BACK_SPINE",
+            "ARMS_SHOULDERS",
+            "BUTTOCKS_HIPS",
+            "INTIMATE_GENITALS",
+            "LEGS_THIGHS",
+            "FEET_ANKLES",
+        ):
+            self.assertFalse(rep_armor.allowed_zones[z], f"Expected {z} to be blocked by full plate armor")
 
-        filtered = krea2_compiler.filter_anatomy_text_by_occlusion(
-            "voluptuous rounded breasts, perky rose-pink nipples, toned hourglass waist, delicate vulva",
-            rep_armor,
-            gender="Female",
+        # Case 2: Backless halter evening gown with high slit & barefoot -> allows BACK_SPINE, ARMS_SHOULDERS, LEGS_THIGHS, FEET_ANKLES, blocks WAIST_MIDRIFF & INTIMATE_GENITALS
+        rep_backless = krea2_compiler.analyze_outfit_occlusion(
+            "backless halter evening gown with a dramatic high slit and plunging cleavage, barefoot"
         )
-        self.assertEqual(filtered, "")
+        self.assertTrue(rep_backless.allowed_zones["BACK_SPINE"])
+        self.assertTrue(rep_backless.allowed_zones["ARMS_SHOULDERS"])
+        self.assertTrue(rep_backless.allowed_zones["BREASTS_CHEST"])
+        self.assertTrue(rep_backless.allowed_zones["LEGS_THIGHS"])
+        self.assertTrue(rep_backless.allowed_zones["FEET_ANKLES"])
+        self.assertFalse(rep_backless.allowed_zones["NIPPLES_AREOLAS"])
+        self.assertFalse(rep_backless.allowed_zones["INTIMATE_GENITALS"])
 
-        # Case 2: Pasties + micro skirt -> allows BREASTS_CHEST, WAIST_MIDRIFF, BUTTOCKS_HIPS, but blocks NIPPLES_AREOLAS & INTIMATE_GENITALS
+        # Case 3: Pasties + micro skirt -> allows BREASTS_CHEST, WAIST_MIDRIFF, BUTTOCKS_HIPS, LEGS_THIGHS, but blocks NIPPLES_AREOLAS & INTIMATE_GENITALS
         rep_pasties = krea2_compiler.analyze_outfit_occlusion(
             "very small black tape X-shaped nipple pasties covering only the nipples, black vinyl micro skirt"
         )
@@ -211,28 +249,65 @@ class Krea2PromptDirectorTests(unittest.TestCase):
         self.assertFalse(rep_pasties.allowed_zones["NIPPLES_AREOLAS"])
         self.assertTrue(rep_pasties.allowed_zones["WAIST_MIDRIFF"])
         self.assertTrue(rep_pasties.allowed_zones["BUTTOCKS_HIPS"])
+        self.assertTrue(rep_pasties.allowed_zones["LEGS_THIGHS"])
         self.assertFalse(rep_pasties.allowed_zones["INTIMATE_GENITALS"])
 
-        filtered_pasties = krea2_compiler.filter_anatomy_text_by_occlusion(
-            "voluptuous rounded breasts, perky rose-pink nipples, toned midriff",
-            rep_pasties,
-            gender="Female",
-        )
-        self.assertIn("voluptuous rounded breasts", filtered_pasties)
-        self.assertIn("toned midriff", filtered_pasties)
-        self.assertNotIn("nipples", filtered_pasties)
-
-        # Case 3: Sheer translucent open-chest robe -> allows BREASTS_CHEST and NIPPLES_AREOLAS
-        rep_sheer = krea2_compiler.analyze_outfit_occlusion(
-            "a sheer translucent silk ceremonial robe open over the chest"
-        )
-        self.assertTrue(rep_sheer.allowed_zones["BREASTS_CHEST"])
-        self.assertTrue(rep_sheer.allowed_zones["NIPPLES_AREOLAS"])
-
-        # Case 4: Nude -> allows all 5 zones
+        # Case 4: Nude -> allows all 9 zones
         rep_nude = krea2_compiler.analyze_outfit_occlusion("nude, completely unclothed")
         self.assertTrue(rep_nude.is_nude)
+        self.assertEqual(len(rep_nude.allowed_zones), 9)
         self.assertTrue(all(rep_nude.allowed_zones.values()))
+
+    def test_head_to_toe_anatomy_character_creator_views_and_none_sections(self):
+        with mock.patch.object(
+            wildcard_nodes, "discover_default_wildcard_dirs", return_value=[str(self.wc_root)]
+        ):
+            wildcard_nodes.WILDCARD_INDEX.ensure_loaded(force_refresh=True)
+            creator = wildcard_nodes.ZiggartAnatomyCharacterCreator()
+
+            # 1. Back View / Seen From Behind: must automatically omit Eyes, Nose, Mouth, Breasts-Chest and include Back-Spine & Buttocks-Glutes
+            slot_back, full_back, head_back, body_back, json_back = creator.create_anatomy_character(
+                slot_role="Primary",
+                gender="Female",
+                view_visibility_preset="Back View / Seen From Behind (No Face / No Front Chest)",
+                seed=11,
+            )
+            breakdown_back = json.loads(json_back)
+            self.assertNotIn("eyes_shape", breakdown_back["active_sections"])
+            self.assertNotIn("eyes_iris_color", breakdown_back["active_sections"])
+            self.assertNotIn("nose", breakdown_back["active_sections"])
+            self.assertNotIn("mouth_lips", breakdown_back["active_sections"])
+            self.assertNotIn("chest_breasts", breakdown_back["active_sections"])
+            self.assertIn("back_spine", breakdown_back["active_sections"])
+            self.assertIn("buttocks_glutes", breakdown_back["active_sections"])
+            self.assertIn("graceful arched spine", full_back)
+            self.assertIn("sculpted rounded glutes", full_back)
+            self.assertNotIn("emerald-green iris", full_back)
+
+            # 2. Full Body Front View with explicit [None] on feet_ankles and hands_fingers + Heavy Armor Outfit Occlusion
+            slot_front, full_front, head_front, body_front, json_front = creator.create_anatomy_character(
+                slot_role="Primary",
+                gender="Female",
+                view_visibility_preset="Full Body — Front / 3-Quarter View",
+                feet_ankles="[None]",
+                hands_fingers="[None]",
+                outfit_mode="Free (Outfit Wildcard)",
+                outfit_wildcard="__ziggart/Outfits/woman-armors__",
+                auto_filter_anatomy_by_outfit=True,
+                seed=11,
+            )
+            breakdown_front = json.loads(json_front)
+            # Head and face sections remain active even with body armor
+            self.assertIn("eyes_shape", breakdown_front["active_sections"])
+            self.assertIn("eyes_iris_color", breakdown_front["active_sections"])
+            self.assertIn("emerald-green iris", head_front)
+            # Explicitly disabled sections are in none_or_disabled_sections
+            self.assertIn("feet_ankles", breakdown_front["none_or_disabled_sections"])
+            self.assertIn("hands_fingers", breakdown_front["none_or_disabled_sections"])
+            # Body zones covered by full plate armor are automatically in occluded_by_outfit_sections
+            self.assertIn("chest_breasts", breakdown_front["occluded_by_outfit_sections"])
+            self.assertIn("waist_midriff", breakdown_front["occluded_by_outfit_sections"])
+            self.assertIn("legs_thighs", breakdown_front["occluded_by_outfit_sections"])
 
     def test_modular_pipeline_solo_and_duo_structure(self):
         with mock.patch.object(
@@ -267,12 +342,14 @@ class Krea2PromptDirectorTests(unittest.TestCase):
             # Nipples-Areolas must be automatically blocked by the opaque white Inca tunic!
             self.assertEqual(c1_slot.anatomy_desc, "")
 
-            # Stage node
+            # Stage node using ziggart/Env/Dance-env
             stage_node = wildcard_nodes.ZiggartSceneStageAtmosphere()
             stage_data, st_s, act_s, env_s, light_s, cam_s = stage_node.build_stage(
+                environment_wildcard="__ziggart/Env/Dance-env__",
                 seed=7,
                 context=ctx,
             )
+            self.assertIn("mirrored walls of a professional dance studio", env_s)
 
             # Assembler node (Solo)
             assembler = wildcard_nodes.ZiggartKrea2PromptAssembler()
@@ -287,7 +364,7 @@ class Krea2PromptDirectorTests(unittest.TestCase):
             self.assertIn("(ZIA (Inca Heir), slender copper-brown girl with long raven hair)", solo_prompt)
             self.assertIn("(wearing a white Inca tunic with blue geometric borders and turquoise sash)", solo_prompt)
             self.assertIn("(holding the shining sun medallion aloft)", solo_prompt)
-            self.assertIn("(in Golden Temple of Mu surrounded by jungle ruins)", solo_prompt)
+            self.assertIn("(in full-length mirrored walls of a professional dance studio, polished wooden floor)", solo_prompt)
             self.assertIn("(warm golden hour volumetric rim lighting)", solo_prompt)
             self.assertIn("(cinematic medium full shot, 50mm lens, shallow depth of field).", solo_prompt)
             self.assertEqual(det2, "")
