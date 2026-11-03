@@ -1,10 +1,10 @@
 # Ziggart Nodes — Workflows Exemples (`example_workflows/`)
 
-Ce dossier contient **9 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 23 nœuds Ziggart** dans tous leurs modes et cas d'usage.
+Ce dossier contient **10 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 28 nœuds Ziggart** dans tous leurs modes et cas d'usage.
 
 ---
 
-## Liste des 9 Workflows et des Usages Couverts
+## Liste des 10 Workflows et des Usages Couverts
 
 ### 1. [`01_Wildcards_3_Ways_and_LoRA_Encode.json`](./01_Wildcards_3_Ways_and_LoRA_Encode.json)
 Tour complet des **5 nœuds de génération par Wildcards** et de leurs différents modes :

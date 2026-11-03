@@ -1,7 +1,8 @@
-# Ziggart Nodes for ComfyUI (`v1.3.0`)
+# Ziggart Nodes for ComfyUI (`v1.4.0`)
 
-A complete collection of **23 local, in-process ComfyUI nodes** combining:
+A complete collection of **28 local, in-process ComfyUI nodes** combining:
 - **Zero-Freeze 700+ MB Wildcard & Canonical Theme Engines** (Way A + Way C architectures)
+- **Krea2 (`Qwen3VL-4B` CLIP) Prompt Director Suite** (Modular & All-in-One Theme/Universe context, 1:1 Character-Outfit linking, and automatic 5-zone Outfit $\rightarrow$ Anatomy occlusion filtering)
 - **GGUF Vision-Language Models (VLMs)** via `llama-cpp-python`
 - **WeVisOne-VL Open-Vocabulary Visual Grounding**
 - **Krea 2 Turbo** High-Resolution Detailing & Tiled Upscaling
@@ -9,7 +10,7 @@ A complete collection of **23 local, in-process ComfyUI nodes** combining:
 
 ---
 
-## Included Nodes (23 Nodes)
+## Included Nodes (28 Nodes)
 
 | Display Name | Internal Class | Category | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -20,6 +21,11 @@ A complete collection of **23 local, in-process ComfyUI nodes** combining:
 | **Ziggart Canonical Theme & Character-Outfit Resolver** | `ZiggartCanonicalThemeResolver` | `Ziggart/Wildcards` | Reads `Character-Outfits.json` inside `Collection/Themes/*/` to pair characters (`Single`, `Duo`, `Trio`) with their authentic canonical outfits and matching theme environment/style. |
 | **Wildcard-to-VLM Prompt Harmonizer** | `ZiggartWildcardVLMEnhancer` | `Ziggart/Wildcards` | Uses your local GGUF LLM/VLM to rewrite stitched wildcard fragments into cohesive natural-language prose for **Krea 2 Turbo / Flux** while keeping character/outfit locks intact. |
 | **Ziggart Prompt Recipe & Comparison Saver** | `ZiggartWildcardRecipeSaver` | `Ziggart/Wildcards` | Saves images (or side-by-side `Base vs Refined` comparison grids) with embedded PNG metadata (`wildcard_template`, `populated_text`, `seed`) and a `.json` recipe sidecar. |
+| **Ziggart Krea2 Theme & Universe Context** | `ZiggartThemeUniverseContext` | `Ziggart/Krea2 Prompt Director` | Selects a Theme (`Collection/Themes/*`), Universe (`Collection/Universes/*` with `source.json` branches), or `Free Crossover` context + `mood_filter` and full-prompt exclusion rules. |
+| **Ziggart Krea2 Character Unit Builder** | `ZiggartCharacterUnitBuilder` | `Ziggart/Krea2 Prompt Director` | Builds a Primary or Secondary Character slot with 1:1 `Canonical` / `Compatible` / `Free` / `Nude` outfit linking and automatic 5-zone Outfit $\rightarrow$ Anatomy occlusion filtering. |
+| **Ziggart Krea2 Scene Stage (Style, Action, Env, Light, Camera)** | `ZiggartSceneStageAtmosphere` | `Ziggart/Krea2 Prompt Director` | Selects and resolves pure `(style)`, `(action / duo interaction)`, `(environment)`, `(lighting)`, and `(camera)` components across `Collection/`, `ziggart/`, `jff/`, and `Encours/`. |
+| **Ziggart Krea2 Prompt Assembler (Qwen3VL-4B)** | `ZiggartKrea2PromptAssembler` | `Ziggart/Krea2 Prompt Director` | Compiles `char_1_slot`, optional `char_2_slot`, and `stage_data` into **Krea2 (`Qwen3VL-4B`)** prompts (`scoped`, `balanced`, `compact`, `rich`) with token estimation and detailer outputs. |
+| **Ziggart Krea2 Master Prompt Director (All-in-One)** | `ZiggartKrea2MasterPromptDirector` | `Ziggart/Krea2 Prompt Director` | Combines Theme/Universe selection, Solo/Duo Character & Outfit Linker, automatic Anatomy Occlusion filtering, Scene Stage, and Krea2 compilation into a single all-in-one node. |
 | **Detailers Krea2** | `ZiggartDetailerKrea2` | `Ziggart/Detailer` | Open-vocabulary object detection (**WeVisOne-VL**) paired with high-resolution **Krea 2 Turbo** resampling, latent noise masking, and Gaussian feathered blending. |
 | **Detailers Krea2 (VLM Auto-Prompt)** | `ZiggartAutoPromptDetailer` | `Ziggart/Detailer` | Detects target zones, uses the VLM to write a custom micro-prompt for each individual crop while in VRAM, unloads once, and refines every crop with Krea 2 Turbo. |
 | **Multi-Character Grounded Krea2 Detailer** | `ZiggartMultiSubjectDetailer` | `Ziggart/Detailer` | Locates up to 3 distinct subjects/characters with WeVisOne-VL and refines each subject crop with Krea 2 Turbo using its own dedicated character prompt. |
@@ -51,22 +57,34 @@ A complete collection of **23 local, in-process ComfyUI nodes** combining:
    - [5. Ziggart Canonical Theme & Character-Outfit Resolver](#5-ziggart-canonical-theme--character-outfit-resolver)
    - [6. Wildcard-to-VLM Prompt Harmonizer](#6-wildcard-to-vlm-prompt-harmonizer)
    - [7. Ziggart Prompt Recipe & Comparison Saver](#7-ziggart-prompt-recipe--comparison-saver)
-4. [Detailer, Grounding & VLM Suite](#detailer-grounding--vlm-suite)
-   - [8. Detailers Krea2](#8-detailers-krea2)
-   - [9. Detailers Krea2 (VLM Auto-Prompt)](#9-detailers-krea2-vlm-auto-prompt)
-   - [10. Multi-Character Grounded Krea2 Detailer](#10-multi-character-grounded-krea2-detailer)
-   - [11. Krea2 VLM Smart Tile Upscaler](#11-krea2-vlm-smart-tile-upscaler)
-   - [12. WeVisOne-VL Detector](#12-wevisone-vl-detector)
-   - [13. BBox Crop & BBox Feathered Stitch](#13-bbox-crop--bbox-feathered-stitch)
-   - [14. GGUF Vision Prompt & GGUF VLM Loader](#14-gguf-vision-prompt--gguf-vlm-loader)
-   - [15. GGUF Quality & Anatomy Critic](#15-gguf-quality--anatomy-critic)
-   - [16. GGUF Mask-Aware Inpaint Prompter](#16-gguf-mask-aware-inpaint-prompter)
-5. [Architecture & Example Workflows (`example_workflows/`)](#architecture--workflows)
-6. [Installation](#installation)
-7. [Models Download & Setup](#models-download--setup)
-8. [Hardware & VRAM Optimization](#hardware--vram-optimization)
-9. [Troubleshooting](#troubleshooting)
-10. [License](#license)
+4. [Krea2 (`Qwen3VL-4B`) Prompt Director Suite (`Ziggart/Krea2 Prompt Director`)](#krea2-qwen3vl-4b-prompt-director-suite-ziggartkrea2-prompt-director)
+   - [8. Ziggart Krea2 Theme & Universe Context](#8-ziggart-krea2-theme--universe-context)
+   - [9. Ziggart Krea2 Character Unit Builder](#9-ziggart-krea2-character-unit-builder)
+   - [10. Ziggart Krea2 Scene Stage (Style, Action, Env, Light, Camera)](#10-ziggart-krea2-scene-stage-style-action-env-light-camera)
+   - [11. Ziggart Krea2 Prompt Assembler (`Qwen3VL-4B`)](#11-ziggart-krea2-prompt-assembler-qwen3vl-4b)
+   - [12. Ziggart Krea2 Master Prompt Director (All-in-One)](#12-ziggart-krea2-master-prompt-director-all-in-one)
+5. [Detailer, Grounding & VLM Suite](#detailer-grounding--vlm-suite)
+   - [13. Detailers Krea2](#13-detailers-krea2)
+   - [14. Detailers Krea2 (VLM Auto-Prompt)](#14-detailers-krea2-vlm-auto-prompt)
+   - [15. Multi-Character Grounded Krea2 Detailer](#15-multi-character-grounded-krea2-detailer)
+   - [16. Krea2 VLM Smart Tile Upscaler](#16-krea2-vlm-smart-tile-upscaler)
+   - [17. WeVisOne-VL Detector](#17-wevisone-vl-detector)
+   - [18. BBox Crop & BBox Feathered Stitch](#18-bbox-crop--bbox-feathered-stitch)
+   - [19. GGUF Vision Prompt & GGUF VLM Loader](#19-gguf-vision-prompt--gguf-vlm-loader)
+   - [20. GGUF Quality & Anatomy Critic](#20-gguf-quality--anatomy-critic)
+   - [21. GGUF Mask-Aware Inpaint Prompter](#21-gguf-mask-aware-inpaint-prompter)
+6. [3D Generation Suite (`Ziggart/3D` — RTX 3070 Ti 8GB–16GB VRAM Optimized)](#3d-generation-suite-ziggart3d--rtx-3070-ti-8gb16gb-vram-optimized)
+   - [22. Idol Image to 3D Gaussian Splat (PLY)](#22-idol-image-to-3d-gaussian-splat-ply)
+   - [23. Convert Idol Gaussian Splat to 3D Mesh (GLB/OBJ)](#23-convert-idol-gaussian-splat-to-3d-mesh-glbobj)
+   - [24. SPAR3D Image to 3D Mesh (Fast 7GB VRAM)](#24-spar3d-image-to-3d-mesh-fast-7gb-vram)
+   - [25. Hunyuan3D-2mini Image to 3D Mesh (GLB)](#25-hunyuan3d-2mini-image-to-3d-mesh-glb)
+   - [26. 3D Gaussian / Mesh Turntable Renderer](#26-3d-gaussian--mesh-turntable-renderer)
+7. [Architecture & Workflows (`example_workflows/`)](#architecture--workflows)
+8. [Installation](#installation)
+9. [Models Download & Setup](#models-download--setup)
+10. [Hardware & VRAM Optimization](#hardware--vram-optimization)
+11. [Troubleshooting](#troubleshooting)
+12. [License](#license)
 
 ---
 
@@ -74,8 +92,12 @@ A complete collection of **23 local, in-process ComfyUI nodes** combining:
 
 - **Zero-Freeze 700+ MB Wildcard Engine**:
   - **Streaming Byte-Offset YAML Indexer**: Indexes 50+ MB / 150,000+ line YAML files (like `Ziggart.yaml`) at **any nesting depth** (3, 4, 5+ levels) in `~195 ms` cold and **`36 ms` cached** on ComfyUI startup. Resolves keys by `seek()`ing directly to byte offsets (`~13 ms`) without loading 50 MB into RAM.
-  - **$O(1)$ Direct `.txt` Lookup**: Resolves 77,000+ `.txt` files across `Collection/Themes`, `Collection/Combos`, and `Collection/formats-wild` in `0.05 ms` without walking 78,000 files on ComfyUI boot.
-  - **Working Categorized Dropdowns**: Organizes wildcards into browser-friendly `Collection/` Pillar dropdowns + a `Mixed` dropdown so ComfyUI never chokes on an 80,000-item combo list.
+  - **$O(1)$ Direct `.txt` Lookup**: Resolves 77,000+ `.txt` files across `Collection/Themes`, `Collection/Universes`, `Collection/Combos`, and `Collection/formats-wild` in `0.05 ms` without walking 78,000 files on ComfyUI boot.
+  - **Working Categorized Dropdowns**: Organizes wildcards into browser-friendly `Collection/` Pillar dropdowns + pure facet selectors so ComfyUI never chokes on an 80,000-item combo list.
+- **Krea2 (`Qwen3VL-4B`) Prompt Compiler & Smart Filtering**:
+  - **1:1 Character-Outfit Linker**: Supports `Canonical (1:1 Strict Character Outfit)` from `Character-Outfits.json` and `Universes/*/source.json`, `Compatible (Same Theme/Universe + Gender)`, `Free (All Outfit Wildcards across Folders)`, and `Nude / Unclothed`.
+  - **Automatic 5-Zone Outfit $\rightarrow$ Anatomy Occlusion Filter**: Inspects the resolved outfit description and automatically removes anatomical wildcard descriptions that are covered by clothing or armor while preserving visible, sheer, torn, or cutout zones.
+  - **Strict Full-Prompt Exclusion**: Automatically excludes pre-assembled full-scene prompts (`*-scene`, `*-prompts`, `Themes/*/ALL`, `Combos/*`, `Formats/*`) from component selectors so only pure modular building blocks are selected.
 - **Zero External Servers**: Runs GGUF VLMs directly inside the ComfyUI Python process via `llama-cpp-python`. No Ollama, Docker, or standalone `llama-server` needed.
 - **Two-Phase Batch Execution**: Across multi-image batches and multi-crop passes, Ziggart runs all VLM grounding/captioning operations first, unloads the VLM from VRAM **once**, caches static CLIP conditioning, and then runs all diffusion sampling passes—eliminating model-swap thrashing.
 - **Latent Noise Masking + Pixel Feathering**: Attaches feathered noise masks directly to crop latents during KSampler steps and blends borders with Gaussian alpha feathering, eliminating seams and color shifts even at higher denoise values.
@@ -83,12 +105,12 @@ A complete collection of **23 local, in-process ComfyUI nodes** combining:
 
 ### Benchmark vs. Impact Pack (77,146 `.txt` + 1,550 `.json` + 53.5 MB `Ziggart.yaml`)
 
-| Operation | Impact Pack Behavior | Ziggart Wildcard Index (`v1.2.0`) |
+| Operation | Impact Pack Behavior | Ziggart Wildcard Index (`v1.4.0`) |
 | :--- | :--- | :--- |
 | **Cold Startup / Refresh** | Minutes (`os.walk` ×2 on 78,697 files + `yaml.FullLoader`) | **195.6 ms** (streaming byte-offset YAML scan + top-level pillar scan) |
 | **Warm Startup / Refresh** | Minutes | **36.5 ms** (loads `.cache/wildcard_yaml_offsets.json` verified via `mtime` + `size`) |
 | **3+ Level `Ziggart.yaml` Keys** | **0 keys loaded** (silently drops `Ziggart/scenes/all` & all 11,619 nested keys in on-demand mode) | **11,619 YAML keys indexed** across arbitrary `1..N` nesting depths |
-| **Dropdown Population** | Empty / broken over 50 MB | **Categorized Pillar & Mixed Dropdowns** (1,502 Themes, 3,286 YAML Macro/Scene keys, + Collection Pillars) |
+| **Dropdown Population** | Empty / broken over 50 MB | **Categorized Pillar, Facet & Mixed Dropdowns** (1,500+ Themes, Universes, 3,286 YAML Macro/Scene keys, + Collection Pillars) |
 | **Recursive Resolution (`__Ziggart/scenes/all__`)** | Fails (unresolved token left in prompt) | **13.07 ms** ($O(1)$ byte-offset `seek()` + direct `.txt` path resolution) |
 
 ---
@@ -103,8 +125,9 @@ ComfyUI/
     └── Ziggart-Nodes/
         └── wildcards/                  <-- PUT ALL YOUR WILDCARDS HERE (Primary Location)
             ├── Ziggart.yaml            (50+ MB multi-level YAML wildcards)
-            ├── Collection/             (Structured Collection Pillars & Themes)
+            ├── Collection/             (Structured Collection Pillars, Themes & Universes)
             │   ├── Themes/             (01-MysterieusesCitesDOr, 13-Albator, etc. + Character-Outfits.json)
+            │   ├── Universes/          (Multi-branch Universes with source.json)
             │   ├── Characters/
             │   ├── Anatomy/
             │   ├── Outfits/
@@ -120,8 +143,10 @@ ComfyUI/
             │   ├── VFX/
             │   ├── Sheet/
             │   └── Combos/
-            ├── ziggart/                (Subfolder .txt pools)
-            └── *.txt                   (Root .txt wildcards: female-full.txt, style-full-v2.txt, etc.)
+            ├── ziggart/                (Subfolder .txt pools: Style, Outfits, Location, etc.)
+            ├── jff/                    (Additional component wildcards: styles, clothes, poses, places)
+            ├── Encours/                (In-progress component wildcards)
+            └── *.txt                   (Root .txt wildcards: female-all.txt, style-full-v2.txt, etc.)
 ```
 
 ### Why `Ziggart-Nodes/wildcards/` is Best
@@ -273,9 +298,119 @@ Saves generated images (and an optional side-by-side `Base vs Refined` compariso
 
 ---
 
+## Krea2 (`Qwen3VL-4B`) Prompt Director Suite (`Ziggart/Krea2 Prompt Director`)
+
+The 5 **Krea2 Prompt Director** nodes build structured Solo or Duo prompts directly from your component wildcards (`Collection/Themes`, `Collection/Universes`, `Collection/`, `ziggart/`, `jff/`, `Encours/`, `Outfits/`, `Characters/`) while **strictly excluding pre-assembled full-scene prompts** (`*-scene.txt`, `*-prompts.txt`, `Themes/*/ALL.txt`, `Universes/*/ALL.txt`, `Combos/*`, `Formats/*`).
+
+### Target Prompt Structure for Krea2 (`Qwen3VL-4B` CLIP)
+
+- **Solo Mode (1 Character)**:
+  > `1 woman, (Render Style: <style>) (<char_1>) [(<char_1_anatomy>)] (wearing <char_1_outfit>) (<char_1_action>) (<environment>) (<lighting>) (<camera>).`
+- **Duo / Interaction Mode (2 Characters)**:
+  > `2 characters, (Render Style: <style>) (<char_1>) [(<char_1_anatomy>)] (wearing <char_1_outfit>) (<char_2>) [(<char_2_anatomy>)] (wearing <char_2_outfit>) (<shared_action>) (<environment>) (<lighting>) (<camera>).`
+
+### Automatic 5-Zone Outfit $\rightarrow$ Anatomy Occlusion Filter
+
+When `auto_filter_anatomy_by_outfit = True` (default), `OutfitOcclusionAnalyzer` inspects the resolved outfit text and only keeps anatomical descriptions for zones that are actually visible:
+
+| Anatomical Zone | Associated Anatomy Wildcards | Covered / Blocked By | Re-Allowed By (Transparency / Cutout / Open Modifiers) |
+| :--- | :--- | :--- | :--- |
+| **`BREASTS_CHEST`** *(Bust / Cleavage / Chest)* | `Breasts-Chest.txt`, `Chest-Torso.txt`, `jff/breast-shape.txt` | Heavy/full upper coverage (`full plate armor`, `cuirass`, `breastplate`, `heavy coat`, `cloak`, `parka`, `turtleneck`, `sweater`, `hoodie`, `spacesuit`) | `cleavage`, `plunging`, `low-cut`, `open-chest`, `bikini`, `bra`, `corset`, `bustier`, `sheer`, `see-through`, `translucent`, `lace`, `wet`, `torn`, `skin-tight`, `latex` |
+| **`NIPPLES_AREOLAS`** *(Nipples / Areolas)* | `Nipples-Areolas.txt` | Any upper garment (`shirt`, `tunic`, `dress`, `gown`, `armor`, `bikini`, `swimsuit`, `bra`, `bodysuit`, `corset`, `jacket`, `top`, `kimono`) | `sheer`, `see-through`, `transparent`, `translucent`, `mesh`, `fishnet`, `lace unlined`, `wet`, `clinging`, `topless`, `open-cup`, `cupless`, `pasties`, `torn`, `micro-bikini`, `nude` |
+| **`WAIST_MIDRIFF`** *(Waist / Midriff / Abs)* | `Waist-Midriff.txt`, `Abs-Core.txt` | Full-torso garments (`dress`, `gown`, `robe`, `one-piece`, `bodysuit`, `tunic`, `hauberk`, `full armor`, `jumpsuit`, `coat`, `suit`) | `crop top`, `bare midriff`, `exposed midriff`, `bikini`, `two-piece`, `loincloth`, `low-rise`, `belly dancer`, `torn`, `cutout`, `open front`, `sheer` |
+| **`BUTTOCKS_HIPS`** *(Buttocks / Hips / Glutes)* | `Buttocks-Glutes.txt`, `Hips-Pelvis.txt`, `Glutes-Legs.txt` | Heavy/loose lower garments (`long skirt`, `ballgown`, `flowing robes`, `cloak`, `baggy pants`, `plate greaves`, `trench coat`) | `thong`, `g-string`, `micro-skirt`, `miniskirt`, `high-cut`, `cheeky`, `leotard`, `leggings`, `yoga pants`, `skin-tight`, `sheer`, `torn`, `loincloth`, `bottomless` |
+| **`INTIMATE_GENITALS`** *(Intimate Lower Anatomy)* | `Vulva-Intimate.txt`, `Penis-Intimate.txt` | Any lower garment (`pants`, `trousers`, `skirt`, `dress`, `shorts`, `bikini`, `panties`, `underwear`, `briefs`, `swimsuit`, `loincloth`, `armor`, `leggings`) | `nude`, `naked`, `bottomless`, `crotchless`, `open-crotch`, `pulled aside`, `unclothed` |
+
+---
+
+### 8. Ziggart Krea2 Theme & Universe Context
+
+*Class: `ZiggartThemeUniverseContext` | Category: `Ziggart/Krea2 Prompt Director`*
+
+Defines the narrative context (Theme, Universe, or Multi-Folder Free Crossover) and global filtering rules shared with downstream Krea2 Character and Scene Stage nodes.
+
+- **Inputs**:
+  - `source_mode`: `Theme (Collection/Themes)`, `Universe (Collection/Universes)`, `Random Theme`, `Random Universe`, or `Free Crossover (All Wildcard Folders)`.
+  - `theme_selection`: Choose any of the 1,500+ themes or `[Random Theme]`.
+  - `universe_selection`: Choose any multi-branch Universe (`Collection/Universes/*` with `source.json` metadata) or `[Random Universe]`.
+  - `universe_branch`: `Auto (Random Branch)` or a specific branch name / index.
+  - `mood_filter`: `[Any]`, `SFW Only`, `NSFW / Sensual`, `Fantasy / Medieval`, `Sci-Fi / Cyberpunk`, `Anime / Manga`, `Dark / Gothic`, or `Modern / Urban`.
+  - `exclude_full_prompts` (`BOOLEAN`, default `True`): Excludes pre-assembled full-scene prompts from component rolls.
+  - `seed` (`INT`), optional `search_filter` (`STRING`), `custom_wildcards_dir`, `refresh_index`.
+- **Outputs**: `context` (`ZIGGART_CONTEXT`), `active_theme_or_universe` (`STRING`), `default_style` (`STRING`), `default_environment` (`STRING`), `context_summary_json` (`STRING`).
+
+---
+
+### 9. Ziggart Krea2 Character Unit Builder
+
+*Class: `ZiggartCharacterUnitBuilder` | Category: `Ziggart/Krea2 Prompt Director`*
+
+Builds a **Primary** or **Secondary** Character slot with linked Outfit selection and automatic Outfit $\rightarrow$ Anatomy occlusion filtering.
+
+- **Inputs**:
+  - `role_slot`: `Primary Character (Char 1)` or `Secondary Character (Char 2)`.
+  - `character_source`: `From Context (Theme / Universe)`, `Specific Wildcard File`, `Random Pool by Gender`, or `Custom Text`.
+  - `gender_filter`: `Auto / Any`, `Female`, `Male`, `Creature`.
+  - `character_wildcard`: Pure character wildcard selector (`Collection/Characters/*`, `ziggart/character/*`, `jff/actress`, `female-all`, etc.).
+  - `outfit_link_mode`:
+    - `Canonical (1:1 Strict Character Outfit)`: Uses the exact character's `canonical_outfits` from `Character-Outfits.json` or `source.json`.
+    - `Compatible (Same Theme/Universe + Gender)`: Restricts outfits to the matching gender pool of the active Theme/Universe or gender-matched `Collection/Outfits/<Gender>/*` and `ziggart/Outfits/*`.
+    - `Free (All Outfit Wildcards across Folders)`: Unlocks all pure outfit wildcards across `Collection/Outfits`, `ziggart/Outfits`, `jff/`, and `Encours/`.
+    - `Nude / Unclothed`: No clothing; unlocks all anatomical zones.
+  - `outfit_wildcard`: Optional specific outfit wildcard when in `Compatible` or `Free` mode.
+  - `enable_anatomy` (`BOOLEAN`, default `True`) & `auto_filter_anatomy_by_outfit` (`BOOLEAN`, default `True`).
+  - `anatomy_wildcard`: `[Auto by Gender & Visible Zones]` or a specific anatomy wildcard from `Collection/Anatomy/*` / `jff/breast-shape`.
+  - `individual_action_wildcard`: Optional character pose/action wildcard (`[From Stage / Context]` or any pose wildcard).
+  - `seed` (`INT`), optional `context` (`ZIGGART_CONTEXT`), `custom_character_text`, `custom_outfit_text`, `custom_anatomy_text`, `character_index_override`.
+- **Outputs**: `char_slot` (`ZIGGART_CHAR_SLOT`), `character_prompt_block` (`STRING` — ready for Detailer nodes), `resolved_outfit` (`STRING`), `filtered_anatomy` (`STRING`), `occlusion_report_json` (`STRING`).
+
+---
+
+### 10. Ziggart Krea2 Scene Stage (Style, Action, Env, Light, Camera)
+
+*Class: `ZiggartSceneStageAtmosphere` | Category: `Ziggart/Krea2 Prompt Director`*
+
+Selects and resolves the 5 staging facets across `Collection/`, `ziggart/`, `jff/`, and `Encours/`.
+
+- **Inputs**:
+  - `style_selector`: `[From Context (Theme/Universe)]`, `[Random Style Pool]`, or any pure style wildcard (`Collection/Style/*`, `Collection/Medium/*`, `ziggart/Style/*`, `jff/jff-styles`, `style-full-v2`, etc.).
+  - `action_selector`: `[From Context (Theme/Universe PoseAction)]`, `[Random Pose/Action Pool]`, `[Duo Interaction: Classic / Romantic]`, `[Duo Interaction: Action / Combat]`, `[Duo Interaction: Glamour / Sensual]`, or any pure pose/action wildcard.
+  - `environment_selector`: `[From Context (Theme/Universe Environment)]`, `[Random Environment Pool]`, or any pure environment wildcard (`Collection/Environment/*`, `Collection/IconicPlaces/*`, `ziggart/Zig-Location`, `jff/jfflieu`, `environnement-full`, etc.).
+  - `lighting_selector`: `[Random Lighting Pool]`, `[None]`, or any lighting wildcard (`Collection/Lighting/*`, `jff/ambiance-light`, etc.).
+  - `camera_selector`: `[Random Camera Pool]`, `[None]`, or any camera wildcard (`Collection/Camera/*`, `jff/camera-angle`, etc.).
+  - `seed` (`INT`), optional `context` (`ZIGGART_CONTEXT`), and optional `custom_style`, `custom_action`, `custom_environment`, `custom_lighting`, `custom_camera` overrides.
+- **Outputs**: `stage_data` (`ZIGGART_STAGE`), `style_text` (`STRING`), `action_text` (`STRING`), `environment_text` (`STRING`), `lighting_text` (`STRING`), `camera_text` (`STRING`).
+
+---
+
+### 11. Ziggart Krea2 Prompt Assembler (`Qwen3VL-4B`)
+
+*Class: `ZiggartKrea2PromptAssembler` | Category: `Ziggart/Krea2 Prompt Director`*
+
+Assembles `char_1_slot`, optional `char_2_slot`, and `stage_data` into the final **Krea2 (`Qwen3VL-4B`)** prompt. Automatically switches between the **Solo** structure (`(char 1 action)`) and **Duo** structure (`(char 2) + (char 2 anatomy) + (char 2 outfit) + (shared action)`) when `char_2_slot` is connected and `enable_secondary_character = True`.
+
+- **Compiler Policies (`compiler_policy`)**:
+  - `scoped` *(Default)*: Parenthesized semantic blocks with a leading subject count anchor (`1 woman, (Render Style: ...) (<char_1>) ...`).
+  - `balanced`: 9 ordered natural-language IR slots with clause deduplication.
+  - `compact`: Condenses background clauses to maximize subject token budget.
+  - `rich`: Retains all atmospheric, support, and quality clauses.
+- **Outputs**: `krea2_compiled_prompt` (`STRING`), `populated_text` (`STRING`), `char_1_detailer_prompt` (`STRING`), `char_2_detailer_prompt` (`STRING`), `krea2_metadata_json` (`STRING` including `qwen3vl_tokens_estimated`).
+
+---
+
+### 12. Ziggart Krea2 Master Prompt Director (All-in-One)
+
+*Class: `ZiggartKrea2MasterPromptDirector` | Category: `Ziggart/Krea2 Prompt Director`*
+
+Combines Nodes 8–11 (`ZiggartThemeUniverseContext`, `ZiggartCharacterUnitBuilder` ×2, `ZiggartSceneStageAtmosphere`, and `ZiggartKrea2PromptAssembler`) into a **single all-in-one node** with live `populated_text` feedback in ComfyUI.
+
+- **Outputs**: `krea2_compiled_prompt` (`STRING`), `populated_text` (`STRING`), `char_1_detailer_prompt` (`STRING`), `char_2_detailer_prompt` (`STRING`), `wildcard_recipe_summary` (`STRING`), `krea2_metadata_json` (`STRING`).
+
+---
+
 ## Detailer, Grounding & VLM Suite
 
-### 8. Detailers Krea2
+### 13. Detailers Krea2
 
 *Class: `ZiggartDetailerKrea2` | Category: `Ziggart/Detailer`*
 
@@ -315,7 +450,7 @@ Prompt-guided open-vocabulary localization with **WeVisOne-VL** and high-density
 
 ---
 
-### 9. Detailers Krea2 (VLM Auto-Prompt)
+### 14. Detailers Krea2 (VLM Auto-Prompt)
 
 *Class: `ZiggartAutoPromptDetailer` | Category: `Ziggart/Detailer`*
 
@@ -328,11 +463,11 @@ Solves multi-instance detailing where a single static prompt does not fit every 
 
 ---
 
-### 10. Multi-Character Grounded Krea2 Detailer
+### 15. Multi-Character Grounded Krea2 Detailer
 
 *Class: `ZiggartMultiSubjectDetailer` | Category: `Ziggart/Detailer`*
 
-Purpose-built for `duo_all`, `trio_all`, `romantic_all`, and **Ziggart Canonical Theme Resolver** scenes. Locates up to 3 distinct targets with WeVisOne-VL in Phase 1, unloads the VLM once, and refines each subject crop with Krea 2 Turbo using its own dedicated character prompt in Phase 2.
+Purpose-built for `duo_all`, `trio_all`, `romantic_all`, **Ziggart Canonical Theme Resolver**, and **Krea2 Prompt Director** scenes. Locates up to 3 distinct targets with WeVisOne-VL in Phase 1, unloads the VLM once, and refines each subject crop with Krea 2 Turbo using its own dedicated character prompt in Phase 2.
 
 #### Inputs
 
@@ -340,7 +475,7 @@ Purpose-built for `duo_all`, `trio_all`, `romantic_all`, and **Ziggart Canonical
 | :--- | :--- | :--- |
 | `image` / `model` / `clip` / `vae` | `IMAGE` / `MODEL` / `CLIP` / `VAE` | Input image batch and Krea 2 Turbo pipeline. |
 | `detector_model` / `detector_mmproj` | Dropdown | WeVisOne-VL GGUF model and projector. |
-| `subject_1_target` / `subject_1_detail_prompt` | `STRING` | Target label (e.g. `"female character"`) and dedicated positive prompt for Subject 1 (wire from `character_1_prompt`). |
+| `subject_1_target` / `subject_1_detail_prompt` | `STRING` | Target label (e.g. `"female character"`) and dedicated positive prompt for Subject 1 (wire from `character_1_prompt` or `char_1_detailer_prompt`). |
 | `subject_2_target` / `subject_2_detail_prompt` | `STRING` | Target label (e.g. `"male character"`) and dedicated positive prompt for Subject 2 (leave prompt blank to skip). |
 | `subject_3_target` / `subject_3_detail_prompt` | `STRING` | Target label (e.g. `"creature or companion"`) and dedicated positive prompt for Subject 3 (leave prompt blank to skip). |
 | `detail_negative_prompt` | `STRING` | Shared negative prompt for crop refinement. |
@@ -357,7 +492,7 @@ Purpose-built for `duo_all`, `trio_all`, `romantic_all`, and **Ziggart Canonical
 
 ---
 
-### 11. Krea2 VLM Smart Tile Upscaler
+### 16. Krea2 VLM Smart Tile Upscaler
 
 *Class: `ZiggartSmartTileUpscaler` | Category: `Ziggart/Detailer`*
 
@@ -384,7 +519,7 @@ Upsamples an image by `upscale_by` (1.0×–4.0×), divides it into overlapping 
 
 ---
 
-### 12. WeVisOne-VL Detector
+### 17. WeVisOne-VL Detector
 
 *Class: `ZiggartWeVisOneDetector` | Category: `Ziggart/Detector`*
 
@@ -395,7 +530,7 @@ Standalone visual grounding node using WeVisOne-VL. Extracts bounding boxes, seg
 
 ---
 
-### 13. BBox Crop & BBox Feathered Stitch
+### 18. BBox Crop & BBox Feathered Stitch
 
 *Classes: `ZiggartCropByBBox` & `ZiggartStitchByBBox` | Category: `Ziggart/Detector`*
 
@@ -410,7 +545,7 @@ Decouples Ziggart's mod-8 padded cropping and Gaussian feathered compositing so 
 
 ---
 
-### 14. GGUF Vision Prompt & GGUF VLM Loader
+### 19. GGUF Vision Prompt & GGUF VLM Loader
 
 *Classes: `ZiggartGGUFVisionPrompt` & `ZiggartGGUFVLMLoader` | Category: `Ziggart/LLM`*
 
@@ -419,7 +554,7 @@ Decouples Ziggart's mod-8 padded cropping and Gaussian feathered compositing so 
 
 ---
 
-### 15. GGUF Quality & Anatomy Critic
+### 20. GGUF Quality & Anatomy Critic
 
 *Class: `ZiggartVLMImageCritic` | Category: `Ziggart/LLM`*
 
@@ -436,7 +571,7 @@ Automated self-healing inspection node. Scans generated images for defects and o
 
 ---
 
-### 16. GGUF Mask-Aware Inpaint Prompter
+### 21. GGUF Mask-Aware Inpaint Prompter
 
 *Class: `ZiggartVLMInpaintPrompter` | Category: `Ziggart/LLM`*
 
@@ -450,27 +585,27 @@ Takes an `IMAGE`, a `MASK` (drawn in ComfyUI's MaskEditor or from a detector), a
 
 All 5 nodes in `Ziggart/3D` share `Ziggart3DModelManager`, which automatically evicts loaded ComfyUI checkpoints/VLMs before running 3D generation (`unload_comfy_models = True`), ensures only **one** 3D model is in VRAM at a time, and **automatically downloads/installs missing 3D SDKs (`idol-sdk`, `stable-point-aware-3d`, `Hunyuan3D-2`) into `Ziggart-Nodes/.cache/vendor_3d/` on first execution**.
 
-### 17. Idol Image to 3D Gaussian Splat (PLY)
+### 22. Idol Image to 3D Gaussian Splat (PLY)
 *Class: `ZiggartIdolImageToGaussian` | Category: `Ziggart/3D`*
 - Uses **`speridlabs/idol`** (`~7.2 GB` peak VRAM, <2s inference) to convert a single image (`synthetic` render or `real` photo) into up to `1,048,576` 3D Gaussians saved as a `.ply` file.
 - **Hugging Face Authentication**: Because Idol uses `facebook/dinov3-vith16plus-pretrain-lvd1689m` and `black-forest-labs/FLUX.2-dev` (VAE), paste your Hugging Face token into the `hf_token` input field on the first run (or set `HF_TOKEN` in your environment) after accepting their terms on Hugging Face.
 - **Outputs**: `ply_path` (`STRING`), `gsplat_data` (`ZIGGART_GSPLAT`), `preprocessed_image` (`IMAGE`), and `preview_image` (`IMAGE` 2×2 contact sheet).
 
-### 18. Convert Idol Gaussian Splat to 3D Mesh (GLB/OBJ)
+### 23. Convert Idol Gaussian Splat to 3D Mesh (GLB/OBJ)
 *Class: `ZiggartGaussianToMesh` | Category: `Ziggart/3D`*
 - Converts `gsplat_data` or any `.ply` Gaussian Splat file into a watertight/smoothed polygon 3D mesh (`.glb`, `.obj`, or `.ply`) with baked vertex colors and normals.
 - Supports `auto`, `open3d_poisson`, `open3d_ball_pivoting`, and a built-in zero-dependency `gaussian_density_surface` reconstructor with Taubin smoothing and vertex-clustering decimation.
 
-### 19. SPAR3D Image to 3D Mesh (Fast 7GB VRAM)
+### 24. SPAR3D Image to 3D Mesh (Fast 7GB VRAM)
 *Class: `ZiggartSPAR3DImageToMesh` | Category: `Ziggart/3D`*
 - Wraps Stability AI's **`stabilityai/stable-point-aware-3d`** with `low_vram_mode = True` (`SPAR3D_LOW_VRAM=1`, `~7.0 GB` VRAM) enabled by default to produce a UV-unwrapped textured `.glb` mesh and intermediate `.ply` point cloud in ~1–2 seconds.
 
-### 20. Hunyuan3D-2mini Image to 3D Mesh (GLB)
+### 25. Hunyuan3D-2mini Image to 3D Mesh (GLB)
 *Class: `ZiggartHunyuan3DImageToMesh` | Category: `Ziggart/3D`*
 - Runs Tencent's **`Hunyuan3D-2mini (0.6B - 6GB VRAM)`** (`octree_resolution = 256`, `num_chunks = 8000`) for ultra-sharp watertight geometry.
 - **Sequential VRAM Protection**: When `generate_texture = True`, it unloads the Shape DiT model and empties CUDA cache **before** loading `Hunyuan3DPaintPipeline` with CPU offload.
 
-### 21. 3D Gaussian / Mesh Turntable Renderer
+### 26. 3D Gaussian / Mesh Turntable Renderer
 *Class: `Ziggart3DTurntableRenderer` | Category: `Ziggart/3D`*
 - Renders single or multi-frame 360° turntable `IMAGE` (`[N, H, W, 3]`) and `MASK` (`[N, H, W]`) batches from either a `ZIGGART_GSPLAT` or `ZIGGART_MESH`.
 
@@ -480,7 +615,7 @@ All 5 nodes in `Ziggart/3D` share `Ziggart3DModelManager`, which automatically e
 
 ### Ready-to-Load Example Workflows (`example_workflows/`)
 
-All **23 Ziggart nodes** and their distinct operating modes are provided as ready-to-load ComfyUI workflow JSON files inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
+All **28 Ziggart nodes** and their distinct operating modes are provided as **10 ready-to-load ComfyUI workflow JSON files** inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
 
 | Workflow File | Featured Ziggart Nodes | Covered Usage Modes |
 | :--- | :--- | :--- |
@@ -492,27 +627,35 @@ All **23 Ziggart nodes** and their distinct operating modes are provided as read
 | [`06_Smart_Tile_Upscaler_VLM_vs_Fast_Mode.json`](./example_workflows/06_Smart_Tile_Upscaler_VLM_vs_Fast_Mode.json) | `ZiggartSmartTileUpscaler`, `ZiggartGGUFVLMLoader`, `ZiggartWildcardRecipeSaver` | **Mode A** (`enable_vlm_tile_prompts = True` anti-hallucination per-tile VLM captioning) vs. **Mode B** (`enable_vlm_tile_prompts = False` fast pure-Krea2 tiled upscaling). |
 | [`07_Multimodal_VLM_Studio_VisionPrompt_and_Reference_Harmonizer.json`](./example_workflows/07_Multimodal_VLM_Studio_VisionPrompt_and_Reference_Harmonizer.json) | `ZiggartGGUFVisionPrompt`, `ZiggartWeVisOneDetector`, `ZiggartWildcardVLMEnhancer`, `ZiggartGGUFVLMLoader`, `ZiggartWildcardRecipeSaver` | Single-pass Image-to-Prompt, Multi-pass Specialist Analysis (`analyze_composition`, `analyze_subject`, `analyze_style`) with `detail_crop` + `reference_image`, and reference-guided wildcard harmonization. |
 | [`08_Master_All_18_Nodes_Complete_Showcase.json`](./example_workflows/08_Master_All_18_Nodes_Complete_Showcase.json) | **All 18 Core 2D/VLM Ziggart Nodes** | Complete 5-column master architecture pipeline connecting the 18 Wildcard, VLM, Detector, and Detailer nodes. |
-
 | [`09_3D_Generation_Idol_Gaussian_To_Mesh_SPAR3D_and_Hunyuan3D.json`](./example_workflows/09_3D_Generation_Idol_Gaussian_To_Mesh_SPAR3D_and_Hunyuan3D.json) | `ZiggartIdolImageToGaussian`, `ZiggartGaussianToMesh`, `ZiggartSPAR3DImageToMesh`, `ZiggartHunyuan3DImageToMesh`, `Ziggart3DTurntableRenderer` | Complete 3D showcase: **Path A** (Idol `.ply` Gaussian Splat $\rightarrow$ `.glb` Mesh + 360° Turntable), **Path B** (SPAR3D 7GB Low-VRAM Textured `.glb`), and **Path C** (Hunyuan3D-2mini 6GB `.glb`). |
+| [`10_Krea2_Prompt_Director_Modular_and_Master_Suite.json`](./example_workflows/10_Krea2_Prompt_Director_Modular_and_Master_Suite.json) | `ZiggartThemeUniverseContext`, `ZiggartCharacterUnitBuilder`, `ZiggartSceneStageAtmosphere`, `ZiggartKrea2PromptAssembler`, `ZiggartKrea2MasterPromptDirector`, `ZiggartWildcardEncode`, `ZiggartMultiSubjectDetailer`, `ZiggartWildcardRecipeSaver` | **Pipeline A (Modular 4-Node Chain)**: Theme/Universe Context $\rightarrow$ Primary & Secondary Character Unit Builders (1:1 Canonical Outfit Link + Auto Anatomy Occlusion) $\rightarrow$ Scene Stage $\rightarrow$ Krea2 Assembler (`Qwen3VL-4B` `scoped`) $\rightarrow$ Multi-Character Grounded Detailer; **Pipeline B (All-in-One Master Prompt Director)**. |
 
-### Workflow A: End-to-End Canonical Duo Scene + Multi-Character Detailing
+### Workflow A: Krea2 (`Qwen3VL-4B`) Modular Prompt Director + Multi-Character Detailing
 
 ```text
-[ Ziggart Canonical Theme & Character-Outfit Resolver ]
-   (cast_mode: "Duo (Female + Male)")
-     |                       |                         |
-     | (scene_prompt)        | (character_1_prompt)    | (character_2_prompt)
-     v                       |                         |
-[ Wildcard-to-VLM Harmonizer ]                         |
-     |                                                 |
-     v                                                 |
-[ Krea 2 Turbo Base Sampler ]                          |
-     | (base_image)                                    |
-     v                                                 |
-[ Multi-Character Grounded Krea2 Detailer ] <----------+
-     | (refined_image)
-     v
-[ Ziggart Prompt Recipe & Comparison Saver ]
+           [ Ziggart Krea2 Theme & Universe Context ]
+         (Theme / Universe / Free Crossover + Mood Filter)
+              |                  |                   |
+              v                  v                   v
+[ Character Unit Builder 1 ] [ Character Unit Builder 2 ] [ Krea2 Scene Stage ]
+(Canonical Outfit + Anatomy  (Secondary Character +       (Style, Action/Duo,
+ Auto-Occlusion Filter)       Outfit + Anatomy Filter)     Env, Light, Camera)
+              |                  |                   |
+              +------------------+-------------------+
+                                 |
+                                 v
+            [ Ziggart Krea2 Prompt Assembler (Qwen3VL-4B) ]
+          (scoped: 2 characters, (Render Style) (Char 1) ...)
+            |                    |                       |
+            | (compiled_prompt)  | (char_1_detailer)     | (char_2_detailer)
+            v                    |                       |
+   [ Krea 2 Base Sampler ]       |                       |
+            | (base_image)       |                       |
+            v                    v                       v
+   [ Multi-Character Grounded Krea2 Detailer ] <---------+
+            | (refined_image)
+            v
+   [ Ziggart Prompt Recipe & Comparison Saver ]
 ```
 
 ### Workflow B: Self-Healing Generation with Quality Critic + BBox Crop/Stitch
@@ -592,7 +735,7 @@ cd C:\path\to\ComfyUI_windows_portable
 ComfyUI/
 ├── custom_nodes/
 │   └── Ziggart-Nodes/
-│       ├── example_workflows/          <-- 9 ready-to-load ComfyUI workflow JSON templates
+│       ├── example_workflows/          <-- 10 ready-to-load ComfyUI workflow JSON templates
 │       └── wildcards/                  <-- Place Ziggart.yaml, Collection/, and .txt wildcards here
 │           ├── Ziggart.yaml
 │           ├── Collection/
@@ -637,7 +780,7 @@ When `free_vram_after` is enabled, the node closes both the vision model and nat
 
 ## Troubleshooting
 
-- **Added new `.yaml` or `.txt` wildcard files on disk**: Toggle `refresh_index: True` for one run on **Ziggart Fast Wildcard Processor** (or restart ComfyUI; the byte-offset cache automatically detects modified file size/`mtime`).
+- **Added new `.yaml` or `.txt` wildcard files on disk**: Toggle `refresh_index: True` for one run on **Ziggart Fast Wildcard Processor** or **Ziggart Krea2 Theme & Universe Context** (or restart ComfyUI; the byte-offset cache automatically detects modified file size/`mtime`).
 - **`No detector_model was found`**: Ensure your `.gguf` files are located in `ComfyUI/models/LLM/GGUF/` and click **Refresh** in ComfyUI.
 - **`MTMDChatHandler cannot be imported`**: Update `llama-cpp-python` to `>= 0.3.35`.
 - **Object not detected**: Adjust `detection_prompt` (e.g. use specific terms like `"human eyes"`, `"face"`, or `"iris"`). Check `detection_preview` output to inspect model predictions.
@@ -648,27 +791,3 @@ When `free_vram_after` is enabled, the node closes both the vision model and nat
 ## License
 
 This project is licensed under the Apache 2.0 License. Model weights are subject to their respective creators' licenses (Tencent WeVisOne-VL, Krea 2 Community License, Qwen License).
-
-
----
-
-## Krea2 (Qwen3VL-4B) Prompt Director Suite (`Ziggart/Krea2 Prompt Director`)
-
-The 5 **Krea2 Prompt Director** nodes build structured Solo or Duo prompts directly from your wildcards (`Collection/Themes`, `Collection/Universes`, `Collection/`, `ziggart/`, `jff/`, `Encours/`, `Outfits/`, `Characters/`) while strictly excluding pre-assembled full-scene prompts (`*-scene`, `*-prompts`, `Themes/*/ALL.txt`, `Combos`, `Formats`).
-
-### 5 Included Krea2 Director Nodes
-1. **`ZiggartThemeUniverseContext` (*Ziggart Krea2 Theme & Universe Context*)**:
-   - Selects a Theme (`Collection/Themes/*` with `Character-Outfits.json`), a Universe (`Collection/Universes/*` with `source.json` branches), or `Free Crossover` mode across all wildcard directories, plus `mood_filter` (`SFW Only`, `NSFW / Sensual`, `Fantasy`, `Sci-Fi / Cyberpunk`, `Anime / Manga`, `Dark / Gothic`, `Urban`) and `exclude_full_prompts`.
-2. **`ZiggartCharacterUnitBuilder` (*Ziggart Krea2 Character Unit Builder*)**:
-   - Builds a `Primary` or `Secondary` Character slot with:
-     - **Wildcard-GPT Outfit Linker** (`outfit_link_mode`): `Canonical (1:1 Strict Character Outfit)`, `Compatible (Same Theme/Universe + Gender)`, `Free (All Outfit Wildcards across Folders)`, or `Nude / Unclothed`.
-     - **Automatic Outfit $\rightarrow$ Anatomy Occlusion Filter** (`auto_filter_anatomy_by_outfit = True`): Inspects the resolved outfit across 5 anatomical zones (`BREASTS_CHEST`, `NIPPLES_AREOLAS`, `WAIST_MIDRIFF`, `BUTTOCKS_HIPS`, `INTIMATE_GENITALS`) and automatically removes anatomical descriptions covered by armor or clothing while preserving visible or sheer/torn/bikini zones.
-3. **`ZiggartSceneStageAtmosphere` (*Ziggart Krea2 Scene Stage*)**:
-   - Selects and resolves `(style)`, `(action / duo interaction)`, `(environment)`, `(lighting)`, and `(camera)` from the active Theme/Universe or any pure component wildcard across `Collection/`, `ziggart/`, `jff/`, and `Encours/`.
-4. **`ZiggartKrea2PromptAssembler` (*Ziggart Krea2 Prompt Assembler*)**:
-   - Compiles `char_1_slot`, optional `char_2_slot`, and `stage_data` into the optimal **Qwen3VL-4B** structure:
-     - **Solo**: `1 woman, (Render Style: <style>) (<char_1>) [(<char_1_anatomy>)] (wearing <char_1_outfit>) (<char_1_action>) (<environment>) (<lighting>) (<camera>).`
-     - **Duo**: `2 characters, (Render Style: <style>) (<char_1>) [(<char_1_anatomy>)] (wearing <char_1_outfit>) (<char_2>) [(<char_2_anatomy>)] (wearing <char_2_outfit>) (<shared_action>) (<environment>) (<lighting>) (<camera>).`
-   - Supports all 4 `Krea2CompilerV2` policies (`scoped`, `balanced`, `compact`, `rich`) and outputs `qwen3vl_tokens_estimated` + per-character detailer prompts.
-5. **`ZiggartKrea2MasterPromptDirector` (*Ziggart Krea2 Master Prompt Director — All-in-One*)**:
-   - Combines Nodes 1–4 in a single all-in-one node with live `populated_text` preview.
