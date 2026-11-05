@@ -1,16 +1,17 @@
 # Ziggart Nodes for ComfyUI (`v1.4.0`)
 
-A complete collection of **29 local, in-process ComfyUI nodes** combining:
+A complete collection of **30 local, in-process ComfyUI nodes** combining:
 - **Zero-Freeze 700+ MB Wildcard & Canonical Theme Engines** (Way A + Way C architectures)
 - **Krea2 (`Qwen3VL-4B` CLIP) Prompt Director Suite** (Modular & All-in-One Theme/Universe context, Head-to-Toe 28-Section Anatomy Character Creator with per-section `[None]` & View Presets, 1:1 Character-Outfit linking, and automatic 9-zone Outfit $\rightarrow$ Anatomy occlusion filtering)
 - **GGUF Vision-Language Models (VLMs)** via `llama-cpp-python`
 - **WeVisOne-VL Open-Vocabulary Visual Grounding**
 - **Krea 2 Turbo** High-Resolution Detailing & Tiled Upscaling
 - **RTX 3070 Ti (8GB–16GB VRAM) 3D Generation Suite**: **`speridlabs/idol` Image-to-Gaussian Splat (`.ply`)**, **Gaussian-to-Mesh (`.glb`/`.obj`)**, **SPAR3D**, **Hunyuan3D-2mini**, and **360° Turntable Rendering**
+- **Dynamic System Attention Selector (`Ziggart/Model`)**: Startup detection and per-model/global switching across **SageAttention**, **FlashAttention (v2/v3)**, **xFormers**, **PyTorch SDPA** (`flash`, `mem_efficient`, `cudnn`, `math`), **Sub-Quad**, **Split**, and **Basic** attention
 
 ---
 
-## Included Nodes (29 Nodes)
+## Included Nodes (30 Nodes)
 
 | Display Name | Internal Class | Category | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -43,6 +44,7 @@ A complete collection of **29 local, in-process ComfyUI nodes** combining:
 | **SPAR3D Image to 3D Mesh (Fast 7GB VRAM)** | `ZiggartSPAR3DImageToMesh` | `Ziggart/3D` | Generates UV-unwrapped textured 3D meshes (`.glb`) + intermediate point clouds (`.ply`) in ~1–2s using Stability AI's **SPAR3D** with `low_vram_mode=True` (`~7.0 GB` VRAM). |
 | **Hunyuan3D-2mini Image to 3D Mesh (GLB)** | `ZiggartHunyuan3DImageToMesh` | `Ziggart/3D` | Generates high-sharpness 3D meshes (`.glb`) using **Hunyuan3D-2mini (0.6B, ~5.5 GB VRAM)** and sequentially unloads Shape before running optional PBR Paint. |
 | **3D Gaussian / Mesh Turntable Renderer** | `Ziggart3DTurntableRenderer` | `Ziggart/3D` | Renders 360° turntable `IMAGE` and `MASK` batches from any `ZIGGART_GSPLAT` or `ZIGGART_MESH`. |
+| **Ziggart Attention Selector** | `ZiggartAttentionSelector` | `Ziggart/Model` | Detects attention backends installed on the system at ComfyUI startup (`sage`, `flash`, `xformers`, `pytorch`, `sub_quad`, `split`, `basic`, `auto`) + optional sub-kernels and patches the connected `MODEL`. |
 
 ---
 
@@ -81,12 +83,14 @@ A complete collection of **29 local, in-process ComfyUI nodes** combining:
    - [24. SPAR3D Image to 3D Mesh (Fast 7GB VRAM)](#24-spar3d-image-to-3d-mesh-fast-7gb-vram)
    - [25. Hunyuan3D-2mini Image to 3D Mesh (GLB)](#25-hunyuan3d-2mini-image-to-3d-mesh-glb)
    - [26. 3D Gaussian / Mesh Turntable Renderer](#26-3d-gaussian--mesh-turntable-renderer)
-7. [Architecture & Workflows (`example_workflows/`)](#architecture--workflows)
-8. [Installation](#installation)
-9. [Models Download & Setup](#models-download--setup)
-10. [Hardware & VRAM Optimization](#hardware--vram-optimization)
-11. [Troubleshooting](#troubleshooting)
-12. [License](#license)
+7. [Model Optimization Suite (`Ziggart/Model`)](#model-optimization-suite-ziggartmodel)
+   - [27. Ziggart Attention Selector](#27-ziggart-attention-selector)
+8. [Architecture & Workflows (`example_workflows/`)](#architecture--workflows)
+9. [Installation](#installation)
+10. [Models Download & Setup](#models-download--setup)
+11. [Hardware & VRAM Optimization](#hardware--vram-optimization)
+12. [Troubleshooting](#troubleshooting)
+13. [License](#license)
 
 ---
 
@@ -639,6 +643,33 @@ All 5 nodes in `Ziggart/3D` share `Ziggart3DModelManager`, which automatically e
 ### 26. 3D Gaussian / Mesh Turntable Renderer
 *Class: `Ziggart3DTurntableRenderer` | Category: `Ziggart/3D`*
 - Renders single or multi-frame 360° turntable `IMAGE` (`[N, H, W, 3]`) and `MASK` (`[N, H, W]`) batches from either a `ZIGGART_GSPLAT` or `ZIGGART_MESH`.
+
+---
+
+## Model Optimization Suite (`Ziggart/Model`)
+
+### 27. Ziggart Attention Selector
+*Class: `ZiggartAttentionSelector` | Category: `Ziggart/Model`*
+
+Detects all attention implementations installed on your system at ComfyUI startup and lets you switch the attention backend used by any loaded diffusion model (`MODEL`). Place this node directly between your **Diffusion Model Loader** (`Load Checkpoint`, `UNETLoader` / `Load Diffusion Model`, `LoRALoader`) and your **`KSampler`** (or **Detailers Krea2**).
+
+- **Startup Hardware & Library Probing**:
+  - Automatically probes and caches available backends at ComfyUI boot (`[Ziggart Attention] Detected backends: ...`).
+  - Only backends and sub-kernels actually available on your system appear in the node dropdowns (`auto`, `sage`, `flash`, `xformers`, `pytorch`, `sub_quad`, `split`, `basic`).
+- **Inputs**:
+  - `model` (`MODEL`): The loaded diffusion model.
+  - `attention` (`COMBO`): Main attention backend (`auto`, `sage`, `flash`, `xformers`, `pytorch`, `sub_quad`, `split`, `basic` — filtered to installed backends).
+  - `sub_kernel` (`COMBO`, default `auto`): Optional sub-kernel selector for fine-grained control:
+    - **SageAttention**: `sage_auto`, `sage_cuda_fp16` (`sageattn_qk_int8_pv_fp16_cuda`), `sage_cuda_fp8` (`sageattn_qk_int8_pv_fp8_cuda`), `sage_cuda_fp8_sm90`, `sage_triton` (`sageattn_qk_int8_pv_fp16_triton`).
+    - **FlashAttention**: `flash_v2` (`flash_attn`), `flash_v3` (`flash_attn_interface`).
+    - **PyTorch SDPA**: `sdpa_auto`, `sdpa_flash`, `sdpa_mem_efficient`, `sdpa_cudnn`, `sdpa_math`.
+  - `global_override` (`BOOLEAN`, default `False`):
+    - When `False` (recommended), clones the model (`model.clone()`) and injects `transformer_options["optimized_attention_override"]` without affecting other models in the graph (allowing side-by-side comparisons of two attention backends in the same workflow).
+    - When `True`, also overrides `comfy.ldm.modules.attention.optimized_attention` and `optimized_attention_masked` globally.
+  - `fallback_on_error` (`BOOLEAN`, default `True`): Automatically falls back to PyTorch SDPA for any layer using an unsupported attention mask, head dimension, or dtype instead of aborting generation.
+- **Outputs**:
+  - `model` (`MODEL`): The patched diffusion model ready for `KSampler`.
+  - `attention_info` (`STRING`): Diagnostic report showing the active backend, active sub-kernel, override scope, and all system-detected backends.
 
 ---
 
