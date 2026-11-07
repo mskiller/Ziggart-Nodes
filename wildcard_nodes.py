@@ -50,6 +50,7 @@ from .nodes import (
 from .krea2_compiler import (
     ANATOMY_ZONES,
     DUO_INTERACTIONS_BANK,
+    ENSEMBLE_SPATIAL_LAYOUT_PRESETS,
     HEAD_TO_TOE_ANATOMY_SECTIONS,
     VIEW_VISIBILITY_PRESETS,
     CharacterSlotData,
@@ -161,7 +162,7 @@ def index_yaml_byte_offsets(yaml_path: str) -> dict[str, tuple[int, int]]:
                     offsets[active_key] = (active_start, line_start)
                 break
 
-            line_str = raw_line.decode("utf-8", errors="replace")
+            line_str = raw_line.decode("utf-8", errors="replace").lstrip("\ufeff").expandtabs(2)
             stripped = line_str.strip()
             if not stripped or stripped.startswith("#"):
                 continue
@@ -1322,10 +1323,12 @@ class ZiggartWildcardProcessor:
         else:
             WILDCARD_INDEX.ensure_loaded(extra_dir=custom_wildcards_dir)
 
-        if mode == "fixed" and populated_text.strip():
+        if mode in ("fixed", "reproduce") and populated_text.strip():
             final_text = process_wildcards(
                 populated_text, seed=seed, extra_dir=custom_wildcards_dir
             )
+            if mode == "reproduce":
+                _send_node_feedback(unique_id, "populated_text", final_text)
             return (final_text, populated_text)
 
         source_text = wildcard_text.strip()
@@ -1456,10 +1459,12 @@ class ZiggartWildcardProcessorAllInOne:
     ) -> tuple[str, str, str]:
         WILDCARD_INDEX.ensure_loaded(extra_dir=custom_wildcards_dir)
 
-        if mode == "fixed" and populated_text.strip():
+        if mode in ("fixed", "reproduce") and populated_text.strip():
             final_text = process_wildcards(
                 populated_text, seed=seed, extra_dir=custom_wildcards_dir
             )
+            if mode == "reproduce":
+                _send_node_feedback(unique_id, "populated_text", final_text)
             return (final_text, populated_text, wildcard_text)
 
         parts: list[str] = []
@@ -3342,7 +3347,7 @@ class ZiggartKrea2MasterPromptDirector:
                         "tooltip": "Displays the generated Krea2 prompt (or overrides it when mode is 'fixed').",
                     },
                 ),
-                "mode": (["populate", "fixed"], {"default": "populate"}),
+                "mode": (["populate", "fixed", "reproduce"], {"default": "populate"}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF}),
             },
             "optional": {
@@ -3393,9 +3398,11 @@ class ZiggartKrea2MasterPromptDirector:
         custom_suffix: str = "",
         unique_id: Any = None,
     ) -> tuple[str, str, str, str, str]:
-        if mode == "fixed" and populated_text.strip():
+        if mode in ("fixed", "reproduce") and populated_text.strip():
             fixed_out = process_wildcards(populated_text.strip(), seed=seed)
-            return (fixed_out, fixed_out, "", "", json.dumps({"mode": "fixed"}))
+            if mode == "reproduce":
+                _send_node_feedback(unique_id, "populated_text", fixed_out)
+            return (fixed_out, fixed_out, "", "", json.dumps({"mode": mode}))
 
         ctx_node = ZiggartThemeUniverseContext()
         ctx, active_name, _, _ = ctx_node.build_context(
@@ -3864,8 +3871,1026 @@ class ZiggartAnatomyCharacterCreator:
 
 
 # ---------------------------------------------------------------------------
-# Optional Fast HTTP Endpoints for ComfyUI Frontend Extension
+# Upgrade A Node 1: ZiggartKrea2TrioEnsembleDirector
 # ---------------------------------------------------------------------------
+
+ENSEMBLE_INTERACTION_MODES = [
+    "Coordinated Team Action",
+    "Combat Clash / Duel",
+    "Conversation / Dramatic Scene",
+    "Independent Heroic Poses",
+    "Ritual / Tactical Formation",
+]
+
+
+class ZiggartKrea2TrioEnsembleDirector:
+    """
+    Assembles up to 3 Character Slots (char_1, char_2, char_3) + an optional Companion /
+    Mount / Prop descriptor + Scene Stage into a structured Krea2 / Flux prompt, while
+    also outputting a ready-to-use ZIGGART_SPATIAL_LAYOUT for Regional Conditioning.
+    """
+
+    DESCRIPTION = (
+        "Trio & Ensemble Director for Krea2 / Qwen3VL-4B / Flux. Combines up to 3 Character Slots "
+        "(char_1_slot, char_2_slot, char_3_slot), an optional Companion/Mount/Prop, and Scene Stage "
+        "with spatial composition presets and outputs both the compiled prompt and a ZIGGART_SPATIAL_LAYOUT."
+    )
+    CATEGORY = "Ziggart/Krea2 Prompt Director"
+    FUNCTION = "direct_ensemble"
+    RETURN_TYPES = (
+        "STRING",
+        "STRING",
+        "STRING",
+        "STRING",
+        "STRING",
+        "ZIGGART_SPATIAL_LAYOUT",
+        "STRING",
+    )
+    RETURN_NAMES = (
+        "krea2_compiled_prompt",
+        "base_scene_prompt",
+        "char_1_detailer_prompt",
+        "char_2_detailer_prompt",
+        "char_3_detailer_prompt",
+        "spatial_layout",
+        "krea2_stats_and_metadata_json",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        layout_presets = list(ENSEMBLE_SPATIAL_LAYOUT_PRESETS.keys())
+        return {
+            "required": {
+                "ensemble_layout_preset": (
+                    layout_presets,
+                    {
+                        "default": "Left / Center / Right (Trio)",
+                        "tooltip": "Spatial composition preset used for prompt hints and regional conditioning masks.",
+                    },
+                ),
+                "interaction_mode": (
+                    ENSEMBLE_INTERACTION_MODES,
+                    {"default": "Coordinated Team Action"},
+                ),
+                "krea2_policy": (
+                    KREA2_COMPILER_POLICIES,
+                    {"default": "scoped (Parentheses Blocks + Count Anchor)"},
+                ),
+                "separate_parentheses_per_facet": ("BOOLEAN", {"default": True}),
+                "include_count_anchor": ("BOOLEAN", {"default": True}),
+                "include_spatial_layout_hint": ("BOOLEAN", {"default": True}),
+                "canvas_width": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
+                "canvas_height": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF}),
+            },
+            "optional": {
+                "char_1_slot": ("ZIGGART_CHAR_SLOT",),
+                "char_2_slot": ("ZIGGART_CHAR_SLOT",),
+                "char_3_slot": ("ZIGGART_CHAR_SLOT",),
+                "stage_data": ("ZIGGART_STAGE_DATA",),
+                "theme_context": ("ZIGGART_THEME_CTX",),
+                "companion_or_prop_text": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "dynamicPrompts": False,
+                        "tooltip": "Optional companion creature, mount, vehicle, or signature prop (supports wildcards).",
+                    },
+                ),
+                "custom_prefix": ("STRING", {"default": ""}),
+                "custom_suffix": ("STRING", {"default": ""}),
+            },
+        }
+
+    def direct_ensemble(
+        self,
+        ensemble_layout_preset: str = "Left / Center / Right (Trio)",
+        interaction_mode: str = "Coordinated Team Action",
+        krea2_policy: str = "scoped (Parentheses Blocks + Count Anchor)",
+        separate_parentheses_per_facet: bool = True,
+        include_count_anchor: bool = True,
+        include_spatial_layout_hint: bool = True,
+        canvas_width: int = 1024,
+        canvas_height: int = 1024,
+        seed: int = 0,
+        char_1_slot: CharacterSlotData | None = None,
+        char_2_slot: CharacterSlotData | None = None,
+        char_3_slot: CharacterSlotData | None = None,
+        stage_data: SceneStageData | None = None,
+        theme_context: dict[str, Any] | None = None,
+        companion_or_prop_text: str = "",
+        custom_prefix: str = "",
+        custom_suffix: str = "",
+    ):
+        prop_expanded = process_wildcards(companion_or_prop_text.strip(), seed=seed) if companion_or_prop_text.strip() else ""
+        prefix_exp = process_wildcards(custom_prefix.strip(), seed=seed + 11) if custom_prefix.strip() else ""
+        suffix_exp = process_wildcards(custom_suffix.strip(), seed=seed + 23) if custom_suffix.strip() else ""
+
+        preset_info = ENSEMBLE_SPATIAL_LAYOUT_PRESETS.get(
+            ensemble_layout_preset,
+            ENSEMBLE_SPATIAL_LAYOUT_PRESETS["Left / Center / Right (Trio)"],
+        )
+        layout_hint = preset_info.get("hint", "") if include_spatial_layout_hint else ""
+
+        # If stage_data has no action and multiple characters are present, synthesize an interaction phrase
+        eff_stage = stage_data
+        if eff_stage is None and isinstance(theme_context, dict):
+            stage_builder = ZiggartSceneStageAtmosphere()
+            eff_stage, _, _, _, _, _ = stage_builder.build_stage(seed=seed, context=theme_context)
+
+        if eff_stage is not None and not eff_stage.action_desc.strip():
+            interaction_map = {
+                "Coordinated Team Action": "acting in coordinated team formation with dynamic synergy",
+                "Combat Clash / Duel": "locked in a high-energy combat confrontation with kinetic tension",
+                "Conversation / Dramatic Scene": "engaged in a tense dramatic interaction with expressive eye contact",
+                "Independent Heroic Poses": "striking distinct iconic poses within the shared composition",
+                "Ritual / Tactical Formation": "arranged in a deliberate tactical formation with atmospheric presence",
+            }
+            synth_act = interaction_map.get(interaction_mode, "")
+            eff_stage = SceneStageData(
+                style_desc=eff_stage.style_desc,
+                action_desc=synth_act,
+                environment_desc=eff_stage.environment_desc,
+                lighting_desc=eff_stage.lighting_desc,
+                camera_desc=eff_stage.camera_desc,
+                theme_or_universe=eff_stage.theme_or_universe,
+            )
+
+        compiled, stats = assemble_krea2_structured_prompt(
+            char1=char_1_slot,
+            char2=char_2_slot,
+            char3=char_3_slot,
+            companion_or_prop=prop_expanded,
+            spatial_layout_hint=layout_hint,
+            stage=eff_stage,
+            policy=krea2_policy,
+            separate_parentheses_per_facet=separate_parentheses_per_facet,
+            include_count_anchor=include_count_anchor,
+            custom_prefix=prefix_exp,
+            custom_suffix=suffix_exp,
+        )
+
+        # Build base scene prompt (without character specifics) for Regional Conditioning
+        base_parts: list[str] = []
+        if eff_stage:
+            for s_part in (
+                eff_stage.style_desc,
+                eff_stage.action_desc,
+                eff_stage.environment_desc,
+                eff_stage.lighting_desc,
+                eff_stage.camera_desc,
+            ):
+                if s_part and s_part.strip():
+                    base_parts.append(s_part.strip().rstrip(".,"))
+        if layout_hint:
+            base_parts.append(layout_hint)
+        base_scene_prompt = ", ".join(base_parts) if base_parts else compiled
+
+        c1_det = char_1_slot.format_character_block(encapsulate_subparts=False) if char_1_slot else ""
+        c2_det = char_2_slot.format_character_block(encapsulate_subparts=False) if char_2_slot else ""
+        c3_det = char_3_slot.format_character_block(encapsulate_subparts=False) if char_3_slot else ""
+
+        w_px = max(64, int(canvas_width))
+        h_px = max(64, int(canvas_height))
+        regions_out: list[dict[str, Any]] = []
+        for idx, reg in enumerate(preset_info.get("regions", [])):
+            rx1 = float(max(0.0, min(1.0, reg["x1"])))
+            ry1 = float(max(0.0, min(1.0, reg["y1"])))
+            rx2 = float(max(rx1 + 0.02, min(1.0, reg["x2"])))
+            ry2 = float(max(ry1 + 0.02, min(1.0, reg["y2"])))
+            px1 = int(round(rx1 * w_px))
+            py1 = int(round(ry1 * h_px))
+            px2 = int(round(rx2 * w_px))
+            py2 = int(round(ry2 * h_px))
+            regions_out.append(
+                {
+                    "index": idx + 1,
+                    "label": str(reg.get("label", f"Region {idx + 1}")),
+                    "x1": rx1,
+                    "y1": ry1,
+                    "x2": rx2,
+                    "y2": ry2,
+                    "weight": float(reg.get("weight", 1.0)),
+                    "bbox_px": (px1, py1, px2, py2),
+                }
+            )
+
+        spatial_layout = {
+            "preset_name": ensemble_layout_preset,
+            "canvas_width": w_px,
+            "canvas_height": h_px,
+            "hint": layout_hint,
+            "regions": regions_out,
+        }
+        stats["ensemble_layout_preset"] = ensemble_layout_preset
+        stats["interaction_mode"] = interaction_mode
+        stats["companion_or_prop"] = prop_expanded
+        stats["regions_count"] = len(regions_out)
+
+        return (
+            compiled,
+            base_scene_prompt,
+            c1_det,
+            c2_det,
+            c3_det,
+            spatial_layout,
+            json.dumps(stats, indent=2, ensure_ascii=False),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Upgrade A Node 2: ZiggartSpatialLayoutDesigner
+# ---------------------------------------------------------------------------
+
+
+def _render_spatial_layout_preview(
+    canvas_width: int,
+    canvas_height: int,
+    regions: list[dict[str, Any]],
+    background_image: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Renders a color-coded visual diagram of the spatial bounding boxes as a ComfyUI IMAGE [1, H, W, 3]."""
+    w = max(64, int(canvas_width))
+    h = max(64, int(canvas_height))
+    if isinstance(background_image, torch.Tensor) and background_image.ndim == 4 and background_image.shape[0] > 0:
+        bg_np = (background_image[0, :, :, :3].detach().cpu().clamp(0.0, 1.0).numpy() * 255.0).astype(np.uint8)
+        base_img = Image.fromarray(bg_np, mode="RGB").resize((w, h), Image.Resampling.BILINEAR).convert("RGBA")
+    else:
+        base_img = Image.new("RGBA", (w, h), (22, 24, 32, 255))
+        grid_draw = ImageDraw.Draw(base_img)
+        step_x = max(32, w // 8)
+        step_y = max(32, h // 8)
+        for gx in range(0, w, step_x):
+            grid_draw.line([(gx, 0), (gx, h)], fill=(45, 50, 66, 255), width=1)
+        for gy in range(0, h, step_y):
+            grid_draw.line([(0, gy), (w, gy)], fill=(45, 50, 66, 255), width=1)
+
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    palette = [
+        ((255, 92, 124, 72), (255, 110, 140, 240)),   # Region 1: Coral Red
+        ((72, 185, 255, 72), (96, 205, 255, 240)),    # Region 2: Cyan Blue
+        ((110, 235, 145, 72), (130, 250, 165, 240)),  # Region 3: Emerald Green
+        ((255, 200, 85, 72), (255, 215, 110, 240)),   # Region 4: Amber Gold
+    ]
+
+    for idx, reg in enumerate(regions):
+        fill_col, border_col = palette[idx % len(palette)]
+        px1, py1, px2, py2 = reg["bbox_px"]
+        draw.rectangle([px1, py1, px2, py2], fill=fill_col, outline=border_col, width=max(2, min(w, h) // 180))
+        label_str = f"#{idx + 1} {reg.get('label', f'Region {idx + 1}')} (w={reg.get('weight', 1.0):.2f})"
+        tag_h = 22
+        tag_w = min(w - px1, max(90, len(label_str) * 7 + 12))
+        draw.rectangle([px1, py1, px1 + tag_w, min(h, py1 + tag_h)], fill=border_col)
+        draw.text((px1 + 6, py1 + 4), label_str, fill=(15, 18, 24, 255))
+
+    comp = Image.alpha_composite(base_img, overlay).convert("RGB")
+    arr = np.asarray(comp, dtype=np.float32) / 255.0
+    return torch.from_numpy(arr).unsqueeze(0)
+
+
+class ZiggartSpatialLayoutDesigner:
+    """
+    Visual and numeric 2D Bounding Box Designer for multi-character scenes.
+    Outputs a ZIGGART_SPATIAL_LAYOUT that connects optionally to ZiggartRegionalConditioningComposer,
+    plus ZIGGART_BBOX pixel boxes for Detailers and a color-coded preview IMAGE.
+    """
+
+    DESCRIPTION = (
+        "Design up to 4 normalized [x1, y1, x2, y2] spatial regions (Char 1, Char 2, Char 3, Prop/BG) "
+        "using sliders or the interactive 2D canvas widget. Connects optionally to "
+        "ZiggartRegionalConditioningComposer or Ziggart Detailers."
+    )
+    CATEGORY = "Ziggart/Krea2 Prompt Director"
+    FUNCTION = "design_layout"
+    RETURN_TYPES = ("ZIGGART_SPATIAL_LAYOUT", "ZIGGART_BBOX", "IMAGE", "STRING")
+    RETURN_NAMES = ("spatial_layout", "bboxes", "layout_preview_image", "layout_json")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "canvas_width": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
+                "canvas_height": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
+                "active_regions": ("INT", {"default": 2, "min": 1, "max": 4, "step": 1}),
+                "r1_label": ("STRING", {"default": "Char 1 (Left)"}),
+                "r1_x1": ("FLOAT", {"default": 0.02, "min": 0.0, "max": 0.98, "step": 0.01}),
+                "r1_y1": ("FLOAT", {"default": 0.05, "min": 0.0, "max": 0.98, "step": 0.01}),
+                "r1_x2": ("FLOAT", {"default": 0.52, "min": 0.02, "max": 1.0, "step": 0.01}),
+                "r1_y2": ("FLOAT", {"default": 0.96, "min": 0.02, "max": 1.0, "step": 0.01}),
+                "r1_weight": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05}),
+                "r2_label": ("STRING", {"default": "Char 2 (Right)"}),
+                "r2_x1": ("FLOAT", {"default": 0.48, "min": 0.0, "max": 0.98, "step": 0.01}),
+                "r2_y1": ("FLOAT", {"default": 0.05, "min": 0.0, "max": 0.98, "step": 0.01}),
+                "r2_x2": ("FLOAT", {"default": 0.98, "min": 0.02, "max": 1.0, "step": 0.01}),
+                "r2_y2": ("FLOAT", {"default": 0.96, "min": 0.02, "max": 1.0, "step": 0.01}),
+                "r2_weight": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05}),
+                "r3_label": ("STRING", {"default": "Char 3 (Center)"}),
+                "r3_x1": ("FLOAT", {"default": 0.30, "min": 0.0, "max": 0.98, "step": 0.01}),
+                "r3_y1": ("FLOAT", {"default": 0.04, "min": 0.0, "max": 0.98, "step": 0.01}),
+                "r3_x2": ("FLOAT", {"default": 0.70, "min": 0.02, "max": 1.0, "step": 0.01}),
+                "r3_y2": ("FLOAT", {"default": 0.98, "min": 0.02, "max": 1.0, "step": 0.01}),
+                "r3_weight": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05}),
+                "r4_label": ("STRING", {"default": "Prop / Foreground"}),
+                "r4_x1": ("FLOAT", {"default": 0.20, "min": 0.0, "max": 0.98, "step": 0.01}),
+                "r4_y1": ("FLOAT", {"default": 0.55, "min": 0.0, "max": 0.98, "step": 0.01}),
+                "r4_x2": ("FLOAT", {"default": 0.80, "min": 0.02, "max": 1.0, "step": 0.01}),
+                "r4_y2": ("FLOAT", {"default": 0.98, "min": 0.02, "max": 1.0, "step": 0.01}),
+                "r4_weight": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 2.0, "step": 0.05}),
+            },
+            "optional": {
+                "background_reference_image": ("IMAGE",),
+                "layout_json_override": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": False,
+                        "tooltip": "Optional JSON array of regions [{x1,y1,x2,y2,weight,label}] to override slider values.",
+                    },
+                ),
+            },
+        }
+
+    def design_layout(
+        self,
+        canvas_width: int = 1024,
+        canvas_height: int = 1024,
+        active_regions: int = 2,
+        r1_label: str = "Char 1 (Left)",
+        r1_x1: float = 0.02,
+        r1_y1: float = 0.05,
+        r1_x2: float = 0.52,
+        r1_y2: float = 0.96,
+        r1_weight: float = 1.0,
+        r2_label: str = "Char 2 (Right)",
+        r2_x1: float = 0.48,
+        r2_y1: float = 0.05,
+        r2_x2: float = 0.98,
+        r2_y2: float = 0.96,
+        r2_weight: float = 1.0,
+        r3_label: str = "Char 3 (Center)",
+        r3_x1: float = 0.30,
+        r3_y1: float = 0.04,
+        r3_x2: float = 0.70,
+        r3_y2: float = 0.98,
+        r3_weight: float = 1.0,
+        r4_label: str = "Prop / Foreground",
+        r4_x1: float = 0.20,
+        r4_y1: float = 0.55,
+        r4_x2: float = 0.80,
+        r4_y2: float = 0.98,
+        r4_weight: float = 0.9,
+        background_reference_image: torch.Tensor | None = None,
+        layout_json_override: str = "",
+    ):
+        w_px = max(64, int(canvas_width))
+        h_px = max(64, int(canvas_height))
+        raw_specs = [
+            (r1_label, r1_x1, r1_y1, r1_x2, r1_y2, r1_weight),
+            (r2_label, r2_x1, r2_y1, r2_x2, r2_y2, r2_weight),
+            (r3_label, r3_x1, r3_y1, r3_x2, r3_y2, r3_weight),
+            (r4_label, r4_x1, r4_y1, r4_x2, r4_y2, r4_weight),
+        ][: max(1, min(4, int(active_regions)))]
+
+        if layout_json_override and layout_json_override.strip():
+            try:
+                parsed = json.loads(layout_json_override.strip())
+                if isinstance(parsed, dict) and "regions" in parsed:
+                    parsed = parsed["regions"]
+                if isinstance(parsed, list) and parsed:
+                    raw_specs = [
+                        (
+                            str(item.get("label", f"Region {i + 1}")),
+                            float(item.get("x1", 0.0)),
+                            float(item.get("y1", 0.0)),
+                            float(item.get("x2", 1.0)),
+                            float(item.get("y2", 1.0)),
+                            float(item.get("weight", 1.0)),
+                        )
+                        for i, item in enumerate(parsed[:4])
+                        if isinstance(item, dict)
+                    ]
+            except Exception as exc:
+                logging.warning(f"[Ziggart Layout Designer] Invalid layout_json_override ignored: {exc}")
+
+        regions_out: list[dict[str, Any]] = []
+        bboxes_out: list[tuple[int, int, int, int]] = []
+        for idx, (lbl, x1, y1, x2, y2, weight) in enumerate(raw_specs):
+            nx1 = float(max(0.0, min(0.98, min(x1, x2))))
+            ny1 = float(max(0.0, min(0.98, min(y1, y2))))
+            nx2 = float(max(nx1 + 0.02, min(1.0, max(x1, x2))))
+            ny2 = float(max(ny1 + 0.02, min(1.0, max(y1, y2))))
+            px1 = int(round(nx1 * w_px))
+            py1 = int(round(ny1 * h_px))
+            px2 = max(px1 + 8, int(round(nx2 * w_px)))
+            py2 = max(py1 + 8, int(round(ny2 * h_px)))
+            bboxes_out.append((px1, py1, px2, py2))
+            regions_out.append(
+                {
+                    "index": idx + 1,
+                    "label": str(lbl or f"Region {idx + 1}"),
+                    "x1": round(nx1, 4),
+                    "y1": round(ny1, 4),
+                    "x2": round(nx2, 4),
+                    "y2": round(ny2, 4),
+                    "weight": round(float(weight), 3),
+                    "bbox_px": (px1, py1, px2, py2),
+                }
+            )
+
+        spatial_layout = {
+            "preset_name": "Custom Spatial Layout",
+            "canvas_width": w_px,
+            "canvas_height": h_px,
+            "hint": f"custom {len(regions_out)}-region spatial layout",
+            "regions": regions_out,
+        }
+        preview_img = _render_spatial_layout_preview(w_px, h_px, regions_out, background_reference_image)
+        return (
+            spatial_layout,
+            bboxes_out,
+            preview_img,
+            json.dumps(spatial_layout, indent=2, ensure_ascii=False),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Upgrade A Node 3: ZiggartRegionalConditioningComposer
+# ---------------------------------------------------------------------------
+
+
+def _build_feathered_region_mask(
+    canvas_w: int,
+    canvas_h: int,
+    bbox_px: tuple[int, int, int, int],
+    feather_ratio: float = 0.10,
+) -> torch.Tensor:
+    """Creates a [1, H, W] float32 mask for a region with smooth cosine/linear edge feathering."""
+    mask = torch.zeros((canvas_h, canvas_w), dtype=torch.float32)
+    x1, y1, x2, y2 = bbox_px
+    x1 = max(0, min(canvas_w - 1, int(x1)))
+    y1 = max(0, min(canvas_h - 1, int(y1)))
+    x2 = max(x1 + 1, min(canvas_w, int(x2)))
+    y2 = max(y1 + 1, min(canvas_h, int(y2)))
+
+    rw = x2 - x1
+    rh = y2 - y1
+    region_box = torch.ones((rh, rw), dtype=torch.float32)
+
+    if feather_ratio > 0.0:
+        fx = max(1, int(round(rw * min(0.45, float(feather_ratio)))))
+        fy = max(1, int(round(rh * min(0.45, float(feather_ratio)))))
+        if fx > 1 and rw > 2 * fx:
+            ramp_x = torch.linspace(0.0, 1.0, steps=fx, dtype=torch.float32)
+            region_box[:, :fx] *= ramp_x.unsqueeze(0)
+            region_box[:, -fx:] *= ramp_x.flip(0).unsqueeze(0)
+        if fy > 1 and rh > 2 * fy:
+            ramp_y = torch.linspace(0.0, 1.0, steps=fy, dtype=torch.float32)
+            region_box[:fy, :] *= ramp_y.unsqueeze(1)
+            region_box[-fy:, :] *= ramp_y.flip(0).unsqueeze(1)
+
+    mask[y1:y2, x1:x2] = region_box
+    return mask.unsqueeze(0)
+
+
+def _encode_clip_text(clip: Any, text: str) -> list[Any]:
+    """Encodes a prompt string into ComfyUI CONDITIONING format."""
+    if comfy_nodes is not None and hasattr(comfy_nodes, "CLIPTextEncode"):
+        return list(comfy_nodes.CLIPTextEncode().encode(clip=clip, text=text)[0])
+    if hasattr(clip, "tokenize") and hasattr(clip, "encode_from_tokens"):
+        tokens = clip.tokenize(text)
+        res = clip.encode_from_tokens(tokens, return_pooled=True)
+        if isinstance(res, tuple) and len(res) == 2:
+            cond, pooled = res
+        else:
+            cond, pooled = res, None
+        return [[cond, {"pooled_output": pooled}]]
+    raise RuntimeError("Invalid CLIP object passed to ZiggartRegionalConditioningComposer.")
+
+
+def _apply_conditioning_mask(
+    conditioning: list[Any],
+    mask: torch.Tensor,
+    strength: float = 1.0,
+    set_area_to_bounds: bool = False,
+) -> list[Any]:
+    """Applies a spatial mask to a ComfyUI CONDITIONING list."""
+    if comfy_nodes is not None and hasattr(comfy_nodes, "ConditioningSetMask"):
+        set_bounds_str = "mask bounds" if set_area_to_bounds else "default"
+        return list(
+            comfy_nodes.ConditioningSetMask().append(
+                conditioning=conditioning,
+                mask=mask,
+                set_cond_area=set_bounds_str,
+                strength=float(strength),
+            )[0]
+        )
+    out: list[Any] = []
+    if mask.ndim == 2:
+        mask = mask.unsqueeze(0)
+    for t in conditioning:
+        n = [t[0], t[1].copy()]
+        n[1]["mask"] = mask
+        n[1]["set_area_to_bounds"] = bool(set_area_to_bounds)
+        n[1]["mask_strength"] = float(strength)
+        out.append(n)
+    return out
+
+
+class ZiggartRegionalConditioningComposer:
+    """
+    Encodes a global base scene prompt plus up to 4 regional prompts (Char 1, Char 2, Char 3, Prop)
+    and attaches feathered spatial masks so multi-character outfits/attributes never bleed across subjects.
+    Uses `spatial_layout` when connected, or falls back to `layout_preset` when disconnected.
+    """
+
+    DESCRIPTION = (
+        "Eliminates multi-character attribute bleeding by composing spatially masked ComfyUI CONDITIONING "
+        "for Character 1, Character 2, Character 3, and Prop/Region 4. Connects optionally to "
+        "ZiggartSpatialLayoutDesigner or uses built-in layout presets."
+    )
+    CATEGORY = "Ziggart/Krea2 Prompt Director"
+    FUNCTION = "compose_regional_conditioning"
+    RETURN_TYPES = ("CONDITIONING", "IMAGE", "ZIGGART_BBOX", "STRING")
+    RETURN_NAMES = (
+        "regional_conditioning",
+        "region_masks_preview",
+        "region_bboxes",
+        "layout_summary_json",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "clip": ("CLIP",),
+                "base_scene_prompt": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "dynamicPrompts": False,
+                        "tooltip": "Global scene context (style, environment, lighting, camera) applied across the full canvas.",
+                    },
+                ),
+                "char_1_prompt": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "dynamicPrompts": False,
+                        "tooltip": "Prompt for Region 1 / Character 1.",
+                    },
+                ),
+                "layout_preset": (
+                    list(ENSEMBLE_SPATIAL_LAYOUT_PRESETS.keys()),
+                    {
+                        "default": "Left / Right Split (Duo)",
+                        "tooltip": "Used automatically when the optional `spatial_layout` input is not connected.",
+                    },
+                ),
+                "canvas_width": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
+                "canvas_height": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
+                "base_prompt_strength": (
+                    "FLOAT",
+                    {"default": 0.40, "min": 0.0, "max": 2.0, "step": 0.05},
+                ),
+                "region_strength": (
+                    "FLOAT",
+                    {"default": 1.0, "min": 0.05, "max": 2.0, "step": 0.05},
+                ),
+                "feather_ratio": (
+                    "FLOAT",
+                    {"default": 0.10, "min": 0.0, "max": 0.45, "step": 0.01},
+                ),
+                "set_cond_area_to_bounds": ("BOOLEAN", {"default": False}),
+            },
+            "optional": {
+                "char_2_prompt": ("STRING", {"default": "", "multiline": True, "dynamicPrompts": False}),
+                "char_3_prompt": ("STRING", {"default": "", "multiline": True, "dynamicPrompts": False}),
+                "region_4_prompt": ("STRING", {"default": "", "multiline": True, "dynamicPrompts": False}),
+                "spatial_layout": (
+                    "ZIGGART_SPATIAL_LAYOUT",
+                    {
+                        "tooltip": "Optional custom layout from ZiggartSpatialLayoutDesigner or ZiggartKrea2TrioEnsembleDirector. Overrides layout_preset when connected.",
+                    },
+                ),
+                "base_conditioning": ("CONDITIONING",),
+            },
+        }
+
+    def compose_regional_conditioning(
+        self,
+        clip: Any,
+        base_scene_prompt: str,
+        char_1_prompt: str,
+        layout_preset: str = "Left / Right Split (Duo)",
+        canvas_width: int = 1024,
+        canvas_height: int = 1024,
+        base_prompt_strength: float = 0.40,
+        region_strength: float = 1.0,
+        feather_ratio: float = 0.10,
+        set_cond_area_to_bounds: bool = False,
+        char_2_prompt: str = "",
+        char_3_prompt: str = "",
+        region_4_prompt: str = "",
+        spatial_layout: dict[str, Any] | None = None,
+        base_conditioning: list[Any] | None = None,
+    ):
+        if isinstance(spatial_layout, dict) and spatial_layout.get("regions"):
+            w_px = max(64, int(spatial_layout.get("canvas_width", canvas_width)))
+            h_px = max(64, int(spatial_layout.get("canvas_height", canvas_height)))
+            active_preset_name = str(spatial_layout.get("preset_name", "Connected Spatial Layout"))
+            raw_regions = list(spatial_layout["regions"])
+        else:
+            w_px = max(64, int(canvas_width))
+            h_px = max(64, int(canvas_height))
+            active_preset_name = layout_preset
+            preset_info = ENSEMBLE_SPATIAL_LAYOUT_PRESETS.get(
+                layout_preset,
+                ENSEMBLE_SPATIAL_LAYOUT_PRESETS["Left / Right Split (Duo)"],
+            )
+            raw_regions = []
+            for idx, r in enumerate(preset_info.get("regions", [])):
+                rx1, ry1, rx2, ry2 = float(r["x1"]), float(r["y1"]), float(r["x2"]), float(r["y2"])
+                raw_regions.append(
+                    {
+                        "index": idx + 1,
+                        "label": str(r.get("label", f"Region {idx + 1}")),
+                        "x1": rx1,
+                        "y1": ry1,
+                        "x2": rx2,
+                        "y2": ry2,
+                        "weight": float(r.get("weight", 1.0)),
+                        "bbox_px": (
+                            int(round(rx1 * w_px)),
+                            int(round(ry1 * h_px)),
+                            int(round(rx2 * w_px)),
+                            int(round(ry2 * h_px)),
+                        ),
+                    }
+                )
+
+        combined_cond: list[Any] = []
+        full_mask = torch.ones((1, h_px, w_px), dtype=torch.float32)
+
+        if base_conditioning is not None:
+            if base_prompt_strength > 0.0:
+                combined_cond.extend(
+                    _apply_conditioning_mask(
+                        list(base_conditioning),
+                        full_mask,
+                        strength=float(base_prompt_strength),
+                        set_area_to_bounds=False,
+                    )
+                )
+        elif base_scene_prompt.strip() and base_prompt_strength > 0.0:
+            base_encoded = _encode_clip_text(clip, base_scene_prompt.strip())
+            combined_cond.extend(
+                _apply_conditioning_mask(
+                    base_encoded,
+                    full_mask,
+                    strength=float(base_prompt_strength),
+                    set_area_to_bounds=False,
+                )
+            )
+
+        region_prompts = [
+            char_1_prompt.strip(),
+            char_2_prompt.strip(),
+            char_3_prompt.strip(),
+            region_4_prompt.strip(),
+        ]
+        used_regions_summary: list[dict[str, Any]] = []
+        bboxes_out: list[tuple[int, int, int, int]] = []
+        preview_regions: list[dict[str, Any]] = []
+
+        for idx, prompt_str in enumerate(region_prompts):
+            if not prompt_str or idx >= len(raw_regions):
+                continue
+            reg = raw_regions[idx]
+            bbox_px = tuple(reg.get("bbox_px") or (
+                int(round(float(reg["x1"]) * w_px)),
+                int(round(float(reg["y1"]) * h_px)),
+                int(round(float(reg["x2"]) * w_px)),
+                int(round(float(reg["y2"]) * h_px)),
+            ))
+            eff_strength = float(region_strength) * float(reg.get("weight", 1.0))
+            reg_mask = _build_feathered_region_mask(w_px, h_px, bbox_px, feather_ratio=feather_ratio)
+            reg_cond = _encode_clip_text(clip, prompt_str)
+            masked_cond = _apply_conditioning_mask(
+                reg_cond,
+                reg_mask,
+                strength=eff_strength,
+                set_area_to_bounds=set_cond_area_to_bounds,
+            )
+            combined_cond.extend(masked_cond)
+            bboxes_out.append(bbox_px)
+            reg_copy = dict(reg)
+            reg_copy["bbox_px"] = bbox_px
+            preview_regions.append(reg_copy)
+            used_regions_summary.append(
+                {
+                    "region_index": idx + 1,
+                    "label": reg.get("label", f"Region {idx + 1}"),
+                    "bbox_px": bbox_px,
+                    "effective_strength": round(eff_strength, 3),
+                    "prompt_preview": prompt_str[:120],
+                }
+            )
+
+        if not combined_cond:
+            fallback_text = base_scene_prompt.strip() or char_1_prompt.strip() or ""
+            combined_cond = _encode_clip_text(clip, fallback_text)
+
+        preview_img = _render_spatial_layout_preview(w_px, h_px, preview_regions or raw_regions)
+        summary = {
+            "layout_source": "spatial_layout_input" if (isinstance(spatial_layout, dict) and spatial_layout.get("regions")) else "layout_preset",
+            "active_preset": active_preset_name,
+            "canvas_size": [w_px, h_px],
+            "feather_ratio": feather_ratio,
+            "active_regions_encoded": len(used_regions_summary),
+            "regions": used_regions_summary,
+        }
+        return (
+            combined_cond,
+            preview_img,
+            bboxes_out,
+            json.dumps(summary, indent=2, ensure_ascii=False),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Upgrade A Node 4: ZiggartPromptTokenInspectorAndCompressor
+# ---------------------------------------------------------------------------
+
+_CONFLICT_TAG_PAIRS: list[tuple[str, set[str], set[str]]] = [
+    ("lighting_time", {"bright daylight", "high noon", "midday sun"}, {"pitch black night", "midnight darkness", "moonlit night"}),
+    ("camera_framing", {"extreme close-up", "macro portrait"}, {"wide establishing shot", "panoramic full body", "full body shot"}),
+    ("color_mode", {"monochrome", "black and white", "1-bit"}, {"vibrant technicolor", "vivid neon palette", "saturated colors"}),
+    ("art_medium", {"3d octane render", "unreal engine 5"}, {"flat 2d cel animation", "woodblock print", "1-bit pixel art"}),
+]
+
+_FILLER_WORDS_RE = re.compile(
+    r"\b(?:very|extremely|super|really|quite|utterly|highly|truly|remarkably|exceptionally)\s+",
+    re.IGNORECASE,
+)
+
+
+class ZiggartPromptTokenInspectorAndCompressor:
+    """
+    Analyzes compiled prompts for CLIP (77-token chunks) and T5/Qwen3VL token budgets,
+    flags duplicate or contradictory tags across wildcards, and losslessly compresses
+    over-budget prompts while protecting character locks ([CHAR 1], [CHAR 2], [CHAR 3]).
+    """
+
+    DESCRIPTION = (
+        "Inspects CLIP (77-token chunks) & Qwen3VL/T5 token budgets, detects duplicate or conflicting "
+        "wildcard clauses, and compacts over-budget prompts while preserving character locks."
+    )
+    CATEGORY = "Ziggart/Wildcards"
+    FUNCTION = "inspect_and_compress"
+    RETURN_TYPES = ("STRING", "INT", "INT", "STRING")
+    RETURN_NAMES = (
+        "optimized_prompt",
+        "estimated_token_count",
+        "clip_chunk_count",
+        "inspector_report_json",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "prompt_text": (
+                    "STRING",
+                    {"default": "", "multiline": True, "dynamicPrompts": False},
+                ),
+                "target_token_budget": (
+                    "INT",
+                    {"default": 220, "min": 30, "max": 2048, "step": 5},
+                ),
+                "compression_mode": (
+                    ["deduplicate_only", "smart_compact", "strict_clip_77"],
+                    {"default": "smart_compact"},
+                ),
+                "preserve_character_locks": ("BOOLEAN", {"default": True}),
+            },
+            "optional": {
+                "clip": ("CLIP",),
+            },
+        }
+
+    def inspect_and_compress(
+        self,
+        prompt_text: str,
+        target_token_budget: int = 220,
+        compression_mode: str = "smart_compact",
+        preserve_character_locks: bool = True,
+        clip: Any = None,
+    ) -> tuple[str, int, int, str]:
+        raw = (prompt_text or "").strip()
+        if not raw:
+            empty_rep = {
+                "original_tokens": 0,
+                "optimized_tokens": 0,
+                "clip_77_chunks": 0,
+                "duplicates_removed": [],
+                "conflicts_detected": [],
+                "compression_mode": compression_mode,
+            }
+            return ("", 0, 0, json.dumps(empty_rep, indent=2))
+
+        budget = 75 if compression_mode == "strict_clip_77" else max(30, int(target_token_budget))
+        orig_tokens = estimate_qwen_tokens(raw)
+
+        # Detect conflicts
+        low_raw = raw.lower()
+        conflicts: list[dict[str, Any]] = []
+        for group_name, set_a, set_b in _CONFLICT_TAG_PAIRS:
+            found_a = [a for a in set_a if a in low_raw]
+            found_b = [b for b in set_b if b in low_raw]
+            if found_a and found_b:
+                conflicts.append(
+                    {
+                        "category": group_name,
+                        "group_a_matches": found_a,
+                        "group_b_matches": found_b,
+                    }
+                )
+
+        # Split into top-level clauses (preserving parenthesized blocks if present)
+        paren_blocks = re.findall(r"\([^()]+\)|[^,]+", raw)
+        seen_clauses: set[str] = set()
+        duplicates_removed: list[str] = []
+        deduped_clauses: list[str] = []
+
+        for block in paren_blocks:
+            b_clean = block.strip().strip(",").strip()
+            if not b_clean:
+                continue
+            norm_key = re.sub(r"\s+", " ", b_clean.lower().strip("(). "))
+            is_locked = preserve_character_locks and (
+                "[char" in norm_key
+                or norm_key.startswith("1 ")
+                or norm_key.startswith("2 ")
+                or norm_key.startswith("3 ")
+                or "wearing " in norm_key
+            )
+            if norm_key in seen_clauses and not is_locked:
+                duplicates_removed.append(b_clean)
+                continue
+            seen_clauses.add(norm_key)
+            deduped_clauses.append(b_clean)
+
+        uses_scoped_parens = any(c.startswith("(") and c.endswith(")") for c in deduped_clauses)
+        sep = " " if uses_scoped_parens else ", "
+        working = sep.join(deduped_clauses)
+
+        if compression_mode in ("smart_compact", "strict_clip_77") and estimate_qwen_tokens(working) > budget:
+            working = _FILLER_WORDS_RE.sub("", working)
+            working = re.sub(r"\s{2,}", " ", working).strip()
+
+        if compression_mode in ("smart_compact", "strict_clip_77") and estimate_qwen_tokens(working) > budget:
+            kept: list[str] = []
+            running = 0
+            for clause in deduped_clauses:
+                c_mod = _FILLER_WORDS_RE.sub("", clause).strip()
+                c_tok = estimate_qwen_tokens(c_mod)
+                is_locked = preserve_character_locks and (
+                    "[char" in c_mod.lower() or "wearing " in c_mod.lower()
+                )
+                if running + c_tok <= budget or is_locked or not kept:
+                    kept.append(c_mod)
+                    running += c_tok
+            working = sep.join(kept)
+
+        if working and not working.endswith((".", "!", "?", '"', ")")):
+            working += "."
+
+        final_tokens = estimate_qwen_tokens(working)
+        if clip is not None and hasattr(clip, "tokenize"):
+            try:
+                tok_dict = clip.tokenize(working)
+                if isinstance(tok_dict, dict):
+                    first_branch = next(iter(tok_dict.values()))
+                    clip_chunks = len(first_branch) if isinstance(first_branch, list) else 1
+                elif isinstance(tok_dict, list):
+                    clip_chunks = len(tok_dict)
+                else:
+                    clip_chunks = max(1, (final_tokens + 74) // 75)
+            except Exception:
+                clip_chunks = max(1, (final_tokens + 74) // 75)
+        else:
+            clip_chunks = max(1, (final_tokens + 74) // 75)
+
+        report = {
+            "original_tokens": orig_tokens,
+            "optimized_tokens": final_tokens,
+            "tokens_saved": max(0, orig_tokens - final_tokens),
+            "target_token_budget": budget,
+            "within_budget": final_tokens <= budget,
+            "clip_77_chunks": clip_chunks,
+            "duplicates_removed_count": len(duplicates_removed),
+            "duplicates_removed": duplicates_removed,
+            "conflicts_detected": conflicts,
+            "compression_mode": compression_mode,
+        }
+        return (
+            working,
+            int(final_tokens),
+            int(clip_chunks),
+            json.dumps(report, indent=2, ensure_ascii=False),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Shared Preview Resolution Helper & HTTP Endpoints for ComfyUI Frontend
+# ---------------------------------------------------------------------------
+
+
+def _resolve_node_preview_prompt(cls_type: str, inputs: dict[str, Any], seed_val: int) -> str:
+    """
+    Resolves the preview prompt for ZiggartWildcardProcessor, ZiggartWildcardProcessorAllInOne,
+    ZiggartWildcardEncode, or ZiggartKrea2MasterPromptDirector without running diffusion sampling.
+    """
+    custom_dir = str(inputs.get("custom_wildcards_dir", "") or "")
+    wc_text = str(inputs.get("wildcard_text", "") or "").strip()
+
+    if cls_type == "ZiggartKrea2MasterPromptDirector":
+        director = ZiggartKrea2MasterPromptDirector()
+        compiled, _, _, _, _ = director.direct_prompt(
+            source_mode=str(inputs.get("source_mode", "Theme (Collection/Themes)")),
+            theme_selection=str(inputs.get("theme_selection", RANDOM_THEME_OPTION)),
+            universe_selection=str(inputs.get("universe_selection", RANDOM_UNIVERSE_OPTION)),
+            cast_mode=str(inputs.get("cast_mode", "Solo (1 Character)")),
+            krea2_policy=str(inputs.get("krea2_policy", "scoped (Parentheses Blocks + Count Anchor)")),
+            separate_parentheses_per_facet=bool(inputs.get("separate_parentheses_per_facet", True)),
+            include_count_anchor=bool(inputs.get("include_count_anchor", True)),
+            mood_filter=str(inputs.get("mood_filter", "[Any / No Filter]")),
+            exclude_full_prompts=bool(inputs.get("exclude_full_prompts", True)),
+            style_wildcard=str(inputs.get("style_wildcard", FROM_CONTEXT_OPTION)),
+            char_1_gender=str(inputs.get("char_1_gender", "Auto / Any")),
+            char_1_wildcard=str(inputs.get("char_1_wildcard", FROM_CONTEXT_OPTION)),
+            char_1_outfit_link_mode=str(inputs.get("char_1_outfit_link_mode", "Canonical (1:1 Strict Character Outfit)")),
+            char_1_outfit_wildcard=str(inputs.get("char_1_outfit_wildcard", FROM_CONTEXT_OPTION)),
+            char_1_enable_anatomy=bool(inputs.get("char_1_enable_anatomy", False)),
+            char_1_auto_filter_anatomy=bool(inputs.get("char_1_auto_filter_anatomy", True)),
+            char_1_anatomy_wildcard=str(inputs.get("char_1_anatomy_wildcard", RANDOM_POOL_OPTION)),
+            char_2_gender=str(inputs.get("char_2_gender", "Auto / Any")),
+            char_2_wildcard=str(inputs.get("char_2_wildcard", FROM_CONTEXT_OPTION)),
+            char_2_outfit_link_mode=str(inputs.get("char_2_outfit_link_mode", "Canonical (1:1 Strict Character Outfit)")),
+            char_2_outfit_wildcard=str(inputs.get("char_2_outfit_wildcard", FROM_CONTEXT_OPTION)),
+            char_2_enable_anatomy=bool(inputs.get("char_2_enable_anatomy", False)),
+            char_2_auto_filter_anatomy=bool(inputs.get("char_2_auto_filter_anatomy", True)),
+            char_2_anatomy_wildcard=str(inputs.get("char_2_anatomy_wildcard", RANDOM_POOL_OPTION)),
+            action_or_interaction_wildcard=str(inputs.get("action_or_interaction_wildcard", FROM_CONTEXT_OPTION)),
+            environment_wildcard=str(inputs.get("environment_wildcard", FROM_CONTEXT_OPTION)),
+            lighting_wildcard=str(inputs.get("lighting_wildcard", RANDOM_POOL_OPTION)),
+            camera_wildcard=str(inputs.get("camera_wildcard", RANDOM_POOL_OPTION)),
+            populated_text="",
+            mode="populate",
+            seed=seed_val,
+            search_or_keyword_filter=str(inputs.get("search_or_keyword_filter", "") or ""),
+            custom_prefix=str(inputs.get("custom_prefix", "") or ""),
+            custom_suffix=str(inputs.get("custom_suffix", "") or ""),
+        )
+        return compiled
+
+    if cls_type == "ZiggartWildcardProcessorAllInOne":
+        parts: list[str] = [wc_text] if wc_text else []
+        combine_pillars = bool(inputs.get("combine_selected_pillars", True))
+        if combine_pillars or not parts:
+            for p_key in (
+                "select_macro_yaml_theme",
+                "select_character_anatomy",
+                "select_outfit_pose",
+                "select_env_vehicle",
+                "select_style_camera_light",
+                "select_mixed_other",
+            ):
+                sel = str(inputs.get(p_key, NONE_OPTION) or "")
+                if sel and sel not in (NONE_OPTION, SELECT_PLACEHOLDER) and sel not in parts:
+                    parts.append(sel)
+        source_text = ", ".join(parts)
+    else:
+        sel_wc = str(inputs.get("select_to_add_wildcard", SELECT_PLACEHOLDER) or "")
+        source_text = wc_text
+        if not source_text and sel_wc not in (SELECT_PLACEHOLDER, NONE_OPTION, ""):
+            source_text = sel_wc
+        if not source_text:
+            search_q = str(inputs.get("search_wildcard_filter", "") or "").strip()
+            if search_q:
+                matches = WILDCARD_INDEX.search_wildcards(search_q, limit=50, extra_dir=custom_dir)
+                if matches:
+                    rng = random.Random(seed_val & 0xFFFFFFFFFFFFFFFF)
+                    source_text = rng.choice(matches)
+
+    if not source_text:
+        return ""
+    return process_wildcards(source_text, seed=seed_val, extra_dir=custom_dir)
+
 
 if PromptServer is not None and getattr(PromptServer, "instance", None) is not None and web is not None:
     @PromptServer.instance.routes.get("/ziggart/wildcards/search")
@@ -3878,10 +4903,17 @@ if PromptServer is not None and getattr(PromptServer, "instance", None) is not N
     @PromptServer.instance.routes.post("/ziggart/wildcards/process")
     async def ziggart_process_wildcard_api(request):
         data = await request.json()
-        text = str(data.get("text", ""))
-        seed = int(data.get("seed", 0))
-        expanded = process_wildcards(text, seed=seed)
-        return web.json_response({"populated_text": expanded})
+        cls_type = str(data.get("class_type", "ZiggartWildcardProcessor") or "ZiggartWildcardProcessor")
+        seed = int(data.get("seed", 0) or 0)
+        inputs = data.get("inputs")
+        if isinstance(inputs, dict):
+            if "wildcard_text" not in inputs and "text" in data:
+                inputs["wildcard_text"] = str(data.get("text", ""))
+            expanded = _resolve_node_preview_prompt(cls_type, inputs, seed)
+        else:
+            text = str(data.get("text", ""))
+            expanded = process_wildcards(text, seed=seed)
+        return web.json_response({"populated_text": expanded, "used_seed": seed})
 
     def _ziggart_on_prompt_handler(json_data: dict[str, Any]) -> dict[str, Any]:
         """
@@ -3899,6 +4931,7 @@ if PromptServer is not None and getattr(PromptServer, "instance", None) is not N
                     "ZiggartWildcardProcessor",
                     "ZiggartWildcardProcessorAllInOne",
                     "ZiggartWildcardEncode",
+                    "ZiggartKrea2MasterPromptDirector",
                 ):
                     continue
                 inputs = node_info.get("inputs", {})
@@ -3908,7 +4941,12 @@ if PromptServer is not None and getattr(PromptServer, "instance", None) is not N
                 elif mode is False:
                     mode = "fixed"
 
-                if mode != "populate":
+                existing_pop = str(inputs.get("populated_text", "") or "").strip()
+                if mode == "fixed":
+                    continue
+                if mode == "reproduce" and existing_pop:
+                    # Keep the pre-generated or previously populated text locked on Queue!
+                    _send_node_feedback(node_id, "populated_text", existing_pop)
                     continue
 
                 raw_seed = inputs.get("seed", 0)
@@ -3917,40 +4955,8 @@ if PromptServer is not None and getattr(PromptServer, "instance", None) is not N
                 else:
                     continue
 
-                custom_dir = str(inputs.get("custom_wildcards_dir", "") or "")
-                wc_text = str(inputs.get("wildcard_text", "") or "").strip()
-
-                if cls_type == "ZiggartWildcardProcessorAllInOne":
-                    parts: list[str] = [wc_text] if wc_text else []
-                    combine_pillars = bool(inputs.get("combine_selected_pillars", True))
-                    if combine_pillars or not parts:
-                        for p_key in (
-                            "select_macro_yaml_theme",
-                            "select_character_anatomy",
-                            "select_outfit_pose",
-                            "select_env_vehicle",
-                            "select_style_camera_light",
-                            "select_mixed_other",
-                        ):
-                            sel = str(inputs.get(p_key, NONE_OPTION) or "")
-                            if sel and sel not in (NONE_OPTION, SELECT_PLACEHOLDER) and sel not in parts:
-                                parts.append(sel)
-                    source_text = ", ".join(parts)
-                else:
-                    sel_wc = str(inputs.get("select_to_add_wildcard", SELECT_PLACEHOLDER) or "")
-                    source_text = wc_text
-                    if not source_text and sel_wc not in (SELECT_PLACEHOLDER, NONE_OPTION, ""):
-                        source_text = sel_wc
-                    if not source_text:
-                        search_q = str(inputs.get("search_wildcard_filter", "") or "").strip()
-                        if search_q:
-                            matches = WILDCARD_INDEX.search_wildcards(search_q, limit=50, extra_dir=custom_dir)
-                            if matches:
-                                rng = random.Random(seed_val & 0xFFFFFFFFFFFFFFFF)
-                                source_text = rng.choice(matches)
-
-                if source_text:
-                    expanded = process_wildcards(source_text, seed=seed_val, extra_dir=custom_dir)
+                expanded = _resolve_node_preview_prompt(cls_type, inputs, seed_val)
+                if expanded:
                     inputs["populated_text"] = expanded
                     _send_node_feedback(node_id, "populated_text", expanded)
                     updated_widgets[str(node_id)] = expanded
@@ -3991,6 +4997,10 @@ NODE_CLASS_MAPPINGS = {
     "ZiggartSceneStageAtmosphere": ZiggartSceneStageAtmosphere,
     "ZiggartKrea2PromptAssembler": ZiggartKrea2PromptAssembler,
     "ZiggartKrea2MasterPromptDirector": ZiggartKrea2MasterPromptDirector,
+    "ZiggartKrea2TrioEnsembleDirector": ZiggartKrea2TrioEnsembleDirector,
+    "ZiggartSpatialLayoutDesigner": ZiggartSpatialLayoutDesigner,
+    "ZiggartRegionalConditioningComposer": ZiggartRegionalConditioningComposer,
+    "ZiggartPromptTokenInspectorAndCompressor": ZiggartPromptTokenInspectorAndCompressor,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -4007,4 +5017,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZiggartSceneStageAtmosphere": "Ziggart Krea2 Scene Stage (Style, Action, Env, Light, Camera)",
     "ZiggartKrea2PromptAssembler": "Ziggart Krea2 Prompt Assembler (Qwen3VL-4B)",
     "ZiggartKrea2MasterPromptDirector": "Ziggart Krea2 Master Prompt Director (All-in-One)",
+    "ZiggartKrea2TrioEnsembleDirector": "Ziggart Krea2 Trio & Ensemble Director (3-Char + Spatial Layout)",
+    "ZiggartSpatialLayoutDesigner": "Ziggart Spatial Layout & BBox Designer (Interactive Regions)",
+    "ZiggartRegionalConditioningComposer": "Ziggart Regional Conditioning Composer (Multi-Char Masking)",
+    "ZiggartPromptTokenInspectorAndCompressor": "Ziggart Prompt Token Inspector & Compressor (CLIP / Qwen3VL)",
 }

@@ -418,6 +418,179 @@ class Krea2PromptDirectorTests(unittest.TestCase):
             self.assertEqual(stats["active_theme_or_universe"], "Aladdin")
             self.assertGreater(stats["qwen3vl_tokens_estimated"], 10)
 
+    def test_trio_ensemble_director_spatial_layout_and_regional_conditioning(self):
+        import torch
+
+        with mock.patch.object(
+            wildcard_nodes, "discover_default_wildcard_dirs", return_value=[str(self.wc_root)]
+        ):
+            wildcard_nodes.WILDCARD_INDEX.ensure_loaded(force_refresh=True)
+            c1 = krea2_compiler.CharacterSlotData(
+                slot_role="Primary",
+                gender="Female",
+                character_desc="ZIA, Inca girl with raven hair",
+                outfit_desc="white Inca tunic",
+            )
+            c2 = krea2_compiler.CharacterSlotData(
+                slot_role="Secondary",
+                gender="Male",
+                character_desc="MENDOZA, tall Spanish navigator",
+                outfit_desc="blue Spanish doublet and cape",
+            )
+            c3 = krea2_compiler.CharacterSlotData(
+                slot_role="Tertiary",
+                gender="Female",
+                character_desc="JASMINE, Agrabah princess",
+                outfit_desc="turquoise silk dress",
+            )
+            stage = krea2_compiler.SceneStageData(
+                style_desc="1980s cel animation",
+                action_desc="",
+                environment_desc="Golden Temple of Mu",
+                lighting_desc="dramatic rim light",
+                camera_desc="wide cinematic shot",
+            )
+
+            trio_node = wildcard_nodes.ZiggartKrea2TrioEnsembleDirector()
+            (
+                compiled,
+                base_scene,
+                c1_det,
+                c2_det,
+                c3_det,
+                spatial_layout,
+                stats_json,
+            ) = trio_node.direct_ensemble(
+                ensemble_layout_preset="Left / Center / Right (Trio)",
+                interaction_mode="Coordinated Team Action",
+                krea2_policy="scoped (Parentheses Blocks + Count Anchor)",
+                canvas_width=512,
+                canvas_height=512,
+                seed=7,
+                char_1_slot=c1,
+                char_2_slot=c2,
+                char_3_slot=c3,
+                stage_data=stage,
+                companion_or_prop_text="golden condor automaton",
+            )
+
+            self.assertTrue(compiled.startswith("3 characters, 2 women and 1 man"))
+            self.assertIn("ZIA", compiled)
+            self.assertIn("MENDOZA", compiled)
+            self.assertIn("JASMINE", compiled)
+            self.assertIn("golden condor automaton", compiled)
+            self.assertEqual(len(spatial_layout["regions"]), 3)
+            stats = json.loads(stats_json)
+            self.assertEqual(stats["mode"], "Trio / Ensemble")
+
+            # Test ZiggartSpatialLayoutDesigner custom boxes
+            designer = wildcard_nodes.ZiggartSpatialLayoutDesigner()
+            custom_layout, bboxes, preview_img, layout_json = designer.design_layout(
+                canvas_width=512,
+                canvas_height=512,
+                active_regions=3,
+                r1_label="Left Hero",
+                r1_x1=0.05,
+                r1_y1=0.10,
+                r1_x2=0.35,
+                r1_y2=0.90,
+                r2_label="Center Hero",
+                r2_x1=0.35,
+                r2_y1=0.05,
+                r2_x2=0.65,
+                r2_y2=0.95,
+                r3_label="Right Hero",
+                r3_x1=0.65,
+                r3_y1=0.10,
+                r3_x2=0.95,
+                r3_y2=0.90,
+            )
+            self.assertEqual(len(bboxes), 3)
+            self.assertEqual(preview_img.shape, (1, 512, 512, 3))
+
+            # Test ZiggartRegionalConditioningComposer WITH connected spatial_layout and WITHOUT (preset fallback)
+            mock_clip = mock.MagicMock()
+            mock_clip.tokenize.side_effect = lambda text: [text]
+            mock_clip.encode_from_tokens.side_effect = lambda toks, return_pooled=True: (
+                torch.ones((1, 8, 64)),
+                torch.ones((1, 64)),
+            )
+
+            reg_node = wildcard_nodes.ZiggartRegionalConditioningComposer()
+            cond_with_layout, mask_prev1, reg_boxes1, summary1_json = reg_node.compose_regional_conditioning(
+                clip=mock_clip,
+                base_scene_prompt=base_scene,
+                char_1_prompt=c1_det,
+                char_2_prompt=c2_det,
+                char_3_prompt=c3_det,
+                spatial_layout=custom_layout,
+                canvas_width=512,
+                canvas_height=512,
+            )
+            s1 = json.loads(summary1_json)
+            self.assertEqual(s1["layout_source"], "spatial_layout_input")
+            self.assertEqual(s1["active_regions_encoded"], 3)
+            self.assertEqual(len(cond_with_layout), 4)  # 1 base + 3 regions
+            self.assertIn("mask", cond_with_layout[1][1])
+
+            # Without spatial_layout connected -> uses layout_preset
+            cond_preset, mask_prev2, reg_boxes2, summary2_json = reg_node.compose_regional_conditioning(
+                clip=mock_clip,
+                base_scene_prompt=base_scene,
+                char_1_prompt=c1_det,
+                char_2_prompt=c2_det,
+                layout_preset="Left / Right Split (Duo)",
+                canvas_width=512,
+                canvas_height=512,
+            )
+            s2 = json.loads(summary2_json)
+            self.assertEqual(s2["layout_source"], "layout_preset")
+            self.assertEqual(s2["active_regions_encoded"], 2)
+
+    def test_token_inspector_pre_generate_and_yaml_bom_tabs(self):
+        inspector = wildcard_nodes.ZiggartPromptTokenInspectorAndCompressor()
+        noisy_prompt = (
+            "[CHAR 1] Zia in white tunic, very extremely detailed, sharp focus, "
+            "sharp focus, bright daylight, pitch black night, really super ornate gold border"
+        )
+        opt_prompt, tok_count, chunks, rep_json = inspector.inspect_and_compress(
+            prompt_text=noisy_prompt,
+            target_token_budget=25,
+            compression_mode="smart_compact",
+            preserve_character_locks=True,
+        )
+        rep = json.loads(rep_json)
+        self.assertIn("[CHAR 1]", opt_prompt)
+        self.assertGreaterEqual(rep["duplicates_removed_count"], 1)
+        self.assertGreaterEqual(len(rep["conflicts_detected"]), 1)
+
+        # Test Pre-Generate helper (_resolve_node_preview_prompt) & reproduce mode
+        with mock.patch.object(
+            wildcard_nodes, "discover_default_wildcard_dirs", return_value=[str(self.wc_root)]
+        ):
+            wildcard_nodes.WILDCARD_INDEX.ensure_loaded(force_refresh=True)
+            preview = wildcard_nodes._resolve_node_preview_prompt(
+                "ZiggartWildcardProcessor",
+                {"wildcard_text": "{crimson|azure} cape"},
+                seed_val=42,
+            )
+            self.assertIn(preview, ("crimson cape", "azure cape"))
+
+            proc = wildcard_nodes.ZiggartWildcardProcessor()
+            out_repro, pop_repro = proc.process_text(
+                wildcard_text="{crimson|azure} cape",
+                populated_text="locked pre-generated prompt",
+                mode="reproduce",
+                seed=999,
+            )
+            self.assertEqual(out_repro, "locked pre-generated prompt")
+
+        # Test YAML byte-offset indexer with UTF-8 BOM and tabs
+        bom_yaml = self.wc_root / "bom_tab.yaml"
+        bom_yaml.write_bytes(b"\xef\xbb\xbfroot_group:\n\tsub_pool:\n\t\t- alpha item\n\t\t- beta item\n")
+        offsets = wildcard_nodes.index_yaml_byte_offsets(str(bom_yaml))
+        self.assertIn("root_group/sub_pool", offsets)
+
 
 if __name__ == "__main__":
     unittest.main()

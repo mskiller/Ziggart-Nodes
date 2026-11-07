@@ -32,8 +32,10 @@ embedded_model = load_module("embedded_model", "embedded_model.py")
 nodes = load_module("nodes", "nodes.py")
 detailer_nodes = load_module("detailer_nodes", "detailer_nodes.py")
 addon_nodes = load_module("addon_nodes", "addon_nodes.py")
+krea2_compiler = load_module("krea2_compiler", "krea2_compiler.py")
 wildcard_nodes = load_module("wildcard_nodes", "wildcard_nodes.py")
 three_d_nodes = load_module("three_d_nodes", "three_d_nodes.py")
+attention_nodes = load_module("attention_nodes", "attention_nodes.py")
 
 
 class WildcardEngineTests(unittest.TestCase):
@@ -357,13 +359,14 @@ class ExampleWorkflowsTests(unittest.TestCase):
             **addon_nodes.NODE_CLASS_MAPPINGS,
             **wildcard_nodes.NODE_CLASS_MAPPINGS,
             **three_d_nodes.NODE_CLASS_MAPPINGS,
+            **attention_nodes.NODE_CLASS_MAPPINGS,
         }
-        self.assertEqual(len(all_mappings), 29)
+        self.assertEqual(len(all_mappings), 37)
 
         wf_dir = ROOT / "example_workflows"
         self.assertTrue(wf_dir.is_dir(), "example_workflows directory must exist")
         wf_files = sorted(wf_dir.glob("*.json"))
-        self.assertGreaterEqual(len(wf_files), 8)
+        self.assertGreaterEqual(len(wf_files), 12)
 
         covered_nodes: set[str] = set()
         for wf_path in wf_files:

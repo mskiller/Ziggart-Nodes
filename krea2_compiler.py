@@ -1223,10 +1223,92 @@ def _deduplicate_comma_clauses(text: str) -> str:
     return ", ".join(kept)
 
 
-def _compute_instance_anchor(char1: CharacterSlotData | None, char2: CharacterSlotData | None) -> str:
+ENSEMBLE_SPATIAL_LAYOUT_PRESETS: dict[str, dict[str, Any]] = {
+    "Left / Right Split (Duo)": {
+        "hint": "composed with the primary subject on the left and the secondary subject on the right",
+        "regions": [
+            {"x1": 0.02, "y1": 0.05, "x2": 0.52, "y2": 0.96, "weight": 1.0, "label": "Character 1 (Left)"},
+            {"x1": 0.48, "y1": 0.05, "x2": 0.98, "y2": 0.96, "weight": 1.0, "label": "Character 2 (Right)"},
+        ],
+    },
+    "Left / Center / Right (Trio)": {
+        "hint": "three-subject composition with the first subject on the left, the second in the center, and the third on the right",
+        "regions": [
+            {"x1": 0.02, "y1": 0.08, "x2": 0.36, "y2": 0.96, "weight": 1.0, "label": "Character 1 (Left)"},
+            {"x1": 0.32, "y1": 0.04, "x2": 0.68, "y2": 0.98, "weight": 1.0, "label": "Character 2 (Center)"},
+            {"x1": 0.64, "y1": 0.08, "x2": 0.98, "y2": 0.96, "weight": 1.0, "label": "Character 3 (Right)"},
+        ],
+    },
+    "Center Hero / Flanking Duo": {
+        "hint": "heroic composition with the lead character centered in the foreground flanked by two companions on the left and right",
+        "regions": [
+            {"x1": 0.28, "y1": 0.03, "x2": 0.72, "y2": 0.98, "weight": 1.1, "label": "Character 1 (Center Hero)"},
+            {"x1": 0.02, "y1": 0.14, "x2": 0.34, "y2": 0.94, "weight": 0.95, "label": "Character 2 (Left Flank)"},
+            {"x1": 0.66, "y1": 0.14, "x2": 0.98, "y2": 0.94, "weight": 0.95, "label": "Character 3 (Right Flank)"},
+        ],
+    },
+    "Foreground / Midground / Background": {
+        "hint": "layered depth composition with the first subject in the foreground, the second in the midground, and the third in the background",
+        "regions": [
+            {"x1": 0.06, "y1": 0.20, "x2": 0.56, "y2": 0.98, "weight": 1.05, "label": "Character 1 (Foreground)"},
+            {"x1": 0.42, "y1": 0.12, "x2": 0.90, "y2": 0.88, "weight": 1.0, "label": "Character 2 (Midground)"},
+            {"x1": 0.18, "y1": 0.03, "x2": 0.82, "y2": 0.55, "weight": 0.9, "label": "Character 3 (Background)"},
+        ],
+    },
+    "Triangle Combat Stance": {
+        "hint": "dynamic triangular combat formation with three distinct figures in coordinated action",
+        "regions": [
+            {"x1": 0.25, "y1": 0.04, "x2": 0.75, "y2": 0.68, "weight": 1.0, "label": "Character 1 (Apex)"},
+            {"x1": 0.03, "y1": 0.25, "x2": 0.48, "y2": 0.98, "weight": 1.0, "label": "Character 2 (Left Base)"},
+            {"x1": 0.52, "y1": 0.25, "x2": 0.97, "y2": 0.98, "weight": 1.0, "label": "Character 3 (Right Base)"},
+        ],
+    },
+    "Back-to-Back Trio": {
+        "hint": "three allies standing back to back in a defensive circle facing outward",
+        "regions": [
+            {"x1": 0.30, "y1": 0.05, "x2": 0.70, "y2": 0.97, "weight": 1.0, "label": "Character 1 (Center Vanguard)"},
+            {"x1": 0.04, "y1": 0.10, "x2": 0.42, "y2": 0.95, "weight": 1.0, "label": "Character 2 (Left Guard)"},
+            {"x1": 0.58, "y1": 0.10, "x2": 0.96, "y2": 0.95, "weight": 1.0, "label": "Character 3 (Right Guard)"},
+        ],
+    },
+    "Duo + Boss Threat": {
+        "hint": "two foreground heroes confronting a towering threat looming in the upper background",
+        "regions": [
+            {"x1": 0.04, "y1": 0.32, "x2": 0.46, "y2": 0.98, "weight": 1.0, "label": "Character 1 (Left Hero)"},
+            {"x1": 0.54, "y1": 0.32, "x2": 0.96, "y2": 0.98, "weight": 1.0, "label": "Character 2 (Right Hero)"},
+            {"x1": 0.15, "y1": 0.02, "x2": 0.85, "y2": 0.65, "weight": 1.1, "label": "Character 3 (Looming Boss)"},
+        ],
+    },
+    "Top / Bottom Split": {
+        "hint": "vertical split composition with the first subject in the upper half and the second in the lower half",
+        "regions": [
+            {"x1": 0.05, "y1": 0.03, "x2": 0.95, "y2": 0.52, "weight": 1.0, "label": "Region 1 (Top)"},
+            {"x1": 0.05, "y1": 0.48, "x2": 0.95, "y2": 0.97, "weight": 1.0, "label": "Region 2 (Bottom)"},
+        ],
+    },
+    "Four Quadrants": {
+        "hint": "four-quadrant spatial composition",
+        "regions": [
+            {"x1": 0.03, "y1": 0.03, "x2": 0.51, "y2": 0.51, "weight": 1.0, "label": "Region 1 (Top-Left)"},
+            {"x1": 0.49, "y1": 0.03, "x2": 0.97, "y2": 0.51, "weight": 1.0, "label": "Region 2 (Top-Right)"},
+            {"x1": 0.03, "y1": 0.49, "x2": 0.51, "y2": 0.97, "weight": 1.0, "label": "Region 3 (Bottom-Left)"},
+            {"x1": 0.49, "y1": 0.49, "x2": 0.97, "y2": 0.97, "weight": 1.0, "label": "Region 4 (Bottom-Right)"},
+        ],
+    },
+}
+
+
+def _compute_instance_anchor(
+    char1: CharacterSlotData | None,
+    char2: CharacterSlotData | None,
+    char3: CharacterSlotData | None = None,
+) -> str:
     """Computes the top-level subject count anchor outside parentheses for Qwen3VL-4B."""
-    has_c1 = bool(char1 and char1.character_desc.strip())
-    has_c2 = bool(char2 and char2.character_desc.strip())
+    active_slots = [
+        c
+        for c in (char1, char2, char3)
+        if c and (c.character_desc.strip() or c.outfit_desc.strip() or c.anatomy_desc.strip())
+    ]
 
     def _gender_noun(g: str) -> str:
         gl = g.lower()
@@ -1238,9 +1320,23 @@ def _compute_instance_anchor(char1: CharacterSlotData | None, char2: CharacterSl
             return "1 creature"
         return "1 character"
 
-    if has_c1 and has_c2:
-        g1 = (char1.gender if char1 else "Female").lower()
-        g2 = (char2.gender if char2 else "Male").lower()
+    if len(active_slots) == 3:
+        genders = [c.gender.lower() for c in active_slots]
+        f_count = sum(1 for g in genders if g == "female")
+        m_count = sum(1 for g in genders if g == "male")
+        if f_count == 3:
+            return "3 women"
+        if m_count == 3:
+            return "3 men"
+        if f_count == 2 and m_count == 1:
+            return "3 characters, 2 women and 1 man"
+        if f_count == 1 and m_count == 2:
+            return "3 characters, 1 woman and 2 men"
+        return "3 characters"
+
+    if len(active_slots) == 2:
+        g1 = active_slots[0].gender.lower()
+        g2 = active_slots[1].gender.lower()
         if g1 == "female" and g2 == "female":
             return "2 women"
         if g1 == "male" and g2 == "male":
@@ -1248,10 +1344,9 @@ def _compute_instance_anchor(char1: CharacterSlotData | None, char2: CharacterSl
         if (g1 == "female" and g2 == "male") or (g1 == "male" and g2 == "female"):
             return "2 characters, a woman and a man"
         return "2 characters"
-    if has_c1:
-        return _gender_noun(char1.gender if char1 else "Female")
-    if has_c2:
-        return _gender_noun(char2.gender if char2 else "Female")
+
+    if len(active_slots) == 1:
+        return _gender_noun(active_slots[0].gender)
     return ""
 
 
@@ -1259,6 +1354,9 @@ def assemble_krea2_structured_prompt(
     *,
     char1: CharacterSlotData | None,
     char2: CharacterSlotData | None = None,
+    char3: CharacterSlotData | None = None,
+    companion_or_prop: str = "",
+    spatial_layout_hint: str = "",
     stage: SceneStageData | None = None,
     policy: str = "scoped (Parentheses Blocks + Count Anchor)",
     separate_parentheses_per_facet: bool = True,
@@ -1274,10 +1372,11 @@ def assemble_krea2_structured_prompt(
       Solo:
         [count_anchor], (style), (character_1), [(character_1_anatomy)], (wearing character_1_outfit),
         (character_1_action), (in environment), (lighting), (camera).
-      Duo:
+      Duo / Trio:
         [count_anchor], (style), (character_1), [(character_1_anatomy)], (wearing character_1_outfit),
-        (character_2), [(character_2_anatomy)], (wearing character_2_outfit), (shared_action),
-        (in environment), (lighting), (camera).
+        (character_2), [(character_2_anatomy)], (wearing character_2_outfit),
+        [(character_3), (character_3_anatomy), (wearing character_3_outfit)],
+        [(companion_or_prop)], (shared_action), (in environment), (lighting), (camera).
 
     Structure when `policy` is `balanced`, `compact`, or `rich`:
       Uses Krea2CompilerV2 linear semantic ordering with deduplication.
@@ -1287,7 +1386,10 @@ def assemble_krea2_structured_prompt(
     is_compact = "compact" in pol_low
     is_rich = "rich" in pol_low
 
-    has_c2 = bool(char2 and (char2.character_desc.strip() or char2.outfit_desc.strip()))
+    has_c2 = bool(char2 and (char2.character_desc.strip() or char2.outfit_desc.strip() or char2.anatomy_desc.strip()))
+    has_c3 = bool(char3 and (char3.character_desc.strip() or char3.outfit_desc.strip() or char3.anatomy_desc.strip()))
+    prop_str = companion_or_prop.strip().rstrip(".,")
+    layout_str = spatial_layout_hint.strip().rstrip(".,")
 
     style_str = (stage.style_desc.strip().rstrip(".") if stage and stage.style_desc else "")
     env_str = (stage.environment_desc.strip().rstrip(".") if stage and stage.environment_desc else "")
@@ -1295,9 +1397,8 @@ def assemble_krea2_structured_prompt(
     cam_str = (stage.camera_desc.strip().rstrip(".") if stage and stage.camera_desc else "")
     stage_action = (stage.action_desc.strip().rstrip(".") if stage and stage.action_desc else "")
 
-    # Determine action string for Solo vs Duo
-    if has_c2:
-        # Duo mode: prioritize shared stage action, or combine individual actions
+    # Determine action string for Solo vs Duo/Trio
+    if has_c2 or has_c3:
         if stage_action:
             action_str = stage_action
         else:
@@ -1306,17 +1407,16 @@ def assemble_krea2_structured_prompt(
                 for a in (
                     char1.individual_action if char1 else "",
                     char2.individual_action if char2 else "",
+                    char3.individual_action if char3 else "",
                 )
                 if a and a.strip()
             ]
             action_str = ", ".join(acts)
     else:
-        # Solo mode: use char1's individual action if provided, else stage action
         c1_act = char1.individual_action.strip().rstrip(".") if char1 and char1.individual_action else ""
         action_str = c1_act or stage_action
 
     if is_compact and env_str:
-        # Compact policy keeps only the primary environment clause to avoid diluting solo subjects
         env_str = env_str.split(",")[0].strip()
 
     if env_str and not re.match(r"^(?:in|inside|at|on|amidst|within|under|across|beneath|outside|above|along|through|around|beside)\b", env_str, flags=re.I):
@@ -1324,7 +1424,25 @@ def assemble_krea2_structured_prompt(
     else:
         env_formatted = env_str
 
-    anchor = _compute_instance_anchor(char1, char2) if include_count_anchor else ""
+    anchor = _compute_instance_anchor(char1, char2, char3) if include_count_anchor else ""
+
+    def _append_char_chunks(target_chunks: list[str], slot: CharacterSlotData | None) -> None:
+        if not slot or not (slot.character_desc.strip() or slot.outfit_desc.strip() or slot.anatomy_desc.strip()):
+            return
+        if separate_parentheses_per_facet:
+            if slot.character_desc.strip():
+                target_chunks.append(f"({slot.character_desc.strip().rstrip('.,')})")
+            if slot.anatomy_desc.strip():
+                target_chunks.append(f"({slot.anatomy_desc.strip().rstrip('.,')})")
+            if slot.outfit_desc.strip():
+                c_out = clean_outfit_prefix(slot.outfit_desc)
+                if c_out:
+                    prefix_w = "" if _NUDE_OUTFIT_RE.search(c_out) else "wearing "
+                    target_chunks.append(f"({prefix_w}{c_out})")
+        else:
+            c_block = slot.format_character_block(encapsulate_subparts=False)
+            if c_block:
+                target_chunks.append(f"({c_block})")
 
     if is_scoped:
         chunks: list[str] = []
@@ -1339,42 +1457,23 @@ def assemble_krea2_structured_prompt(
                 chunks.append(f"({style_str})")
 
         # 2. Character 1 blocks
-        if char1 and (char1.character_desc.strip() or char1.outfit_desc.strip() or char1.anatomy_desc.strip()):
-            if separate_parentheses_per_facet:
-                if char1.character_desc.strip():
-                    chunks.append(f"({char1.character_desc.strip().rstrip('.,')})")
-                if char1.anatomy_desc.strip():
-                    chunks.append(f"({char1.anatomy_desc.strip().rstrip('.,')})")
-                if char1.outfit_desc.strip():
-                    c_out1 = clean_outfit_prefix(char1.outfit_desc)
-                    if c_out1:
-                        prefix_w = "" if _NUDE_OUTFIT_RE.search(c_out1) else "wearing "
-                        chunks.append(f"({prefix_w}{c_out1})")
-            else:
-                c1_block = char1.format_character_block(encapsulate_subparts=False)
-                if c1_block:
-                    chunks.append(f"({c1_block})")
+        _append_char_chunks(chunks, char1)
 
-        # 3. Solo Action OR Character 2 + Shared Action
-        if not has_c2:
+        # 3. Solo Action OR Character 2 / Character 3 / Prop + Shared Action
+        if not has_c2 and not has_c3:
+            if prop_str:
+                chunks.append(f"(accompanied by {prop_str})")
             if action_str:
                 chunks.append(f"({action_str})")
         else:
-            if char2:
-                if separate_parentheses_per_facet:
-                    if char2.character_desc.strip():
-                        chunks.append(f"({char2.character_desc.strip().rstrip('.,')})")
-                    if char2.anatomy_desc.strip():
-                        chunks.append(f"({char2.anatomy_desc.strip().rstrip('.,')})")
-                    if char2.outfit_desc.strip():
-                        c_out2 = clean_outfit_prefix(char2.outfit_desc)
-                        if c_out2:
-                            prefix_w2 = "" if _NUDE_OUTFIT_RE.search(c_out2) else "wearing "
-                            chunks.append(f"({prefix_w2}{c_out2})")
-                else:
-                    c2_block = char2.format_character_block(encapsulate_subparts=False)
-                    if c2_block:
-                        chunks.append(f"({c2_block})")
+            if has_c2:
+                _append_char_chunks(chunks, char2)
+            if has_c3:
+                _append_char_chunks(chunks, char3)
+            if prop_str:
+                chunks.append(f"(accompanied by {prop_str})")
+            if layout_str:
+                chunks.append(f"({layout_str})")
             if action_str:
                 chunks.append(f"({action_str})")
 
@@ -1410,6 +1509,14 @@ def assemble_krea2_structured_prompt(
             c2_b = char2.format_character_block(encapsulate_subparts=False)
             if c2_b:
                 linear_parts.append(f"accompanied by {c2_b}")
+        if has_c3 and char3:
+            c3_b = char3.format_character_block(encapsulate_subparts=False)
+            if c3_b:
+                linear_parts.append(f"and {c3_b}")
+        if prop_str:
+            linear_parts.append(f"with {prop_str}")
+        if layout_str:
+            linear_parts.append(layout_str)
         if action_str:
             linear_parts.append(action_str)
         if cam_str:
@@ -1435,15 +1542,17 @@ def assemble_krea2_structured_prompt(
         final_prompt += "."
 
     tokens_est = estimate_qwen_tokens(final_prompt)
+    mode_label = "Trio / Ensemble" if has_c3 else ("Duo / Interaction" if has_c2 else "Solo")
     stats = {
         "compiler_version": KREA2_COMPILER_VERSION,
         "policy": policy,
-        "mode": "Duo / Interaction" if has_c2 else "Solo",
+        "mode": mode_label,
         "chars": len(final_prompt),
         "words": len(final_prompt.split()),
         "qwen3vl_tokens_estimated": tokens_est,
         "headroom_status": get_headroom_status(len(final_prompt)),
         "char_1_occlusion": char1.occlusion_report.reason_summary if (char1 and char1.occlusion_report) else "N/A",
         "char_2_occlusion": char2.occlusion_report.reason_summary if (char2 and char2.occlusion_report) else "N/A",
+        "char_3_occlusion": char3.occlusion_report.reason_summary if (char3 and char3.occlusion_report) else "N/A",
     }
     return final_prompt, stats

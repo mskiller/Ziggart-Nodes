@@ -865,7 +865,15 @@ class ZiggartStitchByBBox:
                 "refined_crops": ("IMAGE",),
                 "feather_mask": ("INT", {"default": 16, "min": 0, "max": 128}),
                 "blend_opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.05}),
-            }
+            },
+            "optional": {
+                "custom_crop_masks": (
+                    "MASK",
+                    {
+                        "tooltip": "Optional contour masks from ZiggartContourMaskRefiner to use instead of rectangular feathered masks.",
+                    },
+                ),
+            },
         }
 
     def stitch(
@@ -874,6 +882,7 @@ class ZiggartStitchByBBox:
         refined_crops: torch.Tensor,
         feather_mask: int = 16,
         blend_opacity: float = 1.0,
+        custom_crop_masks: torch.Tensor | None = None,
     ):
         base_image: torch.Tensor = stitch_pipe["base_image"]
         crop_meta: list[dict[str, int]] = stitch_pipe.get("crops", [])
@@ -907,12 +916,24 @@ class ZiggartStitchByBBox:
                 ).permute(0, 2, 3, 1).clamp(0.0, 1.0)
 
             resized_crop = resized_crop.to(device=out_image.device, dtype=out_image.dtype)
-            feather_m = (
-                create_feathered_mask(cw, ch, feather_radius=feather_mask).to(
+            if (
+                isinstance(custom_crop_masks, torch.Tensor)
+                and custom_crop_masks.ndim == 3
+                and idx < custom_crop_masks.shape[0]
+            ):
+                cm = custom_crop_masks[idx : idx + 1].unsqueeze(1).float()
+                if cm.shape[2] != ch or cm.shape[3] != cw:
+                    cm = F.interpolate(cm, size=(ch, cw), mode="bilinear", align_corners=False)
+                feather_m = cm.squeeze(0).squeeze(0).clamp(0.0, 1.0).to(
                     device=out_image.device, dtype=out_image.dtype
+                ) * opacity
+            else:
+                feather_m = (
+                    create_feathered_mask(cw, ch, feather_radius=feather_mask).to(
+                        device=out_image.device, dtype=out_image.dtype
+                    )
+                    * opacity
                 )
-                * opacity
-            )
             feather_4d = feather_m.unsqueeze(0).unsqueeze(-1)
 
             current_rgb = out_image[f_idx : f_idx + 1, cy0:cy1, cx0:cx1, :3]
@@ -1706,6 +1727,820 @@ class ZiggartMultiSubjectDetailer(ZiggartDetailerKrea2):
         )
 
 
+# ---------------------------------------------------------------------------
+# 8. Upgrade B Node 1: ZiggartContourMaskRefiner
+# ---------------------------------------------------------------------------
+
+
+def _extract_subject_contour_mask(
+    crop_rgb: torch.Tensor,
+    mode: str = "edge_and_chroma_guided",
+    expand_px: int = 6,
+    feather_px: int = 12,
+    min_fill: float = 0.15,
+) -> torch.Tensor:
+    """
+    Computes a tight [H, W] float32 subject contour mask from an RGB crop [1, H, W, 3]
+    using border background modeling, chroma/luma contrast, Sobel edge energy,
+    morphological dilation/closing, and smooth boundary feathering.
+    """
+    _, ch, cw, _ = crop_rgb.shape
+    device = crop_rgb.device
+    rgb = crop_rgb[0, :, :, :3].float().clamp(0.0, 1.0)
+
+    yy = torch.linspace(-1.0, 1.0, steps=ch, device=device).unsqueeze(1).expand(ch, cw)
+    xx = torch.linspace(-1.0, 1.0, steps=cw, device=device).unsqueeze(0).expand(ch, cw)
+    dist_sq = xx * xx + yy * yy
+    ellipse_prior = torch.exp(-1.65 * dist_sq).clamp(0.0, 1.0)
+
+    if mode == "soft_ellipse_fallback":
+        raw_mask = (ellipse_prior > 0.28).float()
+    else:
+        # Sample outer border strip (top/bottom/left/right 8% rim) to estimate local background color
+        rim_h = max(1, int(round(ch * 0.08)))
+        rim_w = max(1, int(round(cw * 0.08)))
+        border_pixels = torch.cat(
+            [
+                rgb[:rim_h, :, :].reshape(-1, 3),
+                rgb[-rim_h:, :, :].reshape(-1, 3),
+                rgb[:, :rim_w, :].reshape(-1, 3),
+                rgb[:, -rim_w:, :].reshape(-1, 3),
+            ],
+            dim=0,
+        )
+        bg_mean = border_pixels.mean(dim=0, keepdim=True).unsqueeze(0)  # [1, 1, 3]
+        bg_std = border_pixels.std(dim=0, keepdim=True).unsqueeze(0).clamp(min=0.04)
+
+        color_dist = torch.sqrt(((rgb - bg_mean) / bg_std).pow(2).mean(dim=-1) + 1e-6)
+        color_norm = (color_dist / (color_dist.quantile(0.92).clamp(min=0.15))).clamp(0.0, 1.0)
+
+        # Sobel edge energy on luminance
+        luma = (0.299 * rgb[:, :, 0] + 0.587 * rgb[:, :, 1] + 0.114 * rgb[:, :, 2]).unsqueeze(0).unsqueeze(0)
+        kx = torch.tensor([[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]], device=device).view(1, 1, 3, 3)
+        ky = torch.tensor([[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]], device=device).view(1, 1, 3, 3)
+        luma_pad = F.pad(luma, (1, 1, 1, 1), mode="replicate")
+        gx = F.conv2d(luma_pad, kx)
+        gy = F.conv2d(luma_pad, ky)
+        grad = torch.sqrt(gx * gx + gy * gy + 1e-6).squeeze(0).squeeze(0)
+        grad_norm = (grad / (grad.quantile(0.92).clamp(min=0.05))).clamp(0.0, 1.0)
+
+        if mode == "adaptive_otsu_silhouette":
+            salience = 0.70 * color_norm + 0.30 * ellipse_prior
+        elif mode == "center_salience_matting":
+            salience = 0.45 * color_norm + 0.20 * grad_norm + 0.35 * ellipse_prior
+        else:  # edge_and_chroma_guided
+            salience = 0.55 * color_norm + 0.25 * grad_norm + 0.20 * ellipse_prior
+
+        thresh = float(salience.mean().item()) * 0.92
+        raw_mask = (salience >= thresh).float()
+
+        # Guarantee minimum foreground fill so sparse crops never collapse to zero
+        fill_ratio = float(raw_mask.mean().item())
+        if fill_ratio < float(min_fill):
+            q_val = max(0.05, min(0.95, 1.0 - float(min_fill)))
+            q_thresh = salience.quantile(q_val)
+            raw_mask = torch.maximum(raw_mask, (salience >= q_thresh).float())
+
+    # Morphological closing (dilate then erode) to fill interior holes
+    m4 = raw_mask.unsqueeze(0).unsqueeze(0)
+    close_k = 5
+    m4 = F.max_pool2d(m4, kernel_size=close_k, stride=1, padding=close_k // 2)
+    m4 = -F.max_pool2d(-m4, kernel_size=close_k, stride=1, padding=close_k // 2)
+
+    # Apply user expand / contract
+    if expand_px > 0:
+        k = int(expand_px) * 2 + 1
+        m4 = F.max_pool2d(m4, kernel_size=k, stride=1, padding=int(expand_px))
+    elif expand_px < 0:
+        k = abs(int(expand_px)) * 2 + 1
+        m4 = -F.max_pool2d(-m4, kernel_size=k, stride=1, padding=abs(int(expand_px)))
+
+    # Smooth feathering via repeated average pooling + outer boundary taper
+    if feather_px > 0:
+        fk = max(3, (int(feather_px) // 2) * 2 + 1)
+        pad_f = fk // 2
+        for _ in range(2):
+            m4 = F.avg_pool2d(F.pad(m4, (pad_f, pad_f, pad_f, pad_f), mode="replicate"), kernel_size=fk, stride=1)
+
+    contour = m4.squeeze(0).squeeze(0).clamp(0.0, 1.0)
+    border_feather = create_feathered_mask(cw, ch, feather_radius=max(2, int(feather_px))).to(
+        device=device, dtype=contour.dtype
+    )
+    return (contour * border_feather).clamp(0.0, 1.0)
+
+
+class ZiggartContourMaskRefiner:
+    """
+    Refines rectangular bounding boxes (from WeVisOne-VL, VLM Critic, or Spatial Layout Designer)
+    into tight subject-contour alpha masks so detailer passes never cause background halos
+    around fingers, hair strands, or weapons.
+    """
+
+    DESCRIPTION = (
+        "Converts rectangular bounding boxes into tight subject-contour alpha masks using "
+        "border-background contrast, Sobel edge energy, morphological closing, and smooth feathering."
+    )
+    CATEGORY = "Ziggart/Detector"
+    FUNCTION = "refine_contours"
+    RETURN_TYPES = ("MASK", "MASK", "IMAGE", "ZIGGART_BBOX")
+    RETURN_NAMES = (
+        "combined_contour_mask",
+        "crop_contour_masks",
+        "contour_overlay_preview",
+        "refined_bboxes",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "refinement_mode": (
+                    [
+                        "edge_and_chroma_guided",
+                        "center_salience_matting",
+                        "adaptive_otsu_silhouette",
+                        "soft_ellipse_fallback",
+                    ],
+                    {"default": "edge_and_chroma_guided"},
+                ),
+                "crop_factor": ("FLOAT", {"default": 1.3, "min": 1.0, "max": 3.0, "step": 0.05}),
+                "expand_contour_px": ("INT", {"default": 6, "min": -32, "max": 64, "step": 1}),
+                "feather_radius_px": ("INT", {"default": 12, "min": 0, "max": 128, "step": 1}),
+                "min_foreground_fill": ("FLOAT", {"default": 0.15, "min": 0.02, "max": 0.95, "step": 0.01}),
+            },
+            "optional": {
+                "bboxes_json": ("STRING", {"default": "[]", "multiline": True}),
+                "bboxes": ("ZIGGART_BBOX",),
+            },
+        }
+
+    def refine_contours(
+        self,
+        image: torch.Tensor,
+        refinement_mode: str = "edge_and_chroma_guided",
+        crop_factor: float = 1.3,
+        expand_contour_px: int = 6,
+        feather_radius_px: int = 12,
+        min_foreground_fill: float = 0.15,
+        bboxes_json: str = "[]",
+        bboxes: Any = None,
+    ):
+        batch_size, img_h, img_w, _ = image.shape
+        records: list[dict[str, Any]] = []
+        if bboxes is not None:
+            if isinstance(bboxes, list):
+                for item in bboxes:
+                    if isinstance(item, (list, tuple)) and len(item) == 4:
+                        box_t = (int(item[0]), int(item[1]), int(item[2]), int(item[3]))
+                        padded = crop_with_padding(box_t, img_w, img_h, crop_factor=crop_factor)
+                        records.append({"frame_index": 0, "box": box_t, "padded_crop": padded})
+                    elif isinstance(item, dict) and "box" in item:
+                        b = item["box"]
+                        box_t = (int(b[0]), int(b[1]), int(b[2]), int(b[3]))
+                        padded = tuple(item.get("padded_crop") or crop_with_padding(box_t, img_w, img_h, crop_factor=crop_factor))
+                        records.append({"frame_index": int(item.get("frame_index", 0)), "box": box_t, "padded_crop": padded})
+        if not records and bboxes_json and bboxes_json.strip():
+            records = _parse_bboxes_json_payload(bboxes_json, batch_size, img_w, img_h, crop_factor)
+        if not records:
+            # Default to full frame if no boxes were provided
+            records = [{"frame_index": 0, "box": (0, 0, img_w, img_h), "padded_crop": (0, 0, img_w, img_h)}]
+
+        combined_masks = torch.zeros((batch_size, img_h, img_w), dtype=torch.float32)
+        crop_masks_list: list[torch.Tensor] = []
+        refined_bboxes_out: list[dict[str, Any]] = []
+        preview_frames = image[:, :, :, :3].clone().detach().cpu()
+
+        for rec in records:
+            f_idx = min(max(0, int(rec["frame_index"])), batch_size - 1)
+            cx0, cy0, cx1, cy1 = rec["padded_crop"]
+            ch, cw = cy1 - cy0, cx1 - cx0
+            if ch <= 0 or cw <= 0:
+                continue
+
+            crop_rgb = image[f_idx : f_idx + 1, cy0:cy1, cx0:cx1, :3]
+            contour_m = _extract_subject_contour_mask(
+                crop_rgb,
+                mode=refinement_mode,
+                expand_px=expand_contour_px,
+                feather_px=feather_radius_px,
+                min_fill=min_foreground_fill,
+            ).detach().cpu()
+
+            crop_masks_list.append(contour_m.unsqueeze(0))
+            combined_masks[f_idx, cy0:cy1, cx0:cx1] = torch.maximum(
+                combined_masks[f_idx, cy0:cy1, cx0:cx1], contour_m
+            )
+
+            # Tint contour region on preview frame
+            tint = torch.tensor([0.15, 0.95, 0.65], dtype=torch.float32).view(1, 1, 3)
+            alpha = (contour_m.unsqueeze(-1) * 0.42).clamp(0.0, 1.0)
+            preview_frames[f_idx, cy0:cy1, cx0:cx1, :] = (
+                preview_frames[f_idx, cy0:cy1, cx0:cx1, :] * (1.0 - alpha) + tint * alpha
+            )
+
+            refined_bboxes_out.append(
+                {
+                    "frame_index": f_idx,
+                    "box": rec["box"],
+                    "padded_crop": (cx0, cy0, cx1, cy1),
+                    "contour_mask": contour_m,
+                }
+            )
+
+        if not crop_masks_list:
+            batched_crop_masks = torch.zeros((1, 64, 64), dtype=torch.float32)
+        else:
+            max_h = max(m.shape[1] for m in crop_masks_list)
+            max_w = max(m.shape[2] for m in crop_masks_list)
+            norm_m = []
+            for m in crop_masks_list:
+                if m.shape[1] == max_h and m.shape[2] == max_w:
+                    norm_m.append(m)
+                else:
+                    norm_m.append(
+                        F.interpolate(m.unsqueeze(1), size=(max_h, max_w), mode="bilinear", align_corners=False).squeeze(1)
+                    )
+            batched_crop_masks = torch.cat(norm_m, dim=0)
+
+        return (
+            combined_masks,
+            batched_crop_masks,
+            preview_frames.clamp(0.0, 1.0),
+            refined_bboxes_out,
+        )
+
+
+# ---------------------------------------------------------------------------
+# 9. Upgrade B Node 2: ZiggartColorAndFrequencyMatcher
+# ---------------------------------------------------------------------------
+
+
+def _rgb_to_ycbcr(rgb: torch.Tensor) -> torch.Tensor:
+    """Converts [..., 3] RGB in [0, 1] to YCbCr perceptual luminance + chrominance."""
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    y = 0.299 * r + 0.587 * g + 0.114 * b
+    cb = 0.5 + (-0.168736 * r - 0.331264 * g + 0.5 * b)
+    cr = 0.5 + (0.5 * r - 0.418688 * g - 0.081312 * b)
+    return torch.stack([y, cb, cr], dim=-1)
+
+
+def _ycbcr_to_rgb(ycbcr: torch.Tensor) -> torch.Tensor:
+    """Converts [..., 3] YCbCr back to RGB in [0, 1]."""
+    y = ycbcr[..., 0]
+    cb = ycbcr[..., 1] - 0.5
+    cr = ycbcr[..., 2] - 0.5
+    r = y + 1.402 * cr
+    g = y - 0.344136 * cb - 0.714136 * cr
+    b = y + 1.772 * cb
+    return torch.stack([r, g, b], dim=-1).clamp(0.0, 1.0)
+
+
+def _gaussian_blur_nhwc(img_nhwc: torch.Tensor, radius: int) -> torch.Tensor:
+    """Applies a separable smoothing filter on an [N, H, W, C] tensor."""
+    r = max(1, int(radius))
+    k_size = r * 2 + 1
+    sigma = max(0.8, r / 2.0)
+    coords = torch.arange(k_size, dtype=img_nhwc.dtype, device=img_nhwc.device) - r
+    kernel_1d = torch.exp(-(coords * coords) / (2.0 * sigma * sigma))
+    kernel_1d = kernel_1d / kernel_1d.sum()
+
+    nchw = img_nhwc.permute(0, 3, 1, 2)
+    c = nchw.shape[1]
+    kx = kernel_1d.view(1, 1, 1, k_size).expand(c, 1, 1, k_size)
+    ky = kernel_1d.view(1, 1, k_size, 1).expand(c, 1, k_size, 1)
+
+    padded_x = F.pad(nchw, (r, r, 0, 0), mode="reflect")
+    blurred_x = F.conv2d(padded_x, kx, groups=c)
+    padded_y = F.pad(blurred_x, (0, 0, r, r), mode="reflect")
+    blurred_y = F.conv2d(padded_y, ky, groups=c)
+    return blurred_y.permute(0, 2, 3, 1)
+
+
+def match_color_and_frequency_tensor(
+    original_rgb: torch.Tensor,
+    refined_rgb: torch.Tensor,
+    color_match_mode: str = "lab_reinhard_transfer",
+    color_match_strength: float = 0.85,
+    high_freq_detail_preserve: float = 1.0,
+    low_freq_blur_radius: int = 9,
+    weight_mask: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """
+    Matches low-frequency color/lighting of `refined_rgb` to `original_rgb` while preserving
+    crisp high-frequency details from `refined_rgb`. Both tensors have shape [B, H, W, 3].
+    """
+    orig = original_rgb[:, :, :, :3].float().clamp(0.0, 1.0)
+    ref = refined_rgb[:, :, :, :3].float().clamp(0.0, 1.0)
+    if ref.shape[1] != orig.shape[1] or ref.shape[2] != orig.shape[2]:
+        ref = F.interpolate(
+            ref.permute(0, 3, 1, 2),
+            size=(orig.shape[1], orig.shape[2]),
+            mode="bicubic",
+            align_corners=False,
+        ).permute(0, 2, 3, 1).clamp(0.0, 1.0)
+
+    # Compute masked or full-frame statistics
+    if isinstance(weight_mask, torch.Tensor):
+        wm = weight_mask.float().to(orig.device)
+        if wm.ndim == 2:
+            wm = wm.unsqueeze(0)
+        if wm.shape[1] != orig.shape[1] or wm.shape[2] != orig.shape[2]:
+            wm = F.interpolate(wm.unsqueeze(1), size=(orig.shape[1], orig.shape[2]), mode="bilinear", align_corners=False).squeeze(1)
+        wm_4d = wm.unsqueeze(-1).clamp(0.0, 1.0)
+    else:
+        wm_4d = torch.ones((orig.shape[0], orig.shape[1], orig.shape[2], 1), dtype=orig.dtype, device=orig.device)
+
+    denom = wm_4d.sum(dim=(1, 2), keepdim=True).clamp(min=1.0)
+
+    if color_match_mode == "rgb_mean_std":
+        orig_mean = (orig * wm_4d).sum(dim=(1, 2), keepdim=True) / denom
+        ref_mean = (ref * wm_4d).sum(dim=(1, 2), keepdim=True) / denom
+        orig_std = torch.sqrt(((orig - orig_mean).pow(2) * wm_4d).sum(dim=(1, 2), keepdim=True) / denom + 1e-6)
+        ref_std = torch.sqrt(((ref - ref_mean).pow(2) * wm_4d).sum(dim=(1, 2), keepdim=True) / denom + 1e-6)
+        color_matched = ((ref - ref_mean) * (orig_std / ref_std.clamp(min=1e-4)) + orig_mean).clamp(0.0, 1.0)
+    else:
+        orig_ycc = _rgb_to_ycbcr(orig)
+        ref_ycc = _rgb_to_ycbcr(ref)
+        o_mean = (orig_ycc * wm_4d).sum(dim=(1, 2), keepdim=True) / denom
+        r_mean = (ref_ycc * wm_4d).sum(dim=(1, 2), keepdim=True) / denom
+        o_std = torch.sqrt(((orig_ycc - o_mean).pow(2) * wm_4d).sum(dim=(1, 2), keepdim=True) / denom + 1e-6)
+        r_std = torch.sqrt(((ref_ycc - r_mean).pow(2) * wm_4d).sum(dim=(1, 2), keepdim=True) / denom + 1e-6)
+        transferred_ycc = (ref_ycc - r_mean) * (o_std / r_std.clamp(min=1e-4)) + o_mean
+
+        if color_match_mode == "luminance_only_lock":
+            out_ycc = torch.cat([transferred_ycc[..., :1], ref_ycc[..., 1:]], dim=-1)
+        elif color_match_mode == "chroma_only_lock":
+            out_ycc = torch.cat([ref_ycc[..., :1], transferred_ycc[..., 1:]], dim=-1)
+        else:  # lab_reinhard_transfer
+            out_ycc = transferred_ycc
+        color_matched = _ycbcr_to_rgb(out_ycc)
+
+    strength = float(max(0.0, min(1.0, color_match_strength)))
+    base_toned = ref * (1.0 - strength) + color_matched * strength
+
+    # Frequency separation: combine low-frequency tone from `base_toned` with high-frequency crisp detail from `ref`
+    low_toned = _gaussian_blur_nhwc(base_toned, radius=low_freq_blur_radius)
+    low_ref = _gaussian_blur_nhwc(ref, radius=low_freq_blur_radius)
+    high_ref = ref - low_ref
+    reconstructed = (low_toned + high_ref * float(high_freq_detail_preserve)).clamp(0.0, 1.0)
+
+    return (reconstructed * wm_4d + orig * (1.0 - wm_4d)).clamp(0.0, 1.0)
+
+
+class ZiggartColorAndFrequencyMatcher:
+    """
+    Eliminates skin-tone shifts and local lighting seams after high-denoise detailer passes
+    using Reinhard perceptual color transfer and frequency-separated detail reconstruction.
+    """
+
+    DESCRIPTION = (
+        "Locks skin tone and local lighting between an original image and a refined image "
+        "using perceptual Reinhard color transfer and frequency-separated high-detail blending."
+    )
+    CATEGORY = "Ziggart/Detailer"
+    FUNCTION = "match_color"
+    RETURN_TYPES = ("IMAGE", "IMAGE")
+    RETURN_NAMES = ("matched_image", "difference_heatmap")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "original_image": ("IMAGE",),
+                "refined_image": ("IMAGE",),
+                "color_match_mode": (
+                    [
+                        "lab_reinhard_transfer",
+                        "rgb_mean_std",
+                        "luminance_only_lock",
+                        "chroma_only_lock",
+                    ],
+                    {"default": "lab_reinhard_transfer"},
+                ),
+                "color_match_strength": (
+                    "FLOAT",
+                    {"default": 0.85, "min": 0.0, "max": 1.0, "step": 0.05},
+                ),
+                "high_freq_detail_preserve": (
+                    "FLOAT",
+                    {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05},
+                ),
+                "low_freq_blur_radius": (
+                    "INT",
+                    {"default": 9, "min": 1, "max": 64, "step": 1},
+                ),
+            },
+            "optional": {
+                "mask": ("MASK",),
+            },
+        }
+
+    def match_color(
+        self,
+        original_image: torch.Tensor,
+        refined_image: torch.Tensor,
+        color_match_mode: str = "lab_reinhard_transfer",
+        color_match_strength: float = 0.85,
+        high_freq_detail_preserve: float = 1.0,
+        low_freq_blur_radius: int = 9,
+        mask: torch.Tensor | None = None,
+    ):
+        matched = match_color_and_frequency_tensor(
+            original_rgb=original_image,
+            refined_rgb=refined_image,
+            color_match_mode=color_match_mode,
+            color_match_strength=color_match_strength,
+            high_freq_detail_preserve=high_freq_detail_preserve,
+            low_freq_blur_radius=low_freq_blur_radius,
+            weight_mask=mask,
+        )
+        diff = (matched - original_image[:, :, :, :3].to(matched.device)).abs() * 4.0
+        heatmap = diff.clamp(0.0, 1.0)
+        return (matched, heatmap)
+
+
+# ---------------------------------------------------------------------------
+# 10. Upgrade B Node 3: ZiggartClosedLoopSelfHealingDetailer
+# ---------------------------------------------------------------------------
+
+
+def _score_crop_signal_quality(crop_rgb: torch.Tensor) -> float:
+    """
+    Computes an intrinsic [1.0, 10.0] visual quality score based on Laplacian sharpness,
+    micro-contrast, dynamic range, and absence of clipping/flat-burn artifacts.
+    """
+    rgb = crop_rgb[0, :, :, :3].float().clamp(0.0, 1.0)
+    luma = (0.299 * rgb[:, :, 0] + 0.587 * rgb[:, :, 1] + 0.114 * rgb[:, :, 2]).unsqueeze(0).unsqueeze(0)
+    lap_k = torch.tensor([[0.0, 1.0, 0.0], [1.0, -4.0, 1.0], [0.0, 1.0, 0.0]], device=rgb.device).view(1, 1, 3, 3)
+    lap = F.conv2d(F.pad(luma, (1, 1, 1, 1), mode="replicate"), lap_k)
+    sharpness = float(lap.std().item())
+    contrast = float(luma.std().item())
+    clipped_frac = float(((rgb <= 0.01) | (rgb >= 0.99)).float().mean().item())
+
+    sharp_score = min(5.0, sharpness * 42.0)
+    contrast_score = min(3.5, contrast * 14.0)
+    penalty = clipped_frac * 3.0
+    total = 2.5 + sharp_score + contrast_score - penalty
+    return round(float(max(1.0, min(10.0, total))), 2)
+
+
+def _score_crop_with_vlm_or_signal(
+    crop_rgb: torch.Tensor,
+    vlm_config: ModelConfig | None,
+    detail_prompt: str,
+) -> tuple[float, str]:
+    """
+    Scores a crop from 1.0 to 10.0. If a loaded/valid `vlm_config` is provided, queries the VLM
+    for a JSON score + defect note and blends it with signal sharpness; otherwise uses `_score_crop_signal_quality`.
+    """
+    sig_score = _score_crop_signal_quality(crop_rgb)
+    if vlm_config is None or not getattr(vlm_config, "model_path", ""):
+        return sig_score, "signal_sharpness_and_contrast"
+
+    try:
+        data_uri = image_to_data_uri(crop_rgb[0])
+        sys_prompt = (
+            "You are a strict image quality critic. Rate the anatomical and rendering quality "
+            'of this image crop from 1.0 to 10.0. Reply ONLY with JSON: {"score": 8.0, "fix_hint": "..."}'
+        )
+        user_msg = f"Target subject: {detail_prompt or 'high detail subject'}. Rate quality 1-10."
+        raw = MODEL_MANAGER.chat_with_image(
+            config=vlm_config,
+            system_prompt=sys_prompt,
+            user_prompt=user_msg,
+            image_data_uri=data_uri,
+            max_tokens=128,
+            temperature=0.1,
+            top_p=0.9,
+            seed=42,
+        )
+        cleaned = strip_thinking_tags(raw)
+        m = re.search(r'"score"\s*:\s*([0-9]+(?:\.[0-9]+)?)', cleaned)
+        if m:
+            vlm_s = float(max(1.0, min(10.0, float(m.group(1)))))
+            hint_m = re.search(r'"fix_hint"\s*:\s*"([^"]*)"', cleaned)
+            hint = hint_m.group(1).strip() if hint_m else ""
+            blended = round(0.70 * vlm_s + 0.30 * sig_score, 2)
+            return blended, hint
+    except Exception:
+        pass
+    return sig_score, "signal_fallback"
+
+
+class ZiggartClosedLoopSelfHealingDetailer(ZiggartDetailerKrea2):
+    """
+    Autonomous closed-loop self-healing detailer:
+    1. Evaluates each detected region's quality score (1..10).
+    2. Skips regions already >= target_score.
+    3. Iteratively resamples failing regions up to `max_iterations` with adaptive denoise stepping,
+       optional contour matting (ZiggartContourMaskRefiner), and color/frequency lock
+       (ZiggartColorAndFrequencyMatcher).
+    4. Always keeps the highest-scoring pass so a detailer pass can never degrade an image.
+    """
+
+    DESCRIPTION = (
+        "Closed-loop self-healing Krea2 Detailer. Scores each region (1-10), skips regions already "
+        "above target_score, iteratively repairs failing crops up to max_iterations with contour "
+        "matting and color lock, and retains the highest-scoring pass."
+    )
+    CATEGORY = "Ziggart/Detailer"
+    FUNCTION = "self_heal"
+    RETURN_TYPES = ("IMAGE", "FLOAT", "INT", "MASK", "STRING")
+    RETURN_NAMES = (
+        "healed_image",
+        "final_best_score",
+        "iterations_run",
+        "healed_mask",
+        "healing_audit_json",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "model": ("MODEL",),
+                "clip": ("CLIP",),
+                "vae": ("VAE",),
+                "detail_positive_prompt": (
+                    "STRING",
+                    {
+                        "default": "masterpiece, ultra-detailed, anatomically perfect, sharp focus",
+                        "multiline": True,
+                        "dynamicPrompts": False,
+                    },
+                ),
+                "detail_negative_prompt": (
+                    "STRING",
+                    {
+                        "default": "blurry, deformed, malformed hands, extra fingers, bad anatomy, artifacts",
+                        "multiline": True,
+                        "dynamicPrompts": False,
+                    },
+                ),
+                "target_score": ("FLOAT", {"default": 7.8, "min": 1.0, "max": 10.0, "step": 0.1}),
+                "max_iterations": ("INT", {"default": 2, "min": 1, "max": 6, "step": 1}),
+                "crop_factor": ("FLOAT", {"default": 1.4, "min": 1.0, "max": 3.0, "step": 0.1}),
+                "target_detail_resolution": ("INT", {"default": 1024, "min": 256, "max": 2048, "step": 64}),
+                "steps": ("INT", {"default": 8, "min": 1, "max": 100}),
+                "cfg": ("FLOAT", {"default": 1.5, "min": 1.0, "max": 20.0, "step": 0.1}),
+                "base_denoise": ("FLOAT", {"default": 0.42, "min": 0.05, "max": 0.95, "step": 0.01}),
+                "step_denoise_boost": ("FLOAT", {"default": 0.08, "min": 0.0, "max": 0.30, "step": 0.01}),
+                "sampler_name": (SAMPLER_NAMES, {"default": "euler"}),
+                "scheduler": (SCHEDULER_NAMES, {"default": "simple"}),
+                "seed": ("INT", {"default": 42, "min": 0, "max": 0xFFFFFFFFFFFFFFFF}),
+                "feather_mask": ("INT", {"default": 16, "min": 0, "max": 128}),
+                "use_contour_mask": ("BOOLEAN", {"default": True}),
+                "lock_color_and_lighting": ("BOOLEAN", {"default": True}),
+                "never_degrade": ("BOOLEAN", {"default": True}),
+            },
+            "optional": {
+                "bboxes_json": ("STRING", {"default": "[]", "multiline": True}),
+                "bboxes": ("ZIGGART_BBOX",),
+                "vlm_config": ("GGUF_VL_MODEL",),
+            },
+        }
+
+    def self_heal(
+        self,
+        image: torch.Tensor,
+        model: Any,
+        clip: Any,
+        vae: Any,
+        detail_positive_prompt: str,
+        detail_negative_prompt: str,
+        target_score: float = 7.8,
+        max_iterations: int = 2,
+        crop_factor: float = 1.4,
+        target_detail_resolution: int = 1024,
+        steps: int = 8,
+        cfg: float = 1.5,
+        base_denoise: float = 0.42,
+        step_denoise_boost: float = 0.08,
+        sampler_name: str = "euler",
+        scheduler: str = "simple",
+        seed: int = 42,
+        feather_mask: int = 16,
+        use_contour_mask: bool = True,
+        lock_color_and_lighting: bool = True,
+        never_degrade: bool = True,
+        bboxes_json: str = "[]",
+        bboxes: Any = None,
+        vlm_config: ModelConfig | None = None,
+    ):
+        batch_size, img_h, img_w, _ = image.shape
+        records: list[dict[str, Any]] = []
+        if bboxes is not None and isinstance(bboxes, list):
+            for item in bboxes:
+                if isinstance(item, (list, tuple)) and len(item) == 4:
+                    box_t = (int(item[0]), int(item[1]), int(item[2]), int(item[3]))
+                    padded = crop_with_padding(box_t, img_w, img_h, crop_factor=crop_factor)
+                    records.append({"frame_index": 0, "box": box_t, "padded_crop": padded})
+                elif isinstance(item, dict) and "box" in item:
+                    b = item["box"]
+                    box_t = (int(b[0]), int(b[1]), int(b[2]), int(b[3]))
+                    padded = tuple(item.get("padded_crop") or crop_with_padding(box_t, img_w, img_h, crop_factor=crop_factor))
+                    records.append(
+                        {
+                            "frame_index": int(item.get("frame_index", 0)),
+                            "box": box_t,
+                            "padded_crop": padded,
+                            "contour_mask": item.get("contour_mask"),
+                        }
+                    )
+        if not records and bboxes_json and bboxes_json.strip():
+            records = _parse_bboxes_json_payload(bboxes_json, batch_size, img_w, img_h, crop_factor)
+        if not records:
+            records = [{"frame_index": 0, "box": (0, 0, img_w, img_h), "padded_crop": (0, 0, img_w, img_h)}]
+
+        pos_cond, neg_cond = self._encode_prompts(
+            clip=clip,
+            positive_prompt=detail_positive_prompt,
+            negative_prompt=detail_negative_prompt,
+        )
+
+        out_image = image.clone()
+        healed_masks = torch.zeros((batch_size, img_h, img_w), dtype=torch.float32)
+        total_iterations_run = 0
+        region_scores: list[float] = []
+        audit_regions: list[dict[str, Any]] = []
+
+        for r_idx, rec in enumerate(records):
+            f_idx = min(max(0, int(rec["frame_index"])), batch_size - 1)
+            cx0, cy0, cx1, cy1 = rec["padded_crop"]
+            ch, cw = cy1 - cy0, cx1 - cx0
+            if ch <= 0 or cw <= 0:
+                continue
+
+            crop_orig = out_image[f_idx : f_idx + 1, cy0:cy1, cx0:cx1, :3].clone()
+            initial_score, init_note = _score_crop_with_vlm_or_signal(
+                crop_orig, vlm_config, detail_positive_prompt
+            )
+
+            if initial_score >= float(target_score):
+                region_scores.append(initial_score)
+                audit_regions.append(
+                    {
+                        "region_index": r_idx,
+                        "frame_index": f_idx,
+                        "padded_crop": [cx0, cy0, cx1, cy1],
+                        "initial_score": initial_score,
+                        "final_score": initial_score,
+                        "iterations_executed": 0,
+                        "status": "skipped_already_above_target",
+                    }
+                )
+                continue
+
+            max_side = max(ch, cw)
+            scale = float(target_detail_resolution) / float(max(1, max_side))
+            target_w = max(64, int(round(cw * scale / 8.0)) * 8)
+            target_h = max(64, int(round(ch * scale / 8.0)) * 8)
+
+            if target_h == ch and target_w == cw:
+                crop_high = crop_orig.clone()
+            else:
+                crop_high = F.interpolate(
+                    crop_orig.permute(0, 3, 1, 2),
+                    size=(target_h, target_w),
+                    mode="bicubic",
+                    align_corners=False,
+                ).permute(0, 2, 3, 1).clamp(0.0, 1.0)
+
+            best_crop_orig = crop_orig.clone()
+            best_score = initial_score if never_degrade else -1.0
+            best_iter = 0
+            iter_history: list[dict[str, Any]] = []
+
+            scaled_feather = max(1, int(round(feather_mask * (target_w / float(max(1, cw))))))
+            latent_noise_mask = (
+                create_feathered_mask(target_w, target_h, feather_radius=scaled_feather).unsqueeze(0)
+                if feather_mask > 0
+                else None
+            )
+
+            for it in range(1, max(1, int(max_iterations)) + 1):
+                total_iterations_run += 1
+                cur_denoise = float(max(0.05, min(0.92, base_denoise + (it - 1) * step_denoise_boost)))
+                cur_seed = (int(seed) + r_idx * 313 + it * 101) & 0xFFFFFFFFFFFFFFFF
+
+                cand_high = self._execute_sampling(
+                    model=model,
+                    clip=clip,
+                    vae=vae,
+                    crop_tensor=crop_high,
+                    positive_prompt=detail_positive_prompt,
+                    negative_prompt=detail_negative_prompt,
+                    steps=steps,
+                    cfg=cfg,
+                    sampler_name=sampler_name,
+                    scheduler=scheduler,
+                    denoise=cur_denoise,
+                    seed=cur_seed,
+                    pos_cond=pos_cond,
+                    neg_cond=neg_cond,
+                    noise_mask=latent_noise_mask,
+                )
+
+                if cand_high.shape[1] == ch and cand_high.shape[2] == cw:
+                    cand_orig = cand_high[:, :, :, :3].clamp(0.0, 1.0)
+                else:
+                    cand_orig = F.interpolate(
+                        cand_high[:, :, :, :3].permute(0, 3, 1, 2),
+                        size=(ch, cw),
+                        mode="bicubic",
+                        align_corners=False,
+                    ).permute(0, 2, 3, 1).clamp(0.0, 1.0)
+
+                cand_orig = cand_orig.to(device=crop_orig.device, dtype=crop_orig.dtype)
+                if lock_color_and_lighting:
+                    cand_orig = match_color_and_frequency_tensor(
+                        original_rgb=crop_orig,
+                        refined_rgb=cand_orig,
+                        color_match_mode="lab_reinhard_transfer",
+                        color_match_strength=0.80,
+                        high_freq_detail_preserve=1.0,
+                        low_freq_blur_radius=7,
+                    )
+
+                cand_score, cand_note = _score_crop_with_vlm_or_signal(
+                    cand_orig, vlm_config, detail_positive_prompt
+                )
+                iter_history.append(
+                    {
+                        "iteration": it,
+                        "denoise": round(cur_denoise, 3),
+                        "seed": cur_seed,
+                        "score": cand_score,
+                        "note": cand_note,
+                    }
+                )
+
+                if cand_score >= best_score:
+                    best_score = cand_score
+                    best_crop_orig = cand_orig.clone()
+                    best_iter = it
+
+                if cand_score >= float(target_score):
+                    break
+
+            # Blend best candidate crop back into out_image using contour or feathered mask
+            if isinstance(rec.get("contour_mask"), torch.Tensor):
+                blend_m = rec["contour_mask"].to(device=out_image.device, dtype=out_image.dtype)
+            elif use_contour_mask:
+                blend_m = _extract_subject_contour_mask(
+                    crop_orig,
+                    mode="edge_and_chroma_guided",
+                    expand_px=6,
+                    feather_px=max(4, int(feather_mask)),
+                ).to(device=out_image.device, dtype=out_image.dtype)
+            else:
+                blend_m = create_feathered_mask(cw, ch, feather_radius=feather_mask).to(
+                    device=out_image.device, dtype=out_image.dtype
+                )
+
+            blend_4d = blend_m.unsqueeze(0).unsqueeze(-1)
+            out_image[f_idx : f_idx + 1, cy0:cy1, cx0:cx1, :3] = (
+                best_crop_orig * blend_4d + crop_orig * (1.0 - blend_4d)
+            )
+            healed_masks[f_idx, cy0:cy1, cx0:cx1] = torch.maximum(
+                healed_masks[f_idx, cy0:cy1, cx0:cx1], blend_m.detach().cpu().float()
+            )
+            region_scores.append(best_score)
+            audit_regions.append(
+                {
+                    "region_index": r_idx,
+                    "frame_index": f_idx,
+                    "padded_crop": [cx0, cy0, cx1, cy1],
+                    "initial_score": initial_score,
+                    "final_score": best_score,
+                    "best_iteration": best_iter,
+                    "iterations_executed": len(iter_history),
+                    "history": iter_history,
+                    "status": "healed_to_target" if best_score >= float(target_score) else "best_effort_retained",
+                }
+            )
+
+        final_avg_score = round(sum(region_scores) / max(1, len(region_scores)), 2) if region_scores else 0.0
+        audit_payload = {
+            "target_score": target_score,
+            "max_iterations": max_iterations,
+            "total_iterations_run": total_iterations_run,
+            "final_best_score": final_avg_score,
+            "use_contour_mask": use_contour_mask,
+            "lock_color_and_lighting": lock_color_and_lighting,
+            "regions": audit_regions,
+        }
+        return (
+            out_image,
+            float(final_avg_score),
+            int(total_iterations_run),
+            healed_masks,
+            json.dumps(audit_payload, indent=2),
+        )
+
+
 NODE_CLASS_MAPPINGS = {
     "ZiggartAutoPromptDetailer": ZiggartAutoPromptDetailer,
     "ZiggartVLMImageCritic": ZiggartVLMImageCritic,
@@ -1714,6 +2549,9 @@ NODE_CLASS_MAPPINGS = {
     "ZiggartVLMInpaintPrompter": ZiggartVLMInpaintPrompter,
     "ZiggartSmartTileUpscaler": ZiggartSmartTileUpscaler,
     "ZiggartMultiSubjectDetailer": ZiggartMultiSubjectDetailer,
+    "ZiggartContourMaskRefiner": ZiggartContourMaskRefiner,
+    "ZiggartColorAndFrequencyMatcher": ZiggartColorAndFrequencyMatcher,
+    "ZiggartClosedLoopSelfHealingDetailer": ZiggartClosedLoopSelfHealingDetailer,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1724,4 +2562,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZiggartVLMInpaintPrompter": "GGUF Mask-Aware Inpaint Prompter",
     "ZiggartSmartTileUpscaler": "Krea2 VLM Smart Tile Upscaler",
     "ZiggartMultiSubjectDetailer": "Multi-Character Grounded Krea2 Detailer",
+    "ZiggartContourMaskRefiner": "Ziggart Contour Mask Refiner (Silhouette Matting)",
+    "ZiggartColorAndFrequencyMatcher": "Ziggart Color & Frequency Matcher (Reinhard Tone Lock)",
+    "ZiggartClosedLoopSelfHealingDetailer": "Ziggart Closed-Loop Self-Healing Detailer (Iterative Krea2)",
 }

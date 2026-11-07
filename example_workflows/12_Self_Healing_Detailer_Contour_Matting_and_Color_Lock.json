@@ -1,0 +1,185 @@
+{
+  "id": "d93f2643-ae56-4c74-b3f2-2b3c4162a2bb",
+  "revision": 0,
+  "last_node_id": 7,
+  "last_link_id": 10,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Note",
+      "pos": [-420.0, -220.0],
+      "size": [1850.0, 130.0],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Guide — Autonomous Closed-Loop Self-Healing Detailer, Contour Mask Refiner & Color/Frequency Matcher",
+      "properties": { "Node name for S&R": "Note" },
+      "widgets_values": [
+        "WORKFLOW 12 : CLOSED-LOOP SELF-HEALING DETAILER + CONTOUR MASK REFINER + COLOR & FREQUENCY MATCHER\n1. ZiggartWeVisOneDetector locates faces/hands -> ZiggartContourMaskRefiner converts rectangular boxes into tight silhouette contour masks.\n2. ZiggartClosedLoopSelfHealingDetailer evaluates each region (1..10), skips regions already >= target_score, and iteratively repairs failing regions while retaining the highest-scoring pass.\n3. ZiggartColorAndFrequencyMatcher applies perceptual Reinhard color transfer + frequency-separated detail blending so high-denoise passes never shift skin tone or lighting."
+      ],
+      "color": "#234",
+      "bgcolor": "#356"
+    },
+    {
+      "id": 2,
+      "type": "LoadImage",
+      "pos": [-420.0, 20.0],
+      "size": [320.0, 310.0],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        { "name": "IMAGE", "type": "IMAGE", "slot_index": 0, "links": [1, 2, 3, 4] },
+        { "name": "MASK", "type": "MASK", "slot_index": 1, "links": [] }
+      ],
+      "properties": { "Node name for S&R": "LoadImage" },
+      "widgets_values": ["example.png", "image"]
+    },
+    {
+      "id": 3,
+      "type": "CheckpointLoaderSimple",
+      "pos": [-420.0, 380.0],
+      "size": [320.0, 100.0],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        { "name": "MODEL", "type": "MODEL", "slot_index": 0, "links": [5] },
+        { "name": "CLIP", "type": "CLIP", "slot_index": 1, "links": [6] },
+        { "name": "VAE", "type": "VAE", "slot_index": 2, "links": [7] }
+      ],
+      "properties": { "Node name for S&R": "CheckpointLoaderSimple" },
+      "widgets_values": ["krea2_turbo.safetensors"]
+    },
+    {
+      "id": 4,
+      "type": "ZiggartWeVisOneDetector",
+      "pos": [-40.0, 20.0],
+      "size": [380.0, 280.0],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        { "name": "image", "type": "IMAGE", "link": 1 }
+      ],
+      "outputs": [
+        { "name": "detection_preview", "type": "IMAGE", "slot_index": 0, "links": [] },
+        { "name": "mask", "type": "MASK", "slot_index": 1, "links": [] },
+        { "name": "cropped_images", "type": "IMAGE", "slot_index": 2, "links": [] },
+        { "name": "bboxes_json", "type": "STRING", "slot_index": 3, "links": [8] }
+      ],
+      "title": "1. WeVisOne-VL Detector",
+      "properties": { "Node name for S&R": "ZiggartWeVisOneDetector" },
+      "widgets_values": ["WeVisOne-VL-4B-Instruct.Q4_K_M.gguf", "mmproj-WeVisOne-VL-4B-f16.gguf", "face and hands", 1.4, 6, 12, true]
+    },
+    {
+      "id": 5,
+      "type": "ZiggartContourMaskRefiner",
+      "pos": [400.0, 20.0],
+      "size": [400.0, 260.0],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        { "name": "image", "type": "IMAGE", "link": 2 },
+        { "name": "bboxes_json", "type": "STRING", "link": 8 }
+      ],
+      "outputs": [
+        { "name": "combined_contour_mask", "type": "MASK", "slot_index": 0, "links": [10] },
+        { "name": "crop_contour_masks", "type": "MASK", "slot_index": 1, "links": [] },
+        { "name": "contour_overlay_preview", "type": "IMAGE", "slot_index": 2, "links": [] },
+        { "name": "refined_bboxes", "type": "ZIGGART_BBOX", "slot_index": 3, "links": [9] }
+      ],
+      "title": "2. Contour Mask Refiner",
+      "properties": { "Node name for S&R": "ZiggartContourMaskRefiner" },
+      "widgets_values": ["edge_and_chroma_guided", 1.3, 6, 12, 0.15, "[]"]
+    },
+    {
+      "id": 6,
+      "type": "ZiggartClosedLoopSelfHealingDetailer",
+      "pos": [860.0, 20.0],
+      "size": [450.0, 480.0],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        { "name": "image", "type": "IMAGE", "link": 3 },
+        { "name": "model", "type": "MODEL", "link": 5 },
+        { "name": "clip", "type": "CLIP", "link": 6 },
+        { "name": "vae", "type": "VAE", "link": 7 },
+        { "name": "bboxes", "type": "ZIGGART_BBOX", "link": 9 }
+      ],
+      "outputs": [
+        { "name": "healed_image", "type": "IMAGE", "slot_index": 0, "links": [11] },
+        { "name": "final_best_score", "type": "FLOAT", "slot_index": 1, "links": [] },
+        { "name": "iterations_run", "type": "INT", "slot_index": 2, "links": [] },
+        { "name": "healed_mask", "type": "MASK", "slot_index": 3, "links": [] },
+        { "name": "healing_audit_json", "type": "STRING", "slot_index": 4, "links": [] }
+      ],
+      "title": "3. Closed-Loop Self-Healing Detailer",
+      "properties": { "Node name for S&R": "ZiggartClosedLoopSelfHealingDetailer" },
+      "widgets_values": [
+        "masterpiece, ultra-detailed, anatomically perfect, sharp focus",
+        "blurry, deformed, malformed hands, extra fingers, bad anatomy, artifacts",
+        7.8,
+        2,
+        1.4,
+        1024,
+        8,
+        1.5,
+        0.42,
+        0.08,
+        "euler",
+        "simple",
+        42,
+        16,
+        true,
+        true,
+        true,
+        "[]"
+      ]
+    },
+    {
+      "id": 7,
+      "type": "ZiggartColorAndFrequencyMatcher",
+      "pos": [1380.0, 20.0],
+      "size": [420.0, 240.0],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        { "name": "original_image", "type": "IMAGE", "link": 4 },
+        { "name": "refined_image", "type": "IMAGE", "link": 11 },
+        { "name": "mask", "type": "MASK", "link": 10 }
+      ],
+      "outputs": [
+        { "name": "matched_image", "type": "IMAGE", "slot_index": 0, "links": [] },
+        { "name": "difference_heatmap", "type": "IMAGE", "slot_index": 1, "links": [] }
+      ],
+      "title": "4. Color & Frequency Matcher",
+      "properties": { "Node name for S&R": "ZiggartColorAndFrequencyMatcher" },
+      "widgets_values": ["lab_reinhard_transfer", 0.85, 1.0, 9]
+    }
+  ],
+  "links": [
+    [1, 2, 0, 4, 0, "IMAGE"],
+    [2, 2, 0, 5, 0, "IMAGE"],
+    [3, 2, 0, 6, 0, "IMAGE"],
+    [4, 2, 0, 7, 0, "IMAGE"],
+    [5, 3, 0, 6, 1, "MODEL"],
+    [6, 3, 1, 6, 2, "CLIP"],
+    [7, 3, 2, 6, 3, "VAE"],
+    [8, 4, 3, 5, 1, "STRING"],
+    [9, 5, 3, 6, 4, "ZIGGART_BBOX"],
+    [10, 5, 0, 7, 2, "MASK"],
+    [11, 6, 0, 7, 1, "IMAGE"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}

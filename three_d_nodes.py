@@ -1657,28 +1657,38 @@ def _install_zero_build_3d_shims(vendor_root: Path, auto_install: bool = True) -
         ("clip", "https://github.com/openai/CLIP.git", "CLIP"),
         ("alpha_clip", "https://github.com/SunzeY/AlphaCLIP.git", "AlphaCLIP"),
     ]
+    git_env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
     for mod_name, repo_url, folder_name in extra_git_deps:
         repo_dir = vendor_root / folder_name
         if repo_dir.is_dir() and str(repo_dir) not in sys.path:
             sys.path.insert(0, str(repo_dir))
         if importlib.util.find_spec(mod_name) is None and auto_install:
             if not (repo_dir / ".git").exists():
-                subprocess.run(
-                    ["git", "clone", "--depth", "1", repo_url, str(repo_dir)],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                )
+                try:
+                    subprocess.run(
+                        ["git", "clone", "--depth", "1", repo_url, str(repo_dir)],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        timeout=180,
+                        env=git_env,
+                    )
+                except subprocess.TimeoutExpired:
+                    pass
             if repo_dir.is_dir() and str(repo_dir) not in sys.path:
                 sys.path.insert(0, str(repo_dir))
 
     if importlib.util.find_spec("loralib") is None and auto_install:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "loralib", "ftfy", "regex"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "loralib", "ftfy", "regex"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+        except subprocess.TimeoutExpired:
+            pass
 
     # 1b. Compatibility shims for Transformers v5+ where legacy pruning/head-mask helpers
     # used by SPAR3D's bundled DINOv2 implementation were removed.
@@ -1848,18 +1858,31 @@ def _ensure_backend_installed(package_name: str, auto_install: bool = True) -> b
     vendor_root.mkdir(parents=True, exist_ok=True)
     target_dir = vendor_root / folder_name
 
+    git_env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
     if not (target_dir / ".git").exists():
         clone_cmd = ["git", "clone", "--depth", "1", repo_url, str(target_dir)]
-        subprocess.run(clone_cmd, check=False, capture_output=True, text=True)
+        try:
+            subprocess.run(clone_cmd, check=False, capture_output=True, text=True, timeout=180, env=git_env)
+        except subprocess.TimeoutExpired:
+            pass
 
     if target_dir.is_dir():
         if str(target_dir) not in sys.path:
             sys.path.insert(0, str(target_dir))
         if (target_dir / "setup.py").is_file() or (target_dir / "pyproject.toml").is_file():
             pip_cmd = [sys.executable, "-m", "pip", "install", "--no-build-isolation", "-e", str(target_dir)]
-            res = subprocess.run(pip_cmd, check=False, capture_output=True, text=True)
-            if res.returncode != 0:
-                subprocess.run([sys.executable, "-m", "pip", "install", "-e", str(target_dir)], check=False, capture_output=True, text=True)
+            try:
+                res = subprocess.run(pip_cmd, check=False, capture_output=True, text=True, timeout=180)
+                if res.returncode != 0:
+                    subprocess.run(
+                        [sys.executable, "-m", "pip", "install", "-e", str(target_dir)],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        timeout=180,
+                    )
+            except subprocess.TimeoutExpired:
+                pass
 
     if package_name in ("spar3d", "hy3dgen"):
         _install_zero_build_3d_shims(vendor_root, auto_install=auto_install)
@@ -2424,7 +2447,7 @@ class ZiggartIdolImageToGaussian:
                     ["bf16", "fp16", "fp32"],
                     {"default": "bf16", "tooltip": "Inference precision (bf16/fp16 recommended for RTX 3070 Ti)."},
                 ),
-                "seed": ("INT", {"default": 42, "min": 0, "max": 2147483647, " step": 1}),
+                "seed": ("INT", {"default": 42, "min": 0, "max": 2147483647, "step": 1}),
                 "filename_prefix": ("STRING", {"default": "ziggart_idol_splat"}),
                 "unload_comfy_models": (
                     "BOOLEAN",

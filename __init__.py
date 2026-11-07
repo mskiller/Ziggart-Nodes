@@ -1,5 +1,20 @@
 """ComfyUI nodes for local GGUF vision-language models, Wildcards, and Krea2 Detailers."""
 
+if not __package__:
+    import sys
+    import types
+    from pathlib import Path
+
+    _pkg_name = "_ziggart_root_pkg"
+    if _pkg_name not in sys.modules:
+        _pkg = types.ModuleType(_pkg_name)
+        _pkg.__path__ = [str(Path(__file__).resolve().parent)]
+        sys.modules[_pkg_name] = _pkg
+    __package__ = _pkg_name
+    if __spec__ is not None:
+        __spec__.name = _pkg_name
+        __spec__.submodule_search_locations = [str(Path(__file__).resolve().parent)]
+
 from .nodes import (
     NODE_CLASS_MAPPINGS as BASE_CLASS_MAPPINGS,
     NODE_DISPLAY_NAME_MAPPINGS as BASE_DISPLAY_MAPPINGS,

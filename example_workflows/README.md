@@ -1,10 +1,10 @@
 # Ziggart Nodes — Workflows Exemples (`example_workflows/`)
 
-Ce dossier contient **10 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 29 nœuds Ziggart** dans tous leurs modes et cas d'usage.
+Ce dossier contient **12 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 37 nœuds Ziggart** dans tous leurs modes et cas d'usage.
 
 ---
 
-## Liste des 10 Workflows et des Usages Couverts
+## Liste des 12 Workflows et des Usages Couverts
 
 ### 1. [`01_Wildcards_3_Ways_and_LoRA_Encode.json`](./01_Wildcards_3_Ways_and_LoRA_Encode.json)
 Tour complet des **5 nœuds de génération par Wildcards** et de leurs différents modes :
@@ -121,4 +121,30 @@ Pipeline complet des **6 nœuds `Ziggart/Krea2 Prompt Director`** optimisés pou
 - **Créateur de Personnage de la Tête aux Pieds (`ZiggartAnatomyCharacterCreator`)** :
   - Construit un personnage (`Female`, `Male`, `Creature`) à travers **28 sections anatomiques** où chaque section peut être mise sur `[None]` ou pilotée par un préréglage de vue (`Full Body Front`, `Back View / Seen From Behind`, `Back Over-the-Shoulder`, `Upper Body Portrait`, `Close-Up Face Only`, `Lower Body & Legs`).
 - **Nœud All-in-One (`ZiggartKrea2MasterPromptDirector`)** :
-  - Regroupe l'ensemble de la création Solo / Duo, des filtres Tenue/Anatomie et du compilateur Krea2 dans un seul nœud.
+  - Regroupe l'ensemble de la création Solo / Duo, des filtres Tenue/Anatomie, du compilateur Krea2 et du bouton **`🎲 Pre-Generate Prompt (Test Without Queue)`** dans un seul nœud.
+
+---
+
+### 11. [`11_Trio_Ensemble_Spatial_Layout_and_Regional_Conditioning.json`](./11_Trio_Ensemble_Spatial_Layout_and_Regional_Conditioning.json)
+Pipeline complet **Multi-Personnages Trio/Ensemble + Conditionnement Régional Spatial + Optimisation d'Attention** :
+- **`ZiggartKrea2TrioEnsembleDirector`** :
+  - Assemble jusqu'à **3 personnages complets** (`char_1_slot`, `char_2_slot`, `char_3_slot`) + un compagnon/monture/accessoire (`companion_or_prop_text`) et génère à la fois le prompt compilé Krea2 et une disposition spatiale `ZIGGART_SPATIAL_LAYOUT`.
+- **`ZiggartSpatialLayoutDesigner` (Interactive Regions)** :
+  - Permet de dessiner/redimensionner jusqu'à 4 boîtes englobantes 2D (`[x1, y1, x2, y2]`) directement à la souris sur le canevas interactif du nœud (ou via les curseurs) et de les connecter **optionnellement** à `ZiggartRegionalConditioningComposer`.
+- **`ZiggartRegionalConditioningComposer`** :
+  - Encode le décor global (`base_scene_prompt`) et chaque personnage (`char_1..3_prompt`) avec des masques spatiaux adoucis (`feather_ratio`) pour éviter toute fuite d'attributs ou de vêtements entre personnages (utilise `spatial_layout` s'il est connecté, ou `layout_preset` sinon).
+- **`ZiggartPromptTokenInspectorAndCompressor`** :
+  - Analyse le budget de tokens CLIP (blocs de 77 tokens) et Qwen3VL-4B, détecte les doublons/contradictions et compresse les prompts trop longs en préservant les verrous personnages.
+- **`ZiggartAttentionSelector`** :
+  - Détecte et applique automatiquement le meilleur backend d'attention (`sage`, `flash`, `xformers`, `pytorch` SDPA) sur le `MODEL`.
+
+---
+
+### 12. [`12_Self_Healing_Detailer_Contour_Matting_and_Color_Lock.json`](./12_Self_Healing_Detailer_Contour_Matting_and_Color_Lock.json)
+Pipeline **Auto-Réparation en Boucle Fermée, Détourage de Silhouette & Verrouillage Colorimétrique** :
+- **`ZiggartContourMaskRefiner`** :
+  - Convertit les boîtes rectangulaires de **WeVisOne-VL Detector** en masques de contour ajustés à la silhouette du sujet (contraste bord/fond + énergie Sobel + fermeture morphologique + fondu), évitant les halos de fond autour des doigts ou des cheveux.
+- **`ZiggartClosedLoopSelfHealingDetailer`** :
+  - Évalue chaque région détectée (`1.0–10.0`), ignore les régions déjà `>= target_score`, ré-échantillonne itérativement (`1..max_iterations`) les zones défectueuses avec `step_denoise_boost`, et conserve systématiquement la meilleure passe (`never_degrade = True`).
+- **`ZiggartColorAndFrequencyMatcher`** :
+  - Applique un transfert colorimétrique perceptuel de Reinhard (`lab_reinhard_transfer`) combiné à une séparation de fréquences pour préserver les détails haute fréquence tout en verrouillant la teinte de peau et l'éclairage local.

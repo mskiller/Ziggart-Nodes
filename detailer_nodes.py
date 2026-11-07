@@ -666,9 +666,18 @@ class ZiggartDetailerKrea2:
             if noise_mask is not None:
                 latent_crop["noise_mask"] = noise_mask
             if comfy is not None and hasattr(comfy, "sample") and hasattr(comfy.sample, "sample"):
+                if hasattr(comfy.sample, "prepare_noise"):
+                    noise = comfy.sample.prepare_noise(latent_crop["samples"], seed)
+                else:
+                    gen = torch.Generator(device="cpu").manual_seed(int(seed) & 0xFFFFFFFFFFFFFFFF)
+                    noise = torch.randn(
+                        latent_crop["samples"].shape,
+                        generator=gen,
+                        dtype=latent_crop["samples"].dtype,
+                    ).to(latent_crop["samples"].device)
                 samples = comfy.sample.sample(
                     model,
-                    torch.randn_like(latent_crop["samples"]),
+                    noise,
                     steps,
                     cfg,
                     sampler_name,

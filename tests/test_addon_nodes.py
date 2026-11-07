@@ -291,5 +291,106 @@ class SmartTileUpscalerTests(unittest.TestCase):
         self.assertEqual(mock_clip.tokenize.call_count, 2)
 
 
+class UpgradeBSelfHealingAndMattingTests(unittest.TestCase):
+    def test_contour_mask_refiner_and_stitch_integration(self):
+        img = torch.zeros((1, 128, 128, 3), dtype=torch.float32)
+        # Bright foreground object in the center of bbox [20, 20, 100, 100]
+        img[:, 40:80, 40:80, :] = torch.tensor([0.9, 0.3, 0.2])
+
+        refiner = addon_nodes.ZiggartContourMaskRefiner()
+        bboxes = [(20, 20, 100, 100)]
+        comb_mask, crop_masks, preview, refined_bboxes = refiner.refine_contours(
+            image=img,
+            refinement_mode="edge_and_chroma_guided",
+            crop_factor=1.2,
+            expand_contour_px=4,
+            feather_radius_px=6,
+            bboxes=bboxes,
+        )
+        self.assertEqual(comb_mask.shape, (1, 128, 128))
+        self.assertEqual(preview.shape, (1, 128, 128, 3))
+        self.assertEqual(len(refined_bboxes), 1)
+        self.assertIn("contour_mask", refined_bboxes[0])
+        # Center of object should have higher mask value than outer corner
+        self.assertGreater(comb_mask[0, 60, 60].item(), comb_mask[0, 22, 22].item())
+
+    def test_color_and_frequency_matcher_locks_tone_and_preserves_detail(self):
+        orig = torch.full((1, 64, 64, 3), 0.35, dtype=torch.float32)
+        # Refined has shifted overall brightness (0.75) plus high-frequency checkerboard detail
+        refined = torch.full((1, 64, 64, 3), 0.75, dtype=torch.float32)
+        refined[:, ::2, ::2, :] += 0.12
+
+        matcher = addon_nodes.ZiggartColorAndFrequencyMatcher()
+        matched, heatmap = matcher.match_color(
+            original_image=orig,
+            refined_image=refined,
+            color_match_mode="lab_reinhard_transfer",
+            color_match_strength=1.0,
+            high_freq_detail_preserve=1.0,
+            low_freq_blur_radius=5,
+        )
+        self.assertEqual(matched.shape, (1, 64, 64, 3))
+        self.assertEqual(heatmap.shape, (1, 64, 64, 3))
+        # Mean luminance of matched should be much closer to orig (0.35) than refined (0.78)
+        self.assertLess(abs(matched.mean().item() - orig.mean().item()), 0.08)
+        # High-frequency detail (std > 0) preserved
+        self.assertGreater(matched.std().item(), 0.01)
+
+    def test_closed_loop_self_healing_detailer_iterates_and_improves(self):
+        node = addon_nodes.ZiggartClosedLoopSelfHealingDetailer()
+        mock_model = mock.MagicMock()
+        mock_clip = mock.MagicMock()
+        mock_clip.tokenize.return_value = ["tok"]
+        mock_clip.encode_from_tokens.return_value = (torch.zeros((1, 8, 64)), torch.zeros((1, 64)))
+
+        mock_vae = mock.MagicMock()
+        mock_vae.encode.side_effect = lambda pixels: torch.zeros(
+            (pixels.shape[0], 16, pixels.shape[1] // 8, pixels.shape[2] // 8)
+        )
+
+        # Decode produces a crisp textured crop so signal quality score increases
+        def fake_decode(samples):
+            h = samples.shape[2] * 8
+            w = samples.shape[3] * 8
+            out = torch.full((samples.shape[0], h, w, 3), 0.5, dtype=torch.float32)
+            out[:, ::2, ::2, :] = 0.85
+            out[:, 1::2, 1::2, :] = 0.15
+            return out
+
+        mock_vae.decode.side_effect = fake_decode
+
+        # Flat blurry input image -> low initial score
+        img = torch.full((1, 128, 128, 3), 0.5, dtype=torch.float32)
+        healed_img, best_score, iters_run, healed_mask, audit_json = node.self_heal(
+            image=img,
+            model=mock_model,
+            clip=mock_clip,
+            vae=mock_vae,
+            detail_positive_prompt="sharp detailed face",
+            detail_negative_prompt="blurry",
+            target_score=8.5,
+            max_iterations=2,
+            crop_factor=1.2,
+            target_detail_resolution=128,
+            steps=4,
+            cfg=1.5,
+            base_denoise=0.40,
+            step_denoise_boost=0.10,
+            sampler_name="euler",
+            scheduler="simple",
+            seed=42,
+            feather_mask=8,
+            use_contour_mask=True,
+            lock_color_and_lighting=True,
+            never_degrade=True,
+            bboxes=[(16, 16, 112, 112)],
+        )
+        self.assertEqual(healed_img.shape, (1, 128, 128, 3))
+        self.assertGreaterEqual(iters_run, 1)
+        self.assertGreater(best_score, 3.0)
+        audit = json.loads(audit_json)
+        self.assertEqual(len(audit["regions"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

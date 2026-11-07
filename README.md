@@ -1,44 +1,51 @@
-# Ziggart Nodes for ComfyUI (`v1.4.0`)
+# Ziggart Nodes for ComfyUI (`v1.5.0`)
 
-A complete collection of **30 local, in-process ComfyUI nodes** combining:
-- **Zero-Freeze 700+ MB Wildcard & Canonical Theme Engines** (Way A + Way C architectures)
-- **Krea2 (`Qwen3VL-4B` CLIP) Prompt Director Suite** (Modular & All-in-One Theme/Universe context, Head-to-Toe 28-Section Anatomy Character Creator with per-section `[None]` & View Presets, 1:1 Character-Outfit linking, and automatic 9-zone Outfit $\rightarrow$ Anatomy occlusion filtering)
+A complete collection of **37 local, in-process ComfyUI nodes** combining:
+- **Zero-Freeze 700+ MB Wildcard & Canonical Theme Engines** (Way A + Way C architectures + **`🎲 Pre-Generate Prompt (Test Without Queue)`** UI button + Token Inspector/Compressor)
+- **Krea2 (`Qwen3VL-4B` CLIP) Prompt Director & Regional Conditioning Suite** (Modular & All-in-One Theme/Universe context, Trio/Ensemble Director, Interactive 2D Spatial Layout BBox Designer, Regional Conditioning Composer, Head-to-Toe 28-Section Anatomy Character Creator with per-section `[None]` & View Presets, 1:1 Character-Outfit linking, and automatic 9-zone Outfit $\rightarrow$ Anatomy occlusion filtering)
 - **GGUF Vision-Language Models (VLMs)** via `llama-cpp-python`
-- **WeVisOne-VL Open-Vocabulary Visual Grounding**
-- **Krea 2 Turbo** High-Resolution Detailing & Tiled Upscaling
+- **WeVisOne-VL Open-Vocabulary Visual Grounding & Contour Silhouette Matting**
+- **Krea 2 Turbo** High-Resolution Detailing, **Autonomous Closed-Loop Self-Healing Detailer**, **Reinhard Color & Frequency Matcher**, and **Tiled Upscaling**
 - **RTX 3070 Ti (8GB–16GB VRAM) 3D Generation Suite**: **`speridlabs/idol` Image-to-Gaussian Splat (`.ply`)**, **Gaussian-to-Mesh (`.glb`/`.obj`)**, **SPAR3D**, **Hunyuan3D-2mini**, and **360° Turntable Rendering**
 - **Dynamic System Attention Selector (`Ziggart/Model`)**: Startup detection and per-model/global switching across **SageAttention**, **FlashAttention (v2/v3)**, **xFormers**, **PyTorch SDPA** (`flash`, `mem_efficient`, `cudnn`, `math`), **Sub-Quad**, **Split**, and **Basic** attention
 
 ---
 
-## Included Nodes (30 Nodes)
+## Included Nodes (37 Nodes)
 
 | Display Name | Internal Class | Category | Purpose |
 | :--- | :--- | :--- | :--- |
-| **Ziggart Fast Wildcard Processor** | `ZiggartWildcardProcessor` | `Ziggart/Wildcards` | **(Way C1)** Ultra-fast drop-in replacement for `ImpactWildcardProcessor` with byte-offset YAML indexing, $O(1)$ `.txt` lookup, and a working `select_to_add_wildcard` dropdown. |
-| **Ziggart Wildcard Processor (All-in-One Pillars & Mixed)** | `ZiggartWildcardProcessorAllInOne` | `Ziggart/Wildcards` | **(Way A)** All-in-one wildcard processor with 6 dedicated `Collection/` Pillar & Mixed dropdowns + `wildcard_text`. |
+| **Ziggart Fast Wildcard Processor** | `ZiggartWildcardProcessor` | `Ziggart/Wildcards` | **(Way C1)** Ultra-fast drop-in replacement for `ImpactWildcardProcessor` with byte-offset YAML indexing, $O(1)$ `.txt` lookup, `select_to_add_wildcard` dropdown, and **`🎲 Pre-Generate Prompt (Test Without Queue)`** button. |
+| **Ziggart Wildcard Processor (All-in-One Pillars & Mixed)** | `ZiggartWildcardProcessorAllInOne` | `Ziggart/Wildcards` | **(Way A)** All-in-one wildcard processor with 6 dedicated `Collection/` Pillar & Mixed dropdowns + `wildcard_text` + **`🎲 Pre-Generate Prompt`** button. |
 | **Ziggart Collection Scene Builder** | `ZiggartCollectionSceneBuilder` | `Ziggart/Wildcards` | **(Way C2)** Modular visual scene composer organized around `Collection/` folders (`Macro/YAML/Themes`, `Character/Anatomy`, `Outfit/Pose`, `Environment/Vehicle`, `Style/Camera/Lighting`, and `Mixed`). |
-| **Ziggart Fast Wildcard Encode (LoRA)** | `ZiggartWildcardEncode` | `Ziggart/Wildcards` | Expands wildcards, extracts & loads `<lora:name:model_w:clip_w>` tags, and encodes `BREAK`-separated segments into `CONDITIONING`. |
+| **Ziggart Fast Wildcard Encode (LoRA)** | `ZiggartWildcardEncode` | `Ziggart/Wildcards` | Expands wildcards, extracts & loads `<lora:name:model_w:clip_w>` tags, encodes `BREAK`-separated segments into `CONDITIONING`, and includes **`🎲 Pre-Generate Prompt`**. |
 | **Ziggart Canonical Theme & Character-Outfit Resolver** | `ZiggartCanonicalThemeResolver` | `Ziggart/Wildcards` | Reads `Character-Outfits.json` inside `Collection/Themes/*/` to pair characters (`Single`, `Duo`, `Trio`) with their authentic canonical outfits and matching theme environment/style. |
 | **Wildcard-to-VLM Prompt Harmonizer** | `ZiggartWildcardVLMEnhancer` | `Ziggart/Wildcards` | Uses your local GGUF LLM/VLM to rewrite stitched wildcard fragments into cohesive natural-language prose for **Krea 2 Turbo / Flux** while keeping character/outfit locks intact. |
 | **Ziggart Prompt Recipe & Comparison Saver** | `ZiggartWildcardRecipeSaver` | `Ziggart/Wildcards` | Saves images (or side-by-side `Base vs Refined` comparison grids) with embedded PNG metadata (`wildcard_template`, `populated_text`, `seed`) and a `.json` recipe sidecar. |
+| **Ziggart Prompt Token Inspector & Compressor (CLIP / Qwen3VL)** | `ZiggartPromptTokenInspectorAndCompressor` | `Ziggart/Wildcards` | Inspects CLIP (77-token chunks) & Qwen3VL/T5 token budgets, flags conflicting/duplicate clauses, and compacts over-budget prompts while preserving character locks. |
 | **Ziggart Krea2 Theme & Universe Context** | `ZiggartThemeUniverseContext` | `Ziggart/Krea2 Prompt Director` | Selects a Theme (`Collection/Themes/*`), Universe (`Collection/Universes/*` with `source.json` branches), or `Free Crossover` context + `mood_filter` and full-prompt exclusion rules. |
 | **Ziggart Krea2 Character Unit Builder (Outfit & Anatomy Filter)** | `ZiggartCharacterUnitBuilder` | `Ziggart/Krea2 Prompt Director` | Builds a Primary or Secondary Character slot with 1:1 `Canonical` / `Compatible` / `Free` / `Nude` outfit linking and automatic 9-zone Outfit $\rightarrow$ Anatomy occlusion filtering. |
 | **Ziggart Krea2 Head-to-Toe Anatomy Character Creator** | `ZiggartAnatomyCharacterCreator` | `Ziggart/Krea2 Prompt Director` | Builds a character from Head to Toe across **28 anatomical sections** (`Collection/Anatomy/{Female,Male,Creature}`) where any section can be set to `[None]` or controlled via View Presets (`Front`, `Back View`, `Over-the-Shoulder`, `Portrait`, `Face Only`, `Lower Body`). |
 | **Ziggart Krea2 Scene Stage (Style, Action, Env, Light, Camera)** | `ZiggartSceneStageAtmosphere` | `Ziggart/Krea2 Prompt Director` | Selects and resolves pure `(style)`, `(action / duo interaction)`, `(environment)` (including `ziggart/Env/*`), `(lighting)`, and `(camera)` components across `Collection/`, `ziggart/`, `jff/`, and `Encours/`. |
 | **Ziggart Krea2 Prompt Assembler (Qwen3VL-4B)** | `ZiggartKrea2PromptAssembler` | `Ziggart/Krea2 Prompt Director` | Compiles `char_1_slot`, optional `char_2_slot`, and `stage_data` into **Krea2 (`Qwen3VL-4B`)** prompts (`scoped`, `balanced`, `compact`, `rich`) with token estimation and detailer outputs. |
-| **Ziggart Krea2 Master Prompt Director (All-in-One)** | `ZiggartKrea2MasterPromptDirector` | `Ziggart/Krea2 Prompt Director` | Combines Theme/Universe selection, Solo/Duo Character & Outfit Linker, automatic Anatomy Occlusion filtering, Scene Stage, and Krea2 compilation into a single all-in-one node. |
+| **Ziggart Krea2 Master Prompt Director (All-in-One)** | `ZiggartKrea2MasterPromptDirector` | `Ziggart/Krea2 Prompt Director` | Combines Theme/Universe selection, Solo/Duo Character & Outfit Linker, automatic Anatomy Occlusion filtering, Scene Stage, Krea2 compilation, and **`🎲 Pre-Generate Prompt`** into a single node. |
+| **Ziggart Krea2 Trio & Ensemble Director (3-Char + Spatial Layout)** | `ZiggartKrea2TrioEnsembleDirector` | `Ziggart/Krea2 Prompt Director` | Assembles up to 3 Character Slots (`char_1`, `char_2`, `char_3`) + optional Companion/Prop + Scene Stage into a structured Krea2 prompt and outputs a `ZIGGART_SPATIAL_LAYOUT`. |
+| **Ziggart Spatial Layout & BBox Designer (Interactive Regions)** | `ZiggartSpatialLayoutDesigner` | `Ziggart/Krea2 Prompt Director` | Interactive 2D Bounding Box Designer (up to 4 regions with mouse drag/resize canvas widget) outputting `ZIGGART_SPATIAL_LAYOUT` (connects optionally to `ZiggartRegionalConditioningComposer`), `ZIGGART_BBOX`, and a color-coded preview image. |
+| **Ziggart Regional Conditioning Composer (Multi-Char Masking)** | `ZiggartRegionalConditioningComposer` | `Ziggart/Krea2 Prompt Director` | Eliminates multi-character attribute bleeding by encoding `base_scene_prompt` + `char_1..3_prompt` into feathered spatially masked ComfyUI `CONDITIONING` (uses `spatial_layout` when connected, or built-in `layout_preset` when disconnected). |
 | **Detailers Krea2** | `ZiggartDetailerKrea2` | `Ziggart/Detailer` | Open-vocabulary object detection (**WeVisOne-VL**) paired with high-resolution **Krea 2 Turbo** resampling, latent noise masking, and Gaussian feathered blending. |
 | **Detailers Krea2 (VLM Auto-Prompt)** | `ZiggartAutoPromptDetailer` | `Ziggart/Detailer` | Detects target zones, uses the VLM to write a custom micro-prompt for each individual crop while in VRAM, unloads once, and refines every crop with Krea 2 Turbo. |
 | **Multi-Character Grounded Krea2 Detailer** | `ZiggartMultiSubjectDetailer` | `Ziggart/Detailer` | Locates up to 3 distinct subjects/characters with WeVisOne-VL and refines each subject crop with Krea 2 Turbo using its own dedicated character prompt. |
+| **Ziggart Closed-Loop Self-Healing Detailer (Iterative Krea2)** | `ZiggartClosedLoopSelfHealingDetailer` | `Ziggart/Detailer` | Autonomous `1..max_iterations` self-healing loop: scores each crop (`1–10`), skips crops already `>= target_score`, iteratively resamples failing crops with contour matting & color lock, and retains the highest-scoring pass. |
+| **Ziggart Color & Frequency Matcher (Reinhard Tone Lock)** | `ZiggartColorAndFrequencyMatcher` | `Ziggart/Detailer` | Eliminates skin-tone shifts and lighting seams after high-denoise passes using perceptual Reinhard color transfer and frequency-separated detail blending. |
 | **Krea2 VLM Smart Tile Upscaler** | `ZiggartSmartTileUpscaler` | `Ziggart/Detailer` | Overlapping tiled upscaler (1.0×–4.0×) with optional per-tile VLM captioning (preventing background hallucinations) or fast pure-Krea2 tiled upscaling. |
 | **GGUF Vision Prompt** | `ZiggartGGUFVisionPrompt` | `Ziggart/LLM` | Multimodal prompt generation, image analysis, and specialist passes (Composition, Subject, Style). |
 | **GGUF VLM Loader** | `ZiggartGGUFVLMLoader` | `Ziggart/LLM` | Reusable `GGUF_VL_MODEL` configuration node shared across all Ziggart VLM & Detailer nodes. |
 | **GGUF Quality & Anatomy Critic** | `ZiggartVLMImageCritic` | `Ziggart/LLM` | Scans generated images for defects (hands, eyes, anatomy, text, artifacts), outputting defect boxes, masks, repair prompts, and a pass/fail boolean gate. |
 | **GGUF Mask-Aware Inpaint Prompter** | `ZiggartVLMInpaintPrompter` | `Ziggart/LLM` | Highlights a user `MASK` on the scene and uses the VLM to generate a lighting- and style-harmonized inpaint prompt + crop coordinates. |
 | **WeVisOne-VL Detector** | `ZiggartWeVisOneDetector` | `Ziggart/Detector` | Standalone open-vocabulary grounding node outputting bounding-box previews, masks, cropped patches, and `bboxes_json`. |
+| **Ziggart Contour Mask Refiner (Silhouette Matting)** | `ZiggartContourMaskRefiner` | `Ziggart/Detector` | Refines rectangular bounding boxes (`bboxes_json` or `ZIGGART_BBOX`) into tight subject-contour alpha masks using border-background contrast, Sobel edge energy, and morphological closing. |
 | **BBox Crop** | `ZiggartCropByBBox` | `Ziggart/Detector` | Extracts mod-8 padded, resolution-standardized crops from `bboxes_json` and outputs a `ZIGGART_STITCH_PIPE` for custom ComfyUI workflows. |
-| **BBox Feathered Stitch** | `ZiggartStitchByBBox` | `Ziggart/Detector` | Blends externally processed crops back into their original locations using `ZIGGART_STITCH_PIPE` and Gaussian alpha feathering. |
+| **BBox Feathered Stitch** | `ZiggartStitchByBBox` | `Ziggart/Detector` | Blends externally processed crops back into their original locations using `ZIGGART_STITCH_PIPE` and Gaussian alpha feathering (or optional `custom_crop_masks` from `ZiggartContourMaskRefiner`). |
 | **Idol Image to 3D Gaussian Splat (PLY)** | `ZiggartIdolImageToGaussian` | `Ziggart/3D` | Generates 3D Gaussian Splats (`.ply`, up to 1,048,576 Gaussians) from a single image using **`speridlabs/idol`** (`~7.2 GB` peak VRAM, auto-evicts ComfyUI VRAM). |
 | **Convert Idol Gaussian Splat to 3D Mesh (GLB/OBJ)** | `ZiggartGaussianToMesh` | `Ziggart/3D` | Converts `ZIGGART_GSPLAT` or `.ply` Gaussian Splats into watertight/smoothed polygon 3D meshes (`.glb`, `.obj`, `.ply`) with vertex colors and normals. |
 | **SPAR3D Image to 3D Mesh (Fast 7GB VRAM)** | `ZiggartSPAR3DImageToMesh` | `Ziggart/3D` | Generates UV-unwrapped textured 3D meshes (`.glb`) + intermediate point clouds (`.ply`) in ~1–2s using Stability AI's **SPAR3D** with `low_vram_mode=True` (`~7.0 GB` VRAM). |
@@ -102,7 +109,7 @@ A complete collection of **30 local, in-process ComfyUI nodes** combining:
   - **Working Categorized Dropdowns**: Organizes wildcards into browser-friendly `Collection/` Pillar dropdowns + pure facet selectors so ComfyUI never chokes on an 80,000-item combo list.
 - **Krea2 (`Qwen3VL-4B`) Prompt Compiler & Smart Filtering**:
   - **1:1 Character-Outfit Linker**: Supports `Canonical (1:1 Strict Character Outfit)` from `Character-Outfits.json` and `Universes/*/source.json`, `Compatible (Same Theme/Universe + Gender)`, `Free (All Outfit Wildcards across Folders)`, and `Nude / Unclothed`.
-  - **Automatic 5-Zone Outfit $\rightarrow$ Anatomy Occlusion Filter**: Inspects the resolved outfit description and automatically removes anatomical wildcard descriptions that are covered by clothing or armor while preserving visible, sheer, torn, or cutout zones.
+  - **Automatic 9-Zone Outfit $\rightarrow$ Anatomy Occlusion Filter**: Inspects the resolved outfit description and automatically removes anatomical wildcard descriptions that are covered by clothing or armor while preserving visible, sheer, torn, or cutout zones.
   - **Strict Full-Prompt Exclusion**: Automatically excludes pre-assembled full-scene prompts (`*-scene`, `*-prompts`, `Themes/*/ALL`, `Combos/*`, `Formats/*`) from component selectors so only pure modular building blocks are selected.
 - **Zero External Servers**: Runs GGUF VLMs directly inside the ComfyUI Python process via `llama-cpp-python`. No Ollama, Docker, or standalone `llama-server` needed.
 - **Two-Phase Batch Execution**: Across multi-image batches and multi-crop passes, Ziggart runs all VLM grounding/captioning operations first, unloads the VLM from VRAM **once**, caches static CLIP conditioning, and then runs all diffusion sampling passes—eliminating model-swap thrashing.
@@ -180,7 +187,9 @@ Automatically discovers wildcards in `Ziggart-Nodes/wildcards` (primary), `Comfy
 - **Multi-Select Ranges**: `{2$$, $$__wildcard__}` or `{1-3$$ and $$opt1|opt2|opt3}`.
 - **Quantifiers**: `3#__wildcard__`.
 - **LoRA Tags**: `<lora:lora_name:1.0:0.8>`.
-- **Live `populated_text` UI Feedback**: Selecting a wildcard from the dropdown or clicking **Queue** automatically populates the `populated_text` widget in the ComfyUI frontend via WebSocket feedback.
+- **Live `populated_text` UI Feedback & `"🎲 Pre-Generate Prompt (Test Without Queue)"` Button**:
+  - Clicking **`🎲 Pre-Generate Prompt (Test Without Queue)`** on **Ziggart Fast Wildcard Processor**, **Ziggart Wildcard Processor (All-in-One)**, **Ziggart Fast Wildcard Encode (LoRA)**, or **Ziggart Krea2 Master Prompt Director** immediately expands and previews your wildcards inside `populated_text` **without queueing image generation**.
+  - Each click automatically steps or rolls a new seed so you can test as many wildcard variations as you want; switching `mode` to `reproduce` or `fixed` locks that exact preview for your next Queue run!
 
 ---
 
@@ -304,6 +313,17 @@ Saves generated images (and an optional side-by-side `Base vs Refined` compariso
 
 ---
 
+### 7B. Ziggart Prompt Token Inspector & Compressor (CLIP / Qwen3VL)
+
+*Class: `ZiggartPromptTokenInspectorAndCompressor` | Category: `Ziggart/Wildcards`*
+
+Inspects compiled prompts for CLIP (77-token chunks) and Qwen3VL-4B / T5 token budgets, detects duplicate or contradictory tags across wildcards (e.g. `bright daylight` vs `pitch black night`), and losslessly compacts over-budget prompts while preserving character locks (`[CHAR 1]`, `[CHAR 2]`, `[CHAR 3]`).
+
+- **Inputs**: `prompt_text` (`STRING`), `target_token_budget` (`INT`, default `220`), `compression_mode` (`deduplicate_only`, `smart_compact`, `strict_clip_77`), `preserve_character_locks` (`BOOLEAN`), and optional `clip` (`CLIP`).
+- **Outputs**: `optimized_prompt` (`STRING`), `estimated_token_count` (`INT`), `clip_chunk_count` (`INT`), `inspector_report_json` (`STRING`).
+
+---
+
 ## Krea2 (`Qwen3VL-4B`) Prompt Director Suite (`Ziggart/Krea2 Prompt Director`)
 
 The 6 **Krea2 Prompt Director** nodes build structured Solo or Duo prompts directly from your component wildcards (`Collection/Themes`, `Collection/Universes`, `Collection/Anatomy`, `Collection/`, `ziggart/`, `ziggart/Env/`, `jff/`, `Encours/`, `Outfits/`, `Characters/`) while **strictly excluding pre-assembled full-scene prompts** (`*-scene.txt`, `*-prompts.txt`, `Themes/*/ALL.txt`, `Universes/*/ALL.txt`, `Combos/*`, `Formats/*`).
@@ -424,12 +444,12 @@ Selects and resolves the 5 staging facets across `Collection/`, `ziggart/` (incl
 
 Assembles `char_1_slot`, optional `char_2_slot`, and `stage_data` into the final **Krea2 (`Qwen3VL-4B`)** prompt. Automatically switches between the **Solo** structure (`(char 1 action)`) and **Duo** structure (`(char 2) + (char 2 anatomy) + (char 2 outfit) + (shared action)`) when `char_2_slot` is connected and `enable_secondary_character = True`.
 
-- **Compiler Policies (`compiler_policy`)**:
+- **Compiler Policies (`krea2_policy`)**:
   - `scoped` *(Default)*: Parenthesized semantic blocks with a leading subject count anchor (`1 woman, (Render Style: ...) (<char_1>) ...`).
   - `balanced`: 9 ordered natural-language IR slots with clause deduplication.
   - `compact`: Condenses background clauses to maximize subject token budget.
   - `rich`: Retains all atmospheric, support, and quality clauses.
-- **Outputs**: `krea2_compiled_prompt` (`STRING`), `populated_text` (`STRING`), `char_1_detailer_prompt` (`STRING`), `char_2_detailer_prompt` (`STRING`), `krea2_metadata_json` (`STRING` including `qwen3vl_tokens_estimated`).
+- **Outputs**: `krea2_compiled_prompt` (`STRING`), `char_1_detailer_prompt` (`STRING`), `char_2_detailer_prompt` (`STRING`), `krea2_stats_and_metadata_json` (`STRING` including `qwen3vl_tokens_estimated`).
 
 ---
 
@@ -437,9 +457,39 @@ Assembles `char_1_slot`, optional `char_2_slot`, and `stage_data` into the final
 
 *Class: `ZiggartKrea2MasterPromptDirector` | Category: `Ziggart/Krea2 Prompt Director`*
 
-Combines Nodes 8–11 (`ZiggartThemeUniverseContext`, `ZiggartCharacterUnitBuilder` ×2, `ZiggartSceneStageAtmosphere`, and `ZiggartKrea2PromptAssembler`) into a **single all-in-one node** with live `populated_text` feedback in ComfyUI.
+Combines Nodes 8–11 (`ZiggartThemeUniverseContext`, `ZiggartCharacterUnitBuilder` ×2, `ZiggartSceneStageAtmosphere`, and `ZiggartKrea2PromptAssembler`) into a **single all-in-one node** with live `populated_text` feedback and the **`🎲 Pre-Generate Prompt (Test Without Queue)`** button in ComfyUI.
 
-- **Outputs**: `krea2_compiled_prompt` (`STRING`), `populated_text` (`STRING`), `char_1_detailer_prompt` (`STRING`), `char_2_detailer_prompt` (`STRING`), `wildcard_recipe_summary` (`STRING`), `krea2_metadata_json` (`STRING`).
+- **Outputs**: `krea2_compiled_prompt` (`STRING`), `populated_text` (`STRING`), `char_1_detailer_prompt` (`STRING`), `char_2_detailer_prompt` (`STRING`), `krea2_stats_and_metadata_json` (`STRING`).
+
+---
+
+### 12B. Ziggart Krea2 Trio & Ensemble Director (3-Char + Spatial Layout)
+
+*Class: `ZiggartKrea2TrioEnsembleDirector` | Category: `Ziggart/Krea2 Prompt Director`*
+
+Extends the Krea2 Prompt Director from Duo to **3 full Character Slots** (`char_1_slot`, `char_2_slot`, `char_3_slot`) + an optional **Companion / Mount / Prop** descriptor (`companion_or_prop_text`) and outputs both the compiled Krea2 prompt and a ready-to-wire `ZIGGART_SPATIAL_LAYOUT`.
+
+- **Outputs**: `krea2_compiled_prompt` (`STRING`), `base_scene_prompt` (`STRING`), `char_1_detailer_prompt` (`STRING`), `char_2_detailer_prompt` (`STRING`), `char_3_detailer_prompt` (`STRING`), `spatial_layout` (`ZIGGART_SPATIAL_LAYOUT`), `krea2_stats_and_metadata_json` (`STRING`).
+
+---
+
+### 12C. Ziggart Spatial Layout & BBox Designer (Interactive Regions)
+
+*Class: `ZiggartSpatialLayoutDesigner` | Category: `Ziggart/Krea2 Prompt Director`*
+
+Lets you design up to 4 normalized `[x1, y1, x2, y2]` bounding-box regions (`Char 1`, `Char 2`, `Char 3`, `Prop / Foreground`) using sliders or the **interactive 2D drag-and-resize canvas widget** inside the node. Connects **optionally** to **Ziggart Regional Conditioning Composer** (or to any Detailer via `bboxes`).
+
+- **Outputs**: `spatial_layout` (`ZIGGART_SPATIAL_LAYOUT`), `bboxes` (`ZIGGART_BBOX`), `layout_preview_image` (`IMAGE`), `layout_json` (`STRING`).
+
+---
+
+### 12D. Ziggart Regional Conditioning Composer (Multi-Char Masking)
+
+*Class: `ZiggartRegionalConditioningComposer` | Category: `Ziggart/Krea2 Prompt Director`*
+
+Eliminates multi-character attribute bleeding by encoding `base_scene_prompt` plus individual regional prompts (`char_1_prompt`, `char_2_prompt`, `char_3_prompt`, `region_4_prompt`) with `CLIP` and attaching feathered 2D spatial masks to ComfyUI `CONDITIONING`.
+- **Optional `spatial_layout` Input**: Connect `ZiggartSpatialLayoutDesigner` (or `ZiggartKrea2TrioEnsembleDirector`) to use custom bounding boxes, or leave `spatial_layout` disconnected to use the built-in `layout_preset` (`Left / Right Split (Duo)`, `Left / Center / Right (Trio)`, `Center Hero / Flanking Duo`, `Foreground / Midground / Background`, `Triangle Combat Stance`, `Back-to-Back Trio`, `Duo + Boss Threat`, `Top / Bottom Split`, `Four Quadrants`).
+- **Outputs**: `regional_conditioning` (`CONDITIONING`), `region_masks_preview` (`IMAGE`), `region_bboxes` (`ZIGGART_BBOX`), `layout_summary_json` (`STRING`).
 
 ---
 
@@ -524,6 +574,39 @@ Purpose-built for `duo_all`, `trio_all`, `romantic_all`, **Ziggart Canonical The
 - `detection_preview` (`IMAGE`): Preview image showing bounding boxes for all detected subjects.
 - `composite_mask` (`MASK`): Full-size composite mask of all refined regions.
 - `subjects_log_json` (`STRING`): JSON log of detected subjects, boxes, and applied prompts.
+
+---
+
+### 15B. Ziggart Closed-Loop Self-Healing Detailer (Iterative Krea2)
+
+*Class: `ZiggartClosedLoopSelfHealingDetailer` | Category: `Ziggart/Detailer`*
+
+Autonomous `1..max_iterations` self-healing loop combining quality scoring (`1.0–10.0`), **Detailers Krea2** resampling, **Ziggart Contour Mask Refiner**, and **Ziggart Color & Frequency Matcher**:
+1. Scores each target crop before refinement and **skips crops already `>= target_score`**.
+2. Iteratively resamples failing crops up to `max_iterations` (`base_denoise + step_denoise_boost`), re-scoring each pass.
+3. Always retains the **highest-scoring candidate** (`never_degrade = True`).
+
+- **Outputs**: `healed_image` (`IMAGE`), `final_best_score` (`FLOAT`), `iterations_run` (`INT`), `healed_mask` (`MASK`), `healing_audit_json` (`STRING`).
+
+---
+
+### 15C. Ziggart Color & Frequency Matcher (Reinhard Tone Lock)
+
+*Class: `ZiggartColorAndFrequencyMatcher` | Category: `Ziggart/Detailer`*
+
+Eliminates skin-tone shifts and local lighting seams after high-denoise (`0.50–0.75`) detailer passes using perceptual Reinhard color transfer (`lab_reinhard_transfer`, `rgb_mean_std`, `luminance_only_lock`, `chroma_only_lock`) combined with frequency-separated detail reconstruction.
+
+- **Outputs**: `matched_image` (`IMAGE`), `difference_heatmap` (`IMAGE`).
+
+---
+
+### 15D. Ziggart Contour Mask Refiner (Silhouette Matting)
+
+*Class: `ZiggartContourMaskRefiner` | Category: `Ziggart/Detector`*
+
+Refines rectangular bounding boxes (`bboxes_json` or `bboxes`) into tight subject-contour alpha masks using border-background contrast, Sobel edge energy, morphological closing, and smooth feathering—preventing background halos around fingers, hair strands, and weapons.
+
+- **Outputs**: `combined_contour_mask` (`MASK`), `crop_contour_masks` (`MASK` — connects to `ZiggartStitchByBBox.custom_crop_masks`), `contour_overlay_preview` (`IMAGE`), `refined_bboxes` (`ZIGGART_BBOX`).
 
 ---
 
@@ -677,7 +760,7 @@ Detects all attention implementations installed on your system at ComfyUI startu
 
 ### Ready-to-Load Example Workflows (`example_workflows/`)
 
-All **29 Ziggart nodes** and their distinct operating modes are provided as **10 ready-to-load ComfyUI workflow JSON files** inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
+All **37 Ziggart nodes** and their distinct operating modes are provided as **12 ready-to-load ComfyUI workflow JSON files** inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
 
 | Workflow File | Featured Ziggart Nodes | Covered Usage Modes |
 | :--- | :--- | :--- |
@@ -691,6 +774,8 @@ All **29 Ziggart nodes** and their distinct operating modes are provided as **10
 | [`08_Master_All_18_Nodes_Complete_Showcase.json`](./example_workflows/08_Master_All_18_Nodes_Complete_Showcase.json) | **All 18 Core 2D/VLM Ziggart Nodes** | Complete 5-column master architecture pipeline connecting the 18 Wildcard, VLM, Detector, and Detailer nodes. |
 | [`09_3D_Generation_Idol_Gaussian_To_Mesh_SPAR3D_and_Hunyuan3D.json`](./example_workflows/09_3D_Generation_Idol_Gaussian_To_Mesh_SPAR3D_and_Hunyuan3D.json) | `ZiggartIdolImageToGaussian`, `ZiggartGaussianToMesh`, `ZiggartSPAR3DImageToMesh`, `ZiggartHunyuan3DImageToMesh`, `Ziggart3DTurntableRenderer` | Complete 3D showcase: **Path A** (Idol `.ply` Gaussian Splat $\rightarrow$ `.glb` Mesh + 360° Turntable), **Path B** (SPAR3D 7GB Low-VRAM Textured `.glb`), and **Path C** (Hunyuan3D-2mini 6GB `.glb`). |
 | [`10_Krea2_Prompt_Director_Modular_and_Master_Suite.json`](./example_workflows/10_Krea2_Prompt_Director_Modular_and_Master_Suite.json) | `ZiggartThemeUniverseContext`, `ZiggartCharacterUnitBuilder`, `ZiggartAnatomyCharacterCreator`, `ZiggartSceneStageAtmosphere`, `ZiggartKrea2PromptAssembler`, `ZiggartKrea2MasterPromptDirector` | **Pipeline A (Modular 4-Node Chain)**: Theme/Universe Context $\rightarrow$ Primary & Secondary Character Unit Builders (1:1 Canonical Outfit Link + Auto 9-Zone Anatomy Occlusion) $\rightarrow$ Scene Stage (with `ziggart/Env/*`) $\rightarrow$ Krea2 Assembler (`Qwen3VL-4B` `scoped`); **Pipeline B (Head-to-Toe Anatomy Character Creator with per-section `[None]` & View Presets)**; **Pipeline C (All-in-One Master Prompt Director)**. |
+| [`11_Trio_Ensemble_Spatial_Layout_and_Regional_Conditioning.json`](./example_workflows/11_Trio_Ensemble_Spatial_Layout_and_Regional_Conditioning.json) | `ZiggartKrea2TrioEnsembleDirector`, `ZiggartSpatialLayoutDesigner`, `ZiggartRegionalConditioningComposer`, `ZiggartPromptTokenInspectorAndCompressor`, `ZiggartAttentionSelector` | 3-Character Trio/Ensemble compilation, interactive 2D Bounding Box layout design, feathered multi-character regional conditioning, token budget inspection/compression, and dynamic model attention selection. |
+| [`12_Self_Healing_Detailer_Contour_Matting_and_Color_Lock.json`](./example_workflows/12_Self_Healing_Detailer_Contour_Matting_and_Color_Lock.json) | `ZiggartContourMaskRefiner`, `ZiggartClosedLoopSelfHealingDetailer`, `ZiggartColorAndFrequencyMatcher`, `ZiggartWeVisOneDetector` | Contour silhouette mask extraction from rectangular detections, autonomous `1..N` iterative self-healing detailer loop, and Reinhard perceptual color + frequency-separated detail matching. |
 
 ### Workflow A: Krea2 (`Qwen3VL-4B`) Modular Prompt Director + Multi-Character Detailing
 
