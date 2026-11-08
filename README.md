@@ -1,17 +1,18 @@
-# Ziggart Nodes for ComfyUI (`v1.5.0`)
+# Ziggart Nodes for ComfyUI (`v1.6.0`)
 
-A complete collection of **37 local, in-process ComfyUI nodes** combining:
+A complete collection of **45 local, in-process ComfyUI nodes** combining:
 - **Zero-Freeze 700+ MB Wildcard & Canonical Theme Engines** (Way A + Way C architectures + **`🎲 Pre-Generate Prompt (Test Without Queue)`** UI button + Token Inspector/Compressor)
 - **Krea2 (`Qwen3VL-4B` CLIP) Prompt Director & Regional Conditioning Suite** (Modular & All-in-One Theme/Universe context, Trio/Ensemble Director, Interactive 2D Spatial Layout BBox Designer, Regional Conditioning Composer, Head-to-Toe 28-Section Anatomy Character Creator with per-section `[None]` & View Presets, 1:1 Character-Outfit linking, and automatic 9-zone Outfit $\rightarrow$ Anatomy occlusion filtering)
 - **GGUF Vision-Language Models (VLMs)** via `llama-cpp-python`
 - **WeVisOne-VL Open-Vocabulary Visual Grounding & Contour Silhouette Matting**
 - **Krea 2 Turbo** High-Resolution Detailing, **Autonomous Closed-Loop Self-Healing Detailer**, **Reinhard Color & Frequency Matcher**, and **Tiled Upscaling**
 - **RTX 3070 Ti (8GB–16GB VRAM) 3D Generation Suite**: **`speridlabs/idol` Image-to-Gaussian Splat (`.ply`)**, **Gaussian-to-Mesh (`.glb`/`.obj`)**, **SPAR3D**, **Hunyuan3D-2mini**, and **360° Turntable Rendering**
+- **3D VRM Avatar, HairDeck & Live Webcam Mocap ("Replace Me!") Suite (`Ziggart/3D/Avatar`)**: One-time automatic model downloader & permanent disk cache (`ComfyUI/models/3d/ziggart_avatars/`), 2D Canonical T-Pose & Hair Splitter, **HairDeck** 3D Hair Cards & Spring-Bone physics generator, 25-Bone VRM Humanoid Auto-Rigger, 20-Morph Facial BlendShape & Viseme Builder, VRM 1.0 / 0.x Assembler, Fun Physics/Props/Emote Configurator, and **Interactive 3D VRM Pose Editor & 60 FPS Live Webcam Mocap Studio**
 - **Dynamic System Attention Selector (`Ziggart/Model`)**: Startup detection and per-model/global switching across **SageAttention**, **FlashAttention (v2/v3)**, **xFormers**, **PyTorch SDPA** (`flash`, `mem_efficient`, `cudnn`, `math`), **Sub-Quad**, **Split**, and **Basic** attention
 
 ---
 
-## Included Nodes (37 Nodes)
+## Included Nodes (45 Nodes)
 
 | Display Name | Internal Class | Category | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -51,6 +52,14 @@ A complete collection of **37 local, in-process ComfyUI nodes** combining:
 | **SPAR3D Image to 3D Mesh (Fast 7GB VRAM)** | `ZiggartSPAR3DImageToMesh` | `Ziggart/3D` | Generates UV-unwrapped textured 3D meshes (`.glb`) + intermediate point clouds (`.ply`) in ~1–2s using Stability AI's **SPAR3D** with `low_vram_mode=True` (`~7.0 GB` VRAM). |
 | **Hunyuan3D-2mini Image to 3D Mesh (GLB)** | `ZiggartHunyuan3DImageToMesh` | `Ziggart/3D` | Generates high-sharpness 3D meshes (`.glb`) using **Hunyuan3D-2mini (0.6B, ~5.5 GB VRAM)** and sequentially unloads Shape before running optional PBR Paint. |
 | **3D Gaussian / Mesh Turntable Renderer** | `Ziggart3DTurntableRenderer` | `Ziggart/3D` | Renders 360° turntable `IMAGE` and `MASK` batches from any `ZIGGART_GSPLAT` or `ZIGGART_MESH`. |
+| **Avatar 3D Model Auto-Downloader & Cache Manager** | `ZiggartAvatarModelDownloader` | `Ziggart/3D/Avatar` | Automatically downloads 3D Avatar models (`HairDeck`, `Make-It-Animatable`, `UniRig`, `BiRefNet`) on first run into `ComfyUI/models/3d/ziggart_avatars/` and keeps them permanently cached on disk. |
+| **Avatar 2D Canonical T-Pose & Hair Splitter** | `ZiggartAvatarCanonicalPrep` | `Ziggart/3D/Avatar` | Segments character hair vs. body, suppresses draping shoulder hair on the body reference image (preventing fused 3D neck/shoulder geometry), and outputs `body_ready_image`, `hair_source_image`, `hair_mask`, and `head_crop_image`. |
+| **HairDeck 3D Hair Cards & Spring-Bone Generator** | `ZiggartHairDeckGenerator` | `Ziggart/3D/Avatar` | Generates stylized 3D Hair Cards (`.glb` + `ZIGGART_HAIR`) and hierarchical VRM Spring-Bone physics chains (`anime_layered`, `long_flowing`, `twin_tails`, `short_spiky`) with automatic weight caching. |
+| **Avatar 3D Humanoid Auto-Rigger (MIA / UniRig / Geometric)** | `ZiggartAutoRigger` | `Ziggart/3D/Avatar` | Fits a 25-bone VRM Humanoid skeleton (`hips`, `spine`, `chest`, `head`, `eyes`, `jaw`, arms, legs), 4-bone smooth skinning weights (`JOINTS_0`, `WEIGHTS_0`), and glTF 2.0 Inverse Bind Matrices to any `ZIGGART_MESH`. |
+| **Avatar Facial BlendShapes & Viseme Builder** | `ZiggartFacialBlendshapeBuilder` | `Ziggart/3D/Avatar` | Adds 20 standard VRM 0.x/1.0 facial morph targets: lip-sync visemes (`aa`, `ih`, `ou`, `ee`, `oh`), eye blinks (`blink`, `blinkLeft`, `blinkRight`), gaze, emotions, and cartoon morphs (`anime_shock_eyes`, `puff_cheeks`, `chibi_big_head`). |
+| **Avatar VRM 1.0 / GLB Assembler & SpringBone Linker** | `ZiggartVRMAssembler` | `Ziggart/3D/Avatar` | Merges the rigged character body, HairDeck 3D hair cards + Spring-Bones, and optional 3D accessories into a self-contained `.vrm` or `.glb` file (`VRMC_vrm`, `VRMC_springBone`, and `VRM 0.x` metadata). |
+| **Avatar Fun Physics, Props & Emote Configurator** | `ZiggartAvatarFunFX` | `Ziggart/3D/Avatar` | Configures interactive physics presets (`Bouncy Anime`, `Zero-Gravity Space Hair`, `Bobblehead Chibi`, `Wind Tunnel`), 3D props (`cat_ears`, `angel_halo`, `cyber_visor`, `demon_horns`), and webcam gesture emotes. |
+| **Interactive 3D VRM Pose Editor & Live Webcam Mocap** | `ZiggartVRMPoseAndMocapStudio` | `Ziggart/3D/Avatar` | Interactive 3D viewport widget + **60 FPS Live Webcam & Mic Mocap ("Replace Me!")** with Pop-Out Broadcast Window for OBS/Discord/Zoom, outputting synchronized `IMAGE`, `MASK`, `DEPTH`, `NORMAL`, and `OPENPOSE` passes. |
 | **Ziggart Attention Selector** | `ZiggartAttentionSelector` | `Ziggart/Model` | Detects attention backends installed on the system at ComfyUI startup (`sage`, `flash`, `xformers`, `pytorch`, `sub_quad`, `split`, `basic`, `auto`) + optional sub-kernels and patches the connected `MODEL`. |
 
 ---
@@ -90,6 +99,15 @@ A complete collection of **37 local, in-process ComfyUI nodes** combining:
    - [24. SPAR3D Image to 3D Mesh (Fast 7GB VRAM)](#24-spar3d-image-to-3d-mesh-fast-7gb-vram)
    - [25. Hunyuan3D-2mini Image to 3D Mesh (GLB)](#25-hunyuan3d-2mini-image-to-3d-mesh-glb)
    - [26. 3D Gaussian / Mesh Turntable Renderer](#26-3d-gaussian--mesh-turntable-renderer)
+6B. [3D VRM Avatar, HairDeck & Live Webcam Mocap Suite (`Ziggart/3D/Avatar`)](#3d-vrm-avatar-hairdeck--live-webcam-mocap-suite-ziggart3davatar)
+   - [26A. Avatar 3D Model Auto-Downloader & Cache Manager](#26a-avatar-3d-model-auto-downloader--cache-manager)
+   - [26B. Avatar 2D Canonical T-Pose & Hair Splitter](#26b-avatar-2d-canonical-t-pose--hair-splitter)
+   - [26C. HairDeck 3D Hair Cards & Spring-Bone Generator](#26c-hairdeck-3d-hair-cards--spring-bone-generator)
+   - [26D. Avatar 3D Humanoid Auto-Rigger (MIA / UniRig / Geometric)](#26d-avatar-3d-humanoid-auto-rigger-mia--unirig--geometric)
+   - [26E. Avatar Facial BlendShapes & Viseme Builder](#26e-avatar-facial-blendshapes--viseme-builder)
+   - [26F. Avatar VRM 1.0 / GLB Assembler & SpringBone Linker](#26f-avatar-vrm-10--glb-assembler--springbone-linker)
+   - [26G. Avatar Fun Physics, Props & Emote Configurator](#26g-avatar-fun-physics-props--emote-configurator)
+   - [26H. Interactive 3D VRM Pose Editor & Live Webcam Mocap Studio](#26h-interactive-3d-vrm-pose-editor--live-webcam-mocap-studio)
 7. [Model Optimization Suite (`Ziggart/Model`)](#model-optimization-suite-ziggartmodel)
    - [27. Ziggart Attention Selector](#27-ziggart-attention-selector)
 8. [Architecture & Workflows (`example_workflows/`)](#architecture--workflows)
@@ -742,6 +760,54 @@ All 5 nodes in `Ziggart/3D` share `Ziggart3DModelManager`, which automatically e
 
 ---
 
+## 3D VRM Avatar, HairDeck & Live Webcam Mocap Suite (`Ziggart/3D/Avatar`)
+
+Turns any 2D character image into an articulated, expressive **`.vrm` / `.glb` 3D Avatar** with **HairDeck 3D Hair Cards**, **Spring-Bone physics**, **25-Bone VRM Humanoid rigging**, **20 Facial BlendShapes**, and an **Interactive 3D VRM Pose Editor + 60 FPS Live Webcam & Microphone Mocap ("Replace Me!") Studio**.
+
+### 26A. Avatar 3D Model Auto-Downloader & Cache Manager
+*Class: `ZiggartAvatarModelDownloader` | Category: `Ziggart/3D/Avatar`*
+- Automatically downloads and permanently caches 3D Avatar models (`hyz317/HairDeck`, `jasongzy/Make-It-Animatable`, `VAST-AI-Research/UniRig`, `ZhengPeng7/BiRefNet`) inside `ComfyUI/models/3d/ziggart_avatars/` on the **first run only** (writing a `.ziggart_cached_ok.json` marker so all subsequent runs start in `0 ms` with zero network traffic).
+
+### 26B. Avatar 2D Canonical T-Pose & Hair Splitter
+*Class: `ZiggartAvatarCanonicalPrep` | Category: `Ziggart/3D/Avatar`*
+- Segments the character silhouette, separates hair from the upper body, and outputs:
+  - `body_ready_image`: Character reference with side/draping shoulder hair suppressed so 3D body generators (`Hunyuan3D-2mini`, `SPAR3D`, `Idol`) generate clean neck and shoulder topology without fused hair blobs.
+  - `hair_source_image`, `hair_mask`, and `head_crop_image` for **HairDeck**.
+
+### 26C. HairDeck 3D Hair Cards & Spring-Bone Generator
+*Class: `ZiggartHairDeckGenerator` | Category: `Ziggart/3D/Avatar`*
+- Generates stylized 3D Hair Cards (`.glb` + `ZIGGART_HAIR`) with V-profile specular anime shading and hierarchical 4-joint VRM Spring-Bone chains (`anime_layered`, `long_flowing`, `twin_tails`, `short_spiky`).
+
+### 26D. Avatar 3D Humanoid Auto-Rigger (MIA / UniRig / Geometric)
+*Class: `ZiggartAutoRigger` | Category: `Ziggart/3D/Avatar`*
+- Fits a standard 25-bone VRM Humanoid skeleton (`hips`, `spine`, `chest`, `upperChest`, `neck`, `head`, `leftEye`, `rightEye`, `jaw`, shoulders, arms, hands, legs, feet, toes) to any `ZIGGART_MESH` and computes smooth 4-bone skinning weights (`JOINTS_0`, `WEIGHTS_0`) + glTF 2.0 `inverseBindMatrices`.
+
+### 26E. Avatar Facial BlendShapes & Viseme Builder
+*Class: `ZiggartFacialBlendshapeBuilder` | Category: `Ziggart/3D/Avatar`*
+- Builds 20 VRM 0.x/1.0 facial morph targets:
+  - **Lip-Sync Visemes**: `aa`, `ih`, `ou`, `ee`, `oh`
+  - **Blinks & Gaze**: `blink`, `blinkLeft`, `blinkRight`, `lookLeft`, `lookRight`, `lookUp`, `lookDown`
+  - **Emotions**: `happy`, `angry`, `sad`, `relaxed`, `surprised`
+  - **Fun Cartoon Morphs**: `anime_shock_eyes`, `puff_cheeks`, `chibi_big_head`
+
+### 26F. Avatar VRM 1.0 / GLB Assembler & SpringBone Linker
+*Class: `ZiggartVRMAssembler` | Category: `Ziggart/3D/Avatar`*
+- Combines the rigged humanoid body (`ZIGGART_RIGGED_MESH`), 3D HairDeck strands & Spring-Bone chains (`ZIGGART_HAIR`), and optional 3D accessories into a self-contained binary **`.vrm`** (or `.glb`) file containing `VRMC_vrm`, `VRMC_springBone`, and `VRM 0.x` extensions (compatible with ComfyUI, Blender, VSeeFace, Warudo, and VRChat).
+
+### 26G. Avatar Fun Physics, Props & Emote Configurator
+*Class: `ZiggartAvatarFunFX` | Category: `Ziggart/3D/Avatar`*
+- Adds interactive physics presets (`Normal`, `Bouncy Anime`, `Zero-Gravity Space Hair`, `Bobblehead Chibi`, `Wind Tunnel`), procedural 3D props (`cat_ears`, `angel_halo`, `cyber_visor`, `demon_horns`), and webcam gesture emotes (`happy_star_burst`, `wink_heart`, `anime_shock_zoom`, `fire_aura`).
+
+### 26H. Interactive 3D VRM Pose Editor & Live Webcam Mocap Studio
+*Class: `ZiggartVRMPoseAndMocapStudio` | Category: `Ziggart/3D/Avatar` | Web UI: `web/ziggart_avatar_studio.js`*
+- Features an embedded **Interactive 3D Viewport** right inside the ComfyUI node:
+  - **Interactive Bone & Expression Posing**: Drag to orbit, select bones (`head`, `neck`, `chest`, `hips`, `leftUpperArm`, `rightUpperArm`, etc.) and pose your avatar in real time with Verlet Spring-Bone hair physics.
+  - **`🎥 Toggle Live Webcam & Mic Mocap (Replace Me!)`**: Uses your webcam and microphone at **60 FPS** in the browser (`getUserMedia` + WebAudio lip-sync + head/shoulder tracking) so the 3D avatar replaces you live!
+  - **`🗗 Pop-Out Broadcast Window (OBS / Zoom)`**: Opens a clean chroma-key / studio window for OBS Virtual Camera, Discord, Zoom, or Twitch streaming.
+  - **`📸 Capture Pose & Frame to Workflow`**: Sends the live pose and frame back to ComfyUI to output synchronized **`IMAGE`**, **`MASK`**, **`depth_image`**, **`normal_image`**, and **`openpose_image`** tensors for ControlNet & Krea2!
+
+---
+
 ## Model Optimization Suite (`Ziggart/Model`)
 
 ### 27. Ziggart Attention Selector
@@ -773,7 +839,7 @@ Detects all attention implementations installed on your system at ComfyUI startu
 
 ### Ready-to-Load Example Workflows (`example_workflows/`)
 
-All **37 Ziggart nodes** and their distinct operating modes are provided as **12 ready-to-load ComfyUI workflow JSON files** inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
+All **45 Ziggart nodes** and their distinct operating modes are provided as **13 ready-to-load ComfyUI workflow JSON files** inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
 
 | Workflow File | Featured Ziggart Nodes | Covered Usage Modes |
 | :--- | :--- | :--- |
@@ -789,6 +855,7 @@ All **37 Ziggart nodes** and their distinct operating modes are provided as **12
 | [`10_Krea2_Prompt_Director_Modular_and_Master_Suite.json`](./example_workflows/10_Krea2_Prompt_Director_Modular_and_Master_Suite.json) | `ZiggartThemeUniverseContext`, `ZiggartCharacterUnitBuilder`, `ZiggartAnatomyCharacterCreator`, `ZiggartSceneStageAtmosphere`, `ZiggartKrea2PromptAssembler`, `ZiggartKrea2MasterPromptDirector` | **Pipeline A (Modular 4-Node Chain)**: Theme/Universe Context $\rightarrow$ Primary & Secondary Character Unit Builders (1:1 Canonical Outfit Link + Auto 9-Zone Anatomy Occlusion) $\rightarrow$ Scene Stage (with `ziggart/Env/*`) $\rightarrow$ Krea2 Assembler (`Qwen3VL-4B` `scoped`); **Pipeline B (Head-to-Toe Anatomy Character Creator with per-section `[None]` & View Presets)**; **Pipeline C (All-in-One Master Prompt Director)**. |
 | [`11_Trio_Ensemble_Spatial_Layout_and_Regional_Conditioning.json`](./example_workflows/11_Trio_Ensemble_Spatial_Layout_and_Regional_Conditioning.json) | `ZiggartKrea2TrioEnsembleDirector`, `ZiggartSpatialLayoutDesigner`, `ZiggartRegionalConditioningComposer`, `ZiggartPromptTokenInspectorAndCompressor`, `ZiggartAttentionSelector` | 3-Character Trio/Ensemble compilation, interactive 2D Bounding Box layout design, feathered multi-character regional conditioning, token budget inspection/compression, and dynamic model attention selection. |
 | [`12_Self_Healing_Detailer_Contour_Matting_and_Color_Lock.json`](./example_workflows/12_Self_Healing_Detailer_Contour_Matting_and_Color_Lock.json) | `ZiggartContourMaskRefiner`, `ZiggartClosedLoopSelfHealingDetailer`, `ZiggartColorAndFrequencyMatcher`, `ZiggartWeVisOneDetector` | Contour silhouette mask extraction from rectangular detections, autonomous `1..N` iterative self-healing detailer loop, and Reinhard perceptual color + frequency-separated detail matching. |
+| [`13_3D_Avatar_HairDeck_VRM_and_Live_Webcam_Mocap.json`](./example_workflows/13_3D_Avatar_HairDeck_VRM_and_Live_Webcam_Mocap.json) | `ZiggartAvatarModelDownloader`, `ZiggartAvatarCanonicalPrep`, `ZiggartHairDeckGenerator`, `ZiggartAutoRigger`, `ZiggartFacialBlendshapeBuilder`, `ZiggartVRMAssembler`, `ZiggartAvatarFunFX`, `ZiggartVRMPoseAndMocapStudio` | Complete 2D-to-3D `.vrm` Avatar creation pipeline with automatic first-run model caching, HairDeck 3D hair cards & spring-bones, 25-bone humanoid rigging, 20 facial BlendShapes, fun physics/accessories, and **Interactive 3D VRM Pose Editor + 60 FPS Live Webcam Mocap ("Replace Me!")**. |
 
 ### Workflow A: Krea2 (`Qwen3VL-4B`) Modular Prompt Director + Multi-Character Detailing
 

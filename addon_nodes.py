@@ -2291,6 +2291,13 @@ class ZiggartClosedLoopSelfHealingDetailer(ZiggartDetailerKrea2):
         "healed_mask",
         "healing_audit_json",
     )
+    OUTPUT_TOOLTIPS = (
+        "Final composited image retaining the highest-scoring refinement pass per region.",
+        "Average quality score (1.0-10.0) across all evaluated regions after self-healing.",
+        "Total number of iterative Krea2 resampling passes executed across all regions.",
+        "Full-size composite mask of all regions modified during self-healing.",
+        "Structured JSON audit report detailing initial score, per-iteration scores, and final status.",
+    )
 
     @classmethod
     def INPUT_TYPES(cls):

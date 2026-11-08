@@ -1,7 +1,7 @@
 [project]
 name = "ziggart-nodes"
-description = "High-speed 700MB+ YAML/TXT Wildcard & Canonical Theme suite, Krea2 (Qwen3VL-4B) Trio/Duo Prompt Director with Spatial Layout Designer & Regional Conditioning Composer, Closed-Loop Self-Healing Detailer, Contour Mask Refiner, Color/Frequency Matcher, WeVisOne-VL detection, and RTX 3070 Ti 3D Gaussian/Mesh generation."
-version = "1.5.0"
+description = "High-speed 700MB+ YAML/TXT Wildcard & Canonical Theme suite, Krea2 (Qwen3VL-4B) Trio/Duo Prompt Director with Spatial Layout Designer & Regional Conditioning Composer, Closed-Loop Self-Healing Detailer, Contour Mask Refiner, Color/Frequency Matcher, WeVisOne-VL detection, RTX 3070 Ti 3D Gaussian/Mesh generation, and 3D VRM Avatar, HairDeck & Live Webcam Mocap Studio."
+version = "1.6.0"
 authors = [
     { name = "mskiller", email = "mskiller51@gmail.com" }
 ]

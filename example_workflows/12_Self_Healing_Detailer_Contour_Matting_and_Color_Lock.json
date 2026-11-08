@@ -74,7 +74,7 @@
       ],
       "title": "1. WeVisOne-VL Detector",
       "properties": { "Node name for S&R": "ZiggartWeVisOneDetector" },
-      "widgets_values": ["WeVisOne-VL-4B-Instruct.Q4_K_M.gguf", "mmproj-WeVisOne-VL-4B-f16.gguf", "face and hands", 1.4, 6, 12, true]
+      "widgets_values": ["WeVisOne-VL-4B-Instruct.Q4_K_M.gguf", "mmproj-WeVisOne-VL-4B-f16.gguf", "face and hands", 1.4, 6, 12, true, "", "", -1, 4096]
     },
     {
       "id": 5,

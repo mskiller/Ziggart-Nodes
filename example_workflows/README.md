@@ -1,10 +1,10 @@
 # Ziggart Nodes — Workflows Exemples (`example_workflows/`)
 
-Ce dossier contient **12 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 37 nœuds Ziggart** dans tous leurs modes et cas d'usage.
+Ce dossier contient **13 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 45 nœuds Ziggart** dans tous leurs modes et cas d'usage.
 
 ---
 
-## Liste des 12 Workflows et des Usages Couverts
+## Liste des 13 Workflows et des Usages Couverts
 
 ### 1. [`01_Wildcards_3_Ways_and_LoRA_Encode.json`](./01_Wildcards_3_Ways_and_LoRA_Encode.json)
 Tour complet des **5 nœuds de génération par Wildcards** et de leurs différents modes :
@@ -148,3 +148,19 @@ Pipeline **Auto-Réparation en Boucle Fermée, Détourage de Silhouette & Verrou
   - Évalue chaque région détectée (`1.0–10.0`), ignore les régions déjà `>= target_score`, ré-échantillonne itérativement (`1..max_iterations`) les zones défectueuses avec `step_denoise_boost`, et conserve systématiquement la meilleure passe (`never_degrade = True`).
 - **`ZiggartColorAndFrequencyMatcher`** :
   - Applique un transfert colorimétrique perceptuel de Reinhard (`lab_reinhard_transfer`) combiné à une séparation de fréquences pour préserver les détails haute fréquence tout en verrouillant la teinte de peau et l'éclairage local.
+
+---
+
+### 13. [`13_3D_Avatar_HairDeck_VRM_and_Live_Webcam_Mocap.json`](./13_3D_Avatar_HairDeck_VRM_and_Live_Webcam_Mocap.json)
+Pipeline complet des **8 nœuds `Ziggart/3D/Avatar`** pour la création d'avatars 3D VRM animables, cheveux dynamiques HairDeck et suivi Webcam temps réel :
+- **`ZiggartAvatarModelDownloader` (Auto-Download & Cache Permanent)** :
+  - Télécharge automatiquement les poids (`hyz317/HairDeck`, `jasongzy/Make-It-Animatable`, `VAST-AI/UniRig`, `ZhengPeng7/BiRefNet-matting`) lors de la 1ère exécution dans `ComfyUI/models/3d/ziggart_avatars` et écrit un manifeste local `.ziggart_cached_manifest.json` pour une réutilisation instantanée (< 1 ms) lors des exécutions suivantes.
+- **`ZiggartAvatarCanonicalPrep` (Canonical T-Pose & Hair Splitter)** :
+  - Détoure et centre le personnage, extrait le masque capillaire (`hair_mask`) pour HairDeck et produit une image corps sans mèches latérales (`body_ready_image`) afin d'éviter que Hunyuan3D / SPAR3D ne fusionne les cheveux aux épaules.
+- **`ZiggartHairDeckGenerator` (HairDeck 3D Stylized Hair Cards & Spring-Bones)** :
+  - Génère des **Hair Cards 3D** structurées (`anime_layered`, `long_flowing`, `twin_tails`, `short_spiky`) ainsi que leurs chaînes d'os physiques (**Spring-Bones**) attachées à la tête.
+- **`ZiggartAutoRigger` + `ZiggartFacialBlendshapeBuilder` + `ZiggartVRMAssembler` + `ZiggartAvatarFunFX`** :
+  - Rigge automatiquement le maillage avec une armature humanoïde **25 os VRM**, génère **20 BlendShapes faciaux & visèmes** (`aa`, `ih`, `ou`, `ee`, `oh`, `blink`, `happy`, `surprised`, `chibi_big_head`), assemble les cheveux physiques + accessoires 3D (`cat_ears`, `angel_halo`, `cyber_visor`, `demon_horns`) et exporte un fichier **`.vrm` binaire natif** (`VRMC_vrm` + `VRMC_springBone`).
+- **`ZiggartVRMPoseAndMocapStudio` (Interactive 3D VRM Pose Editor & Live Webcam "Replace Me!" Mocap)** :
+  - Intègre un viewport 3D interactif (`web/ziggart_avatar_studio.js`) avec manipulation d'os à la souris, simulation physique Verlet des cheveux à 60 FPS, mode **`🎥 Toggle Live Webcam & Mic Mocap (Replace Me!)`** (suivi tête/corps/mains + lip-sync micro temps réel + composite fond webcam ou fond vert), fenêtre **`🗗 Pop-Out Broadcast Window`** pour OBS / Discord / Zoom, et génération synchronisée des passes `IMAGE`, `MASK`, `DEPTH`, `NORMAL` et `OPENPOSE`.
+

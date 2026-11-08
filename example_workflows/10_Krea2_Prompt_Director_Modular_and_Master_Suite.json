@@ -149,7 +149,11 @@
         true,
         "[Random From Category]",
         "[None]",
-        42
+        42,
+        "",
+        "",
+        "",
+        ""
       ]
     },
     {
@@ -210,7 +214,11 @@
         true,
         "[Random From Category]",
         "[None]",
-        43
+        43,
+        "",
+        "",
+        "",
+        ""
       ]
     },
     {
@@ -284,7 +292,12 @@
         "[From Context (Theme / Universe)]",
         "[Random From Category]",
         "[Random From Category]",
-        42
+        42,
+        "",
+        "",
+        "",
+        "",
+        ""
       ]
     },
     {
@@ -438,7 +451,10 @@
         "[Random From Category]",
         "",
         "populate",
-        42
+        42,
+        "",
+        "",
+        ""
       ]
     },
     {
@@ -538,7 +554,10 @@
         "[None]",
         true,
         "[None]",
-        42
+        42,
+        "",
+        "",
+        ""
       ]
     }
   ],
