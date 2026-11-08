@@ -1690,6 +1690,102 @@ def _install_zero_build_3d_shims(vendor_root: Path, auto_install: bool = True) -
         except subprocess.TimeoutExpired:
             pass
 
+    # 1a. Ensure Hunyuan3D / SPAR3D pure-wheel mesh dependencies are installed
+    if auto_install:
+        missing_mesh_pkgs: list[str] = []
+        for mod_check, pip_pkg in (
+            ("trimesh", "trimesh"),
+            ("pymeshlab", "pymeshlab"),
+            ("pygltflib", "pygltflib"),
+            ("skimage", "scikit-image"),
+            ("omegaconf", "omegaconf"),
+            ("cv2", "opencv-python"),
+        ):
+            if importlib.util.find_spec(mod_check) is None:
+                missing_mesh_pkgs.append(pip_pkg)
+        if missing_mesh_pkgs:
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", *missing_mesh_pkgs],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=180,
+                )
+                import importlib
+
+                importlib.invalidate_caches()
+            except subprocess.TimeoutExpired:
+                pass
+
+    # 1a-bis. Pure-Python `pymeshlab` fallback shim if `pymeshlab` wheel is unavailable for the current Python/OS
+    if "pymeshlab" not in sys.modules and importlib.util.find_spec("pymeshlab") is None:
+        class _ShimMesh:
+            def __init__(self, vertex_matrix: Any = None, face_matrix: Any = None) -> None:
+                self._v = np.asarray(vertex_matrix if vertex_matrix is not None else np.zeros((0, 3)), dtype=np.float32)
+                self._f = np.asarray(face_matrix if face_matrix is not None else np.zeros((0, 3)), dtype=np.int32)
+
+            def vertex_matrix(self) -> np.ndarray:
+                return self._v
+
+            def face_matrix(self) -> np.ndarray:
+                return self._f
+
+            def face_number(self) -> int:
+                return int(len(self._f))
+
+            def vertex_number(self) -> int:
+                return int(len(self._v))
+
+        class _ShimMeshSet:
+            def __init__(self) -> None:
+                self._current = _ShimMesh()
+
+            def current_mesh(self) -> _ShimMesh:
+                return self._current
+
+            def add_mesh(self, mesh: _ShimMesh, name: str = "mesh") -> None:
+                self._current = mesh
+
+            def load_new_mesh(self, path: str) -> None:
+                try:
+                    import trimesh as _tm  # type: ignore[import-not-found]
+
+                    loaded = _tm.load(path, force="mesh")
+                    self._current = _ShimMesh(loaded.vertices, loaded.faces)
+                except Exception:
+                    pass
+
+            def save_current_mesh(self, path: str) -> None:
+                try:
+                    import trimesh as _tm  # type: ignore[import-not-found]
+
+                    m = _tm.Trimesh(vertices=self._current.vertex_matrix(), faces=self._current.face_matrix(), process=False)
+                    m.export(path)
+                except Exception:
+                    export_mesh_file(
+                        Path(path),
+                        self._current.vertex_matrix(),
+                        self._current.face_matrix(),
+                        np.full((len(self._current.vertex_matrix()), 3), 0.8, dtype=np.float32),
+                        compute_vertex_normals(self._current.vertex_matrix(), self._current.face_matrix()),
+                    )
+
+            def apply_filter(self, filter_name: str, **kwargs: Any) -> None:
+                if "decimation" in filter_name:
+                    target_faces = int(kwargs.get("targetfacenum", 40000))
+                    v = self._current.vertex_matrix()
+                    f = self._current.face_matrix()
+                    if len(f) > target_faces > 0 and len(v) > 0:
+                        cols = np.full((len(v), 3), 0.8, dtype=np.float32)
+                        sv, sf, _ = simplify_mesh_vertex_clustering(v, f, cols, target_faces)
+                        self._current = _ShimMesh(sv, sf)
+
+        pml_pkg = types.ModuleType("pymeshlab")
+        pml_pkg.Mesh = _ShimMesh  # type: ignore[attr-defined]
+        pml_pkg.MeshSet = _ShimMeshSet  # type: ignore[attr-defined]
+        sys.modules["pymeshlab"] = pml_pkg
+
     # 1b. Compatibility shims for Transformers v5+ where legacy pruning/head-mask helpers
     # used by SPAR3D's bundled DINOv2 implementation were removed.
     try:
@@ -2305,8 +2401,8 @@ class Ziggart3DModelManager:
                 from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline  # type: ignore[import-not-found]
             except ImportError as exc:
                 raise Ziggart3DError(
-                    "hy3dgen (Hunyuan3D-2) is not installed in this Python environment. "
-                    "Install it from https://github.com/Tencent/Hunyuan3D-2 (pip install -e .)."
+                    f"hy3dgen (Hunyuan3D-2) import failed ({exc}). "
+                    "Install missing dependencies or install from https://github.com/Tencent/Hunyuan3D-2 (pip install -e .)."
                 ) from exc
 
             try:
