@@ -3,6 +3,7 @@ from __future__ import annotations
 import glob
 import json
 import logging
+import math
 import os
 import random
 import re
@@ -2409,7 +2410,8 @@ def _resolve_character_unit(
     and runs automatic Outfit -> Anatomy occlusion filtering.
     """
     WILDCARD_INDEX.ensure_loaded(extra_dir=extra_dir)
-    rng = random.Random((int(seed) ^ (0xA5A5A5A5 if slot_role == "Secondary" else 0x13579BDF)) & 0xFFFFFFFFFFFFFFFF)
+    role_salt = 0x3C6EF372 if slot_role == "Tertiary" else (0xA5A5A5A5 if slot_role == "Secondary" else 0x13579BDF)
+    rng = random.Random((int(seed) ^ role_salt) & 0xFFFFFFFFFFFFFFFF)
 
     ctx_bundle: dict[str, Any] | None = context.get("bundle") if isinstance(context, dict) else None
     mood_filter = str(context.get("mood_filter", "[Any / No Filter]")) if isinstance(context, dict) else "[Any / No Filter]"
@@ -2841,7 +2843,7 @@ class ZiggartCharacterUnitBuilder:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "slot_role": (["Primary", "Secondary"], {"default": "Primary"}),
+                "slot_role": (["Primary", "Secondary", "Tertiary"], {"default": "Primary"}),
                 "character_source": (
                     [
                         "From Context (Theme / Universe)",
@@ -3563,7 +3565,7 @@ class ZiggartAnatomyCharacterCreator:
     @classmethod
     def INPUT_TYPES(cls):
         req: dict[str, Any] = {
-            "slot_role": (["Primary", "Secondary"], {"default": "Primary"}),
+            "slot_role": (["Primary", "Secondary", "Tertiary"], {"default": "Primary"}),
             "gender": (["Female", "Male", "Creature"], {"default": "Female"}),
             "view_visibility_preset": (
                 list(VIEW_VISIBILITY_PRESETS),
@@ -3645,7 +3647,8 @@ class ZiggartAnatomyCharacterCreator:
         eff_seed = int(seed) if seed != 0 else (int(context.get("seed", 0)) if isinstance(context, dict) else 0)
         extra_dir = str(context.get("custom_wildcards_dir", "")) if isinstance(context, dict) else ""
         WILDCARD_INDEX.ensure_loaded(extra_dir=extra_dir)
-        rng = random.Random((eff_seed ^ (0x5A5A5A5A if slot_role == "Secondary" else 0x2468ACE0)) & 0xFFFFFFFFFFFFFFFF)
+        anat_salt = 0x9E3779B9 if slot_role == "Tertiary" else (0x5A5A5A5A if slot_role == "Secondary" else 0x2468ACE0)
+        rng = random.Random((eff_seed ^ anat_salt) & 0xFFFFFFFFFFFFFFFF)
 
         ctx_bundle: dict[str, Any] | None = context.get("bundle") if isinstance(context, dict) else None
         mood_filter = str(context.get("mood_filter", "[Any / No Filter]")) if isinstance(context, dict) else "[Any / No Filter]"
@@ -3947,8 +3950,22 @@ class ZiggartKrea2TrioEnsembleDirector:
                 "char_1_slot": ("ZIGGART_CHAR_SLOT",),
                 "char_2_slot": ("ZIGGART_CHAR_SLOT",),
                 "char_3_slot": ("ZIGGART_CHAR_SLOT",),
-                "stage_data": ("ZIGGART_STAGE_DATA",),
-                "theme_context": ("ZIGGART_THEME_CTX",),
+                "stage_data": (
+                    "ZIGGART_STAGE",
+                    {
+                        "tooltip": "Connect stage_data from Ziggart Krea2 Scene Stage (Style, Action, Env, Light, Camera).",
+                    },
+                ),
+                "context": (
+                    "ZIGGART_CONTEXT",
+                    {
+                        "tooltip": (
+                            "Connect context from Ziggart Krea2 Theme & Universe Context. "
+                            "Automatically populates stage_data (if unconnected) and any unconnected character slots "
+                            "(char_1_slot, char_2_slot, char_3_slot) with distinct canonical characters from the Theme/Universe!"
+                        ),
+                    },
+                ),
                 "companion_or_prop_text": (
                     "STRING",
                     {
@@ -3978,36 +3995,143 @@ class ZiggartKrea2TrioEnsembleDirector:
         char_2_slot: CharacterSlotData | None = None,
         char_3_slot: CharacterSlotData | None = None,
         stage_data: SceneStageData | None = None,
+        context: dict[str, Any] | None = None,
         theme_context: dict[str, Any] | None = None,
         companion_or_prop_text: str = "",
         custom_prefix: str = "",
         custom_suffix: str = "",
     ):
-        prop_expanded = process_wildcards(companion_or_prop_text.strip(), seed=seed) if companion_or_prop_text.strip() else ""
-        prefix_exp = process_wildcards(custom_prefix.strip(), seed=seed + 11) if custom_prefix.strip() else ""
-        suffix_exp = process_wildcards(custom_suffix.strip(), seed=seed + 23) if custom_suffix.strip() else ""
+        eff_context = context if isinstance(context, dict) else (theme_context if isinstance(theme_context, dict) else None)
+        eff_seed = int(seed) if seed != 0 else (int(eff_context.get("seed", 0)) if isinstance(eff_context, dict) else 0)
+        extra_dir = str(eff_context.get("custom_wildcards_dir", "")) if isinstance(eff_context, dict) else ""
+
+        prop_expanded = (
+            process_wildcards(companion_or_prop_text.strip(), seed=eff_seed, extra_dir=extra_dir)
+            if companion_or_prop_text.strip()
+            else ""
+        )
+        prefix_exp = (
+            process_wildcards(custom_prefix.strip(), seed=eff_seed + 11, extra_dir=extra_dir)
+            if custom_prefix.strip()
+            else ""
+        )
+        suffix_exp = (
+            process_wildcards(custom_suffix.strip(), seed=eff_seed + 23, extra_dir=extra_dir)
+            if custom_suffix.strip()
+            else ""
+        )
 
         preset_info = ENSEMBLE_SPATIAL_LAYOUT_PRESETS.get(
             ensemble_layout_preset,
             ENSEMBLE_SPATIAL_LAYOUT_PRESETS["Left / Center / Right (Trio)"],
         )
         layout_hint = preset_info.get("hint", "") if include_spatial_layout_hint else ""
+        preset_regions = list(preset_info.get("regions", []))
 
-        # If stage_data has no action and multiple characters are present, synthesize an interaction phrase
+        # Determine how many character slots the chosen preset expects (up to 3)
+        expected_chars = 3
+        if "Duo" in ensemble_layout_preset or len(preset_regions) == 2:
+            expected_chars = 2
+        elif len(preset_regions) == 1:
+            expected_chars = 1
+
+        eff_c1 = char_1_slot
+        eff_c2 = char_2_slot
+        eff_c3 = char_3_slot
+
+        # If context is connected, auto-populate any unconnected character slots up to expected_chars
+        # (with deduplication via used_char_ids so Char 1, Char 2, and Char 3 are always distinct characters)
+        if eff_context is not None:
+            used_char_ids: set[str] = set()
+            for existing_slot in (eff_c1, eff_c2, eff_c3):
+                if existing_slot is not None and existing_slot.character_id:
+                    used_char_ids.add(existing_slot.character_id)
+
+            if eff_c1 is None and expected_chars >= 1:
+                eff_c1, _, _ = _resolve_character_unit(
+                    slot_role="Primary",
+                    character_source="From Context (Theme / Universe)",
+                    gender_filter="Auto / Any",
+                    character_wildcard=FROM_CONTEXT_OPTION,
+                    outfit_link_mode="Canonical (1:1 Strict Character Outfit)",
+                    outfit_wildcard=FROM_CONTEXT_OPTION,
+                    enable_anatomy=False,
+                    auto_filter_anatomy_by_outfit=True,
+                    anatomy_wildcard=NONE_OPTION,
+                    individual_action_wildcard=NONE_OPTION,
+                    seed=eff_seed,
+                    context=eff_context,
+                    custom_character_text="",
+                    custom_outfit_text="",
+                    custom_anatomy_text="",
+                    custom_action_text="",
+                    used_char_ids=used_char_ids,
+                    extra_dir=extra_dir,
+                )
+            if eff_c2 is None and expected_chars >= 2:
+                eff_c2, _, _ = _resolve_character_unit(
+                    slot_role="Secondary",
+                    character_source="From Context (Theme / Universe)",
+                    gender_filter="Auto / Any",
+                    character_wildcard=FROM_CONTEXT_OPTION,
+                    outfit_link_mode="Canonical (1:1 Strict Character Outfit)",
+                    outfit_wildcard=FROM_CONTEXT_OPTION,
+                    enable_anatomy=False,
+                    auto_filter_anatomy_by_outfit=True,
+                    anatomy_wildcard=NONE_OPTION,
+                    individual_action_wildcard=NONE_OPTION,
+                    seed=eff_seed,
+                    context=eff_context,
+                    custom_character_text="",
+                    custom_outfit_text="",
+                    custom_anatomy_text="",
+                    custom_action_text="",
+                    used_char_ids=used_char_ids,
+                    extra_dir=extra_dir,
+                )
+            if eff_c3 is None and expected_chars >= 3:
+                eff_c3, _, _ = _resolve_character_unit(
+                    slot_role="Tertiary",
+                    character_source="From Context (Theme / Universe)",
+                    gender_filter="Auto / Any",
+                    character_wildcard=FROM_CONTEXT_OPTION,
+                    outfit_link_mode="Canonical (1:1 Strict Character Outfit)",
+                    outfit_wildcard=FROM_CONTEXT_OPTION,
+                    enable_anatomy=False,
+                    auto_filter_anatomy_by_outfit=True,
+                    anatomy_wildcard=NONE_OPTION,
+                    individual_action_wildcard=NONE_OPTION,
+                    seed=eff_seed,
+                    context=eff_context,
+                    custom_character_text="",
+                    custom_outfit_text="",
+                    custom_anatomy_text="",
+                    custom_action_text="",
+                    used_char_ids=used_char_ids,
+                    extra_dir=extra_dir,
+                )
+
+        # Build or enrich stage_data from context and interaction_mode
         eff_stage = stage_data
-        if eff_stage is None and isinstance(theme_context, dict):
+        if eff_stage is None and eff_context is not None:
             stage_builder = ZiggartSceneStageAtmosphere()
-            eff_stage, _, _, _, _, _ = stage_builder.build_stage(seed=seed, context=theme_context)
+            eff_stage, _, _, _, _, _ = stage_builder.build_stage(seed=eff_seed, context=eff_context)
+
+        interaction_map = {
+            "Coordinated Team Action": "acting in coordinated team formation with dynamic synergy",
+            "Combat Clash / Duel": "locked in a high-energy combat confrontation with kinetic tension",
+            "Conversation / Dramatic Scene": "engaged in a tense dramatic interaction with expressive eye contact",
+            "Independent Heroic Poses": "striking distinct iconic poses within the shared composition",
+            "Ritual / Tactical Formation": "arranged in a deliberate tactical formation with atmospheric presence",
+        }
+        synth_act = interaction_map.get(interaction_mode, "")
+        active_char_count = sum(
+            1
+            for c in (eff_c1, eff_c2, eff_c3)
+            if c is not None and bool(c.format_character_block(encapsulate_subparts=False).strip())
+        )
 
         if eff_stage is not None and not eff_stage.action_desc.strip():
-            interaction_map = {
-                "Coordinated Team Action": "acting in coordinated team formation with dynamic synergy",
-                "Combat Clash / Duel": "locked in a high-energy combat confrontation with kinetic tension",
-                "Conversation / Dramatic Scene": "engaged in a tense dramatic interaction with expressive eye contact",
-                "Independent Heroic Poses": "striking distinct iconic poses within the shared composition",
-                "Ritual / Tactical Formation": "arranged in a deliberate tactical formation with atmospheric presence",
-            }
-            synth_act = interaction_map.get(interaction_mode, "")
             eff_stage = SceneStageData(
                 style_desc=eff_stage.style_desc,
                 action_desc=synth_act,
@@ -4016,11 +4140,13 @@ class ZiggartKrea2TrioEnsembleDirector:
                 camera_desc=eff_stage.camera_desc,
                 theme_or_universe=eff_stage.theme_or_universe,
             )
+        elif eff_stage is None and synth_act and active_char_count >= 2:
+            eff_stage = SceneStageData(action_desc=synth_act)
 
         compiled, stats = assemble_krea2_structured_prompt(
-            char1=char_1_slot,
-            char2=char_2_slot,
-            char3=char_3_slot,
+            char1=eff_c1,
+            char2=eff_c2,
+            char3=eff_c3,
             companion_or_prop=prop_expanded,
             spatial_layout_hint=layout_hint,
             stage=eff_stage,
@@ -4047,14 +4173,14 @@ class ZiggartKrea2TrioEnsembleDirector:
             base_parts.append(layout_hint)
         base_scene_prompt = ", ".join(base_parts) if base_parts else compiled
 
-        c1_det = char_1_slot.format_character_block(encapsulate_subparts=False) if char_1_slot else ""
-        c2_det = char_2_slot.format_character_block(encapsulate_subparts=False) if char_2_slot else ""
-        c3_det = char_3_slot.format_character_block(encapsulate_subparts=False) if char_3_slot else ""
+        c1_det = eff_c1.format_character_block(encapsulate_subparts=False) if eff_c1 else ""
+        c2_det = eff_c2.format_character_block(encapsulate_subparts=False) if eff_c2 else ""
+        c3_det = eff_c3.format_character_block(encapsulate_subparts=False) if eff_c3 else ""
 
         w_px = max(64, int(canvas_width))
         h_px = max(64, int(canvas_height))
         regions_out: list[dict[str, Any]] = []
-        for idx, reg in enumerate(preset_info.get("regions", [])):
+        for idx, reg in enumerate(preset_regions):
             rx1 = float(max(0.0, min(1.0, reg["x1"])))
             ry1 = float(max(0.0, min(1.0, reg["y1"])))
             rx2 = float(max(rx1 + 0.02, min(1.0, reg["x2"])))
@@ -4082,11 +4208,20 @@ class ZiggartKrea2TrioEnsembleDirector:
             "canvas_height": h_px,
             "hint": layout_hint,
             "regions": regions_out,
+            "base_scene_prompt": base_scene_prompt,
+            "compiled_prompt": compiled,
+            "char_prompts": [c1_det, c2_det, c3_det, prop_expanded],
+            "stage_style": eff_stage.style_desc if eff_stage else "",
+            "stage_lighting": eff_stage.lighting_desc if eff_stage else "",
+            "stage_environment": eff_stage.environment_desc if eff_stage else "",
+            "stage_camera": eff_stage.camera_desc if eff_stage else "",
         }
         stats["ensemble_layout_preset"] = ensemble_layout_preset
         stats["interaction_mode"] = interaction_mode
         stats["companion_or_prop"] = prop_expanded
         stats["regions_count"] = len(regions_out)
+        stats["context_connected"] = eff_context is not None
+        stats["stage_connected"] = stage_data is not None
 
         return (
             compiled,
@@ -4109,8 +4244,13 @@ def _render_spatial_layout_preview(
     canvas_height: int,
     regions: list[dict[str, Any]],
     background_image: torch.Tensor | None = None,
+    region_masks: list[torch.Tensor] | None = None,
+    complementary_bg_mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """Renders a color-coded visual diagram of the spatial bounding boxes as a ComfyUI IMAGE [1, H, W, 3]."""
+    """
+    Renders a color-coded visual diagram (and optional soft Partition-of-Unity mask heatmap)
+    of the spatial bounding boxes as a ComfyUI IMAGE [1, H, W, 3].
+    """
     w = max(64, int(canvas_width))
     h = max(64, int(canvas_height))
     if isinstance(background_image, torch.Tensor) and background_image.ndim == 4 and background_image.shape[0] > 0:
@@ -4126,8 +4266,6 @@ def _render_spatial_layout_preview(
         for gy in range(0, h, step_y):
             grid_draw.line([(0, gy), (w, gy)], fill=(45, 50, 66, 255), width=1)
 
-    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
     palette = [
         ((255, 92, 124, 72), (255, 110, 140, 240)),   # Region 1: Coral Red
         ((72, 185, 255, 72), (96, 205, 255, 240)),    # Region 2: Cyan Blue
@@ -4135,10 +4273,28 @@ def _render_spatial_layout_preview(
         ((255, 200, 85, 72), (255, 215, 110, 240)),   # Region 4: Amber Gold
     ]
 
+    if region_masks and len(region_masks) > 0:
+        base_rgb = np.asarray(base_img.convert("RGB"), dtype=np.float32)
+        heat_rgb = base_rgb.copy()
+        for idx, m_ten in enumerate(region_masks):
+            _, border_col = palette[idx % len(palette)]
+            m_2d = m_ten.squeeze().detach().cpu().clamp(0.0, 1.0).numpy()
+            if m_2d.shape != (h, w):
+                m_pil = Image.fromarray((m_2d * 255.0).astype(np.uint8), mode="L").resize((w, h), Image.Resampling.BILINEAR)
+                m_2d = np.asarray(m_pil, dtype=np.float32) / 255.0
+            col_vec = np.array([border_col[0], border_col[1], border_col[2]], dtype=np.float32).reshape(1, 1, 3)
+            alpha_map = (m_2d[:, :, None] * 0.62)
+            heat_rgb = heat_rgb * (1.0 - alpha_map) + col_vec * alpha_map
+        base_img = Image.fromarray(np.clip(heat_rgb, 0, 255).astype(np.uint8), mode="RGB").convert("RGBA")
+
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
     for idx, reg in enumerate(regions):
         fill_col, border_col = palette[idx % len(palette)]
         px1, py1, px2, py2 = reg["bbox_px"]
-        draw.rectangle([px1, py1, px2, py2], fill=fill_col, outline=border_col, width=max(2, min(w, h) // 180))
+        rect_fill = (fill_col[0], fill_col[1], fill_col[2], 18) if region_masks else fill_col
+        draw.rectangle([px1, py1, px2, py2], fill=rect_fill, outline=border_col, width=max(2, min(w, h) // 180))
         label_str = f"#{idx + 1} {reg.get('label', f'Region {idx + 1}')} (w={reg.get('weight', 1.0):.2f})"
         tag_h = 22
         tag_w = min(w - px1, max(90, len(label_str) * 7 + 12))
@@ -4150,6 +4306,9 @@ def _render_spatial_layout_preview(
     return torch.from_numpy(arr).unsqueeze(0)
 
 
+LAYOUT_DESIGNER_PRESET_OPTIONS = ["Custom (Use Sliders / Canvas)"] + list(ENSEMBLE_SPATIAL_LAYOUT_PRESETS.keys())
+
+
 class ZiggartSpatialLayoutDesigner:
     """
     Visual and numeric 2D Bounding Box Designer for multi-character scenes.
@@ -4159,7 +4318,7 @@ class ZiggartSpatialLayoutDesigner:
 
     DESCRIPTION = (
         "Design up to 4 normalized [x1, y1, x2, y2] spatial regions (Char 1, Char 2, Char 3, Prop/BG) "
-        "using sliders or the interactive 2D canvas widget. Connects optionally to "
+        "using presets, sliders, or the interactive 2D canvas widget. Connects optionally to "
         "ZiggartRegionalConditioningComposer or Ziggart Detailers."
     )
     CATEGORY = "Ziggart/Krea2 Prompt Director"
@@ -4200,6 +4359,13 @@ class ZiggartSpatialLayoutDesigner:
                 "r4_weight": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 2.0, "step": 0.05}),
             },
             "optional": {
+                "layout_preset": (
+                    LAYOUT_DESIGNER_PRESET_OPTIONS,
+                    {
+                        "default": "Custom (Use Sliders / Canvas)",
+                        "tooltip": "Select a preset to snap regions to a standard Duo/Trio layout, or keep 'Custom (Use Sliders / Canvas)' to use your dragged 2D canvas boxes.",
+                    },
+                ),
                 "background_reference_image": ("IMAGE",),
                 "layout_json_override": (
                     "STRING",
@@ -4241,17 +4407,42 @@ class ZiggartSpatialLayoutDesigner:
         r4_x2: float = 0.80,
         r4_y2: float = 0.98,
         r4_weight: float = 0.9,
+        layout_preset: str = "Custom (Use Sliders / Canvas)",
         background_reference_image: torch.Tensor | None = None,
         layout_json_override: str = "",
     ):
         w_px = max(64, int(canvas_width))
         h_px = max(64, int(canvas_height))
-        raw_specs = [
-            (r1_label, r1_x1, r1_y1, r1_x2, r1_y2, r1_weight),
-            (r2_label, r2_x1, r2_y1, r2_x2, r2_y2, r2_weight),
-            (r3_label, r3_x1, r3_y1, r3_x2, r3_y2, r3_weight),
-            (r4_label, r4_x1, r4_y1, r4_x2, r4_y2, r4_weight),
-        ][: max(1, min(4, int(active_regions)))]
+        preset_name_used = "Custom Spatial Layout"
+        layout_hint = ""
+
+        if (
+            layout_preset
+            and layout_preset != "Custom (Use Sliders / Canvas)"
+            and layout_preset in ENSEMBLE_SPATIAL_LAYOUT_PRESETS
+            and not (layout_json_override and layout_json_override.strip())
+        ):
+            p_info = ENSEMBLE_SPATIAL_LAYOUT_PRESETS[layout_preset]
+            preset_name_used = layout_preset
+            layout_hint = str(p_info.get("hint", ""))
+            raw_specs = [
+                (
+                    str(r.get("label", f"Region {i + 1}")),
+                    float(r.get("x1", 0.0)),
+                    float(r.get("y1", 0.0)),
+                    float(r.get("x2", 1.0)),
+                    float(r.get("y2", 1.0)),
+                    float(r.get("weight", 1.0)),
+                )
+                for i, r in enumerate(p_info.get("regions", [])[:4])
+            ]
+        else:
+            raw_specs = [
+                (r1_label, r1_x1, r1_y1, r1_x2, r1_y2, r1_weight),
+                (r2_label, r2_x1, r2_y1, r2_x2, r2_y2, r2_weight),
+                (r3_label, r3_x1, r3_y1, r3_x2, r3_y2, r3_weight),
+                (r4_label, r4_x1, r4_y1, r4_x2, r4_y2, r4_weight),
+            ][: max(1, min(4, int(active_regions)))]
 
         if layout_json_override and layout_json_override.strip():
             try:
@@ -4259,6 +4450,7 @@ class ZiggartSpatialLayoutDesigner:
                 if isinstance(parsed, dict) and "regions" in parsed:
                     parsed = parsed["regions"]
                 if isinstance(parsed, list) and parsed:
+                    preset_name_used = "JSON Override Spatial Layout"
                     raw_specs = [
                         (
                             str(item.get("label", f"Region {i + 1}")),
@@ -4300,10 +4492,10 @@ class ZiggartSpatialLayoutDesigner:
             )
 
         spatial_layout = {
-            "preset_name": "Custom Spatial Layout",
+            "preset_name": preset_name_used,
             "canvas_width": w_px,
             "canvas_height": h_px,
-            "hint": f"custom {len(regions_out)}-region spatial layout",
+            "hint": layout_hint or f"custom {len(regions_out)}-region spatial layout",
             "regions": regions_out,
         }
         preview_img = _render_spatial_layout_preview(w_px, h_px, regions_out, background_reference_image)
@@ -4319,14 +4511,32 @@ class ZiggartSpatialLayoutDesigner:
 # Upgrade A Node 3: ZiggartRegionalConditioningComposer
 # ---------------------------------------------------------------------------
 
+REGIONAL_MASK_MODES = [
+    "gaussian_soft_partition",
+    "cosine_feathered_partition",
+    "linear_box_legacy",
+]
+
+REGIONAL_CONTEXT_HARMONIZATION_MODES = [
+    "inject_base_style_and_lighting",
+    "conditioning_concat_base",
+    "isolated_region_prompt",
+]
+
 
 def _build_feathered_region_mask(
     canvas_w: int,
     canvas_h: int,
     bbox_px: tuple[int, int, int, int],
     feather_ratio: float = 0.10,
+    mask_mode: str = "linear_box_legacy",
 ) -> torch.Tensor:
-    """Creates a [1, H, W] float32 mask for a region with smooth cosine/linear edge feathering."""
+    """
+    Creates a [1, H, W] float32 mask for a single region using:
+    - 'gaussian_soft_partition': Smooth 2D super-Gaussian / plateau-Gaussian core with soft boundary rolloff
+    - 'cosine_feathered_partition': Raised-cosine (Hann) edge transition
+    - 'linear_box_legacy': Linear box ramp
+    """
     mask = torch.zeros((canvas_h, canvas_w), dtype=torch.float32)
     x1, y1, x2, y2 = bbox_px
     x1 = max(0, min(canvas_w - 1, int(x1)))
@@ -4336,22 +4546,100 @@ def _build_feathered_region_mask(
 
     rw = x2 - x1
     rh = y2 - y1
-    region_box = torch.ones((rh, rw), dtype=torch.float32)
+    fr = max(0.0, min(0.48, float(feather_ratio)))
 
-    if feather_ratio > 0.0:
-        fx = max(1, int(round(rw * min(0.45, float(feather_ratio)))))
-        fy = max(1, int(round(rh * min(0.45, float(feather_ratio)))))
-        if fx > 1 and rw > 2 * fx:
-            ramp_x = torch.linspace(0.0, 1.0, steps=fx, dtype=torch.float32)
-            region_box[:, :fx] *= ramp_x.unsqueeze(0)
-            region_box[:, -fx:] *= ramp_x.flip(0).unsqueeze(0)
-        if fy > 1 and rh > 2 * fy:
-            ramp_y = torch.linspace(0.0, 1.0, steps=fy, dtype=torch.float32)
-            region_box[:fy, :] *= ramp_y.unsqueeze(1)
-            region_box[-fy:, :] *= ramp_y.flip(0).unsqueeze(1)
+    if mask_mode == "gaussian_soft_partition":
+        # Plateau-Gaussian profile: flat 1.0 core inside (1 - 2*fr) of box, smooth Gaussian falloff to edges
+        u = torch.linspace(-1.0, 1.0, steps=rw, dtype=torch.float32)
+        v = torch.linspace(-1.0, 1.0, steps=rh, dtype=torch.float32)
+        plateau = max(0.15, 1.0 - 1.8 * fr)
+        sigma = max(0.08, fr * 1.15 + 0.04)
+        dx = torch.clamp(torch.abs(u) - plateau, min=0.0) / sigma
+        dy = torch.clamp(torch.abs(v) - plateau, min=0.0) / sigma
+        wx = torch.exp(-0.5 * dx * dx)
+        wy = torch.exp(-0.5 * dy * dy)
+        # Ensure exact 0 at outer boundary when feather_ratio > 0 so outside box is clean
+        if fr > 0.0:
+            edge_taper_x = torch.sin(torch.linspace(0.0, math.pi, steps=rw, dtype=torch.float32)).clamp(min=0.0) ** 0.35
+            edge_taper_y = torch.sin(torch.linspace(0.0, math.pi, steps=rh, dtype=torch.float32)).clamp(min=0.0) ** 0.35
+            wx = wx * edge_taper_x
+            wy = wy * edge_taper_y
+        region_box = wy.unsqueeze(1) * wx.unsqueeze(0)
+    else:
+        region_box = torch.ones((rh, rw), dtype=torch.float32)
+        if fr > 0.0:
+            fx = max(1, int(round(rw * fr)))
+            fy = max(1, int(round(rh * fr)))
+            if fx > 1 and rw > 2 * fx:
+                t_x = torch.linspace(0.0, 1.0, steps=fx, dtype=torch.float32)
+                ramp_x = 0.5 * (1.0 - torch.cos(math.pi * t_x)) if mask_mode == "cosine_feathered_partition" else t_x
+                region_box[:, :fx] *= ramp_x.unsqueeze(0)
+                region_box[:, -fx:] *= ramp_x.flip(0).unsqueeze(0)
+            if fy > 1 and rh > 2 * fy:
+                t_y = torch.linspace(0.0, 1.0, steps=fy, dtype=torch.float32)
+                ramp_y = 0.5 * (1.0 - torch.cos(math.pi * t_y)) if mask_mode == "cosine_feathered_partition" else t_y
+                region_box[:fy, :] *= ramp_y.unsqueeze(1)
+                region_box[-fy:, :] *= ramp_y.flip(0).unsqueeze(1)
 
-    mask[y1:y2, x1:x2] = region_box
+    mask[y1:y2, x1:x2] = region_box.clamp(0.0, 1.0)
     return mask.unsqueeze(0)
+
+
+def _build_partitioned_region_masks(
+    canvas_w: int,
+    canvas_h: int,
+    bboxes_px: list[tuple[int, int, int, int]],
+    weights: list[float],
+    feather_ratio: float = 0.15,
+    mask_mode: str = "gaussian_soft_partition",
+    normalize_overlap: bool = True,
+    base_floor_strength: float = 0.25,
+) -> tuple[list[torch.Tensor], torch.Tensor]:
+    """
+    Builds spatial masks for all active character/prop regions and enforces a Partition-of-Unity
+    constraint on overlapping zones so sum_i M_i(y, x) <= 1.0 everywhere.
+    Also returns a complementary background mask M_bg(y, x) = clamp(1 - sum_i M_i, min=base_floor_strength, max=1.0)
+    so the stage/environment prompt guides empty background areas at full strength while softly anchoring character regions.
+    """
+    if not bboxes_px:
+        return [], torch.ones((1, canvas_h, canvas_w), dtype=torch.float32)
+
+    raw_masks: list[torch.Tensor] = []
+    for bbox, w_val in zip(bboxes_px, weights):
+        m = _build_feathered_region_mask(
+            canvas_w=canvas_w,
+            canvas_h=canvas_h,
+            bbox_px=bbox,
+            feather_ratio=feather_ratio,
+            mask_mode=mask_mode,
+        )
+        prior_w = max(0.05, float(w_val))
+        raw_masks.append(m * min(1.5, prior_w))
+
+    stacked = torch.stack(raw_masks, dim=0)  # [N, 1, H, W]
+    # Peak-normalize each individual mask back to [0, 1] before overlap normalization
+    peaks = stacked.amax(dim=(2, 3), keepdim=True).clamp(min=1e-6)
+    unnorm_masks = (stacked / peaks).clamp(0.0, 1.0)
+
+    if normalize_overlap and len(bboxes_px) > 1:
+        weight_tensor = torch.tensor(
+            [max(0.05, float(w)) for w in weights],
+            dtype=torch.float32,
+        ).view(-1, 1, 1, 1)
+        weighted = unnorm_masks * weight_tensor
+        total_w = weighted.sum(dim=0, keepdim=True).clamp(min=1e-6)
+        union_envelope = unnorm_masks.amax(dim=0, keepdim=True).clamp(0.0, 1.0)
+        # Partition-of-Unity: inside overlap zones, regions smoothly split the union envelope proportionally to their weight
+        final_stack = (weighted / total_w) * union_envelope
+    else:
+        final_stack = unnorm_masks
+
+    mask_sum = final_stack.sum(dim=0).clamp(0.0, 1.0)  # [1, H, W]
+    floor_val = max(0.0, min(1.0, float(base_floor_strength)))
+    complementary_bg_mask = torch.clamp(1.0 - mask_sum * (1.0 - floor_val), min=floor_val, max=1.0)
+
+    out_masks = [final_stack[i] for i in range(final_stack.shape[0])]
+    return out_masks, complementary_bg_mask
 
 
 def _encode_clip_text(clip: Any, text: str) -> list[Any]:
@@ -4398,17 +4686,68 @@ def _apply_conditioning_mask(
     return out
 
 
+def _apply_conditioning_timestep_range(
+    conditioning: list[Any],
+    start_percent: float = 0.0,
+    end_percent: float = 1.0,
+) -> list[Any]:
+    """Restricts a ComfyUI CONDITIONING list to a specific denoising timestep window [start_percent, end_percent]."""
+    s_pct = max(0.0, min(1.0, float(start_percent)))
+    e_pct = max(s_pct, min(1.0, float(end_percent)))
+    if s_pct <= 0.0 and e_pct >= 1.0:
+        return list(conditioning)
+    if comfy_nodes is not None and hasattr(comfy_nodes, "ConditioningSetTimestepRange"):
+        return list(
+            comfy_nodes.ConditioningSetTimestepRange().set_range(
+                conditioning=conditioning,
+                start=s_pct,
+                end=e_pct,
+            )[0]
+        )
+    out: list[Any] = []
+    for t in conditioning:
+        n = [t[0], t[1].copy()]
+        n[1]["start_percent"] = s_pct
+        n[1]["end_percent"] = e_pct
+        out.append(n)
+    return out
+
+
+def _concat_conditioning(cond_to: list[Any], cond_from: list[Any]) -> list[Any]:
+    """Concatenates token tensors of cond_from onto cond_to along dim=1 (ComfyUI ConditioningConcat semantics)."""
+    if not cond_from:
+        return list(cond_to)
+    if comfy_nodes is not None and hasattr(comfy_nodes, "ConditioningConcat"):
+        try:
+            return list(comfy_nodes.ConditioningConcat().concat(conditioning_to=cond_to, conditioning_from=cond_from)[0])
+        except Exception:
+            pass
+    out: list[Any] = []
+    cond_from_tensor = cond_from[0][0]
+    for t in cond_to:
+        t1 = t[0]
+        if isinstance(t1, torch.Tensor) and isinstance(cond_from_tensor, torch.Tensor) and t1.ndim == 3 and cond_from_tensor.ndim == 3:
+            if t1.shape[0] == cond_from_tensor.shape[0] and t1.shape[2] == cond_from_tensor.shape[2]:
+                merged = torch.cat((t1, cond_from_tensor.to(t1.device, dtype=t1.dtype)), dim=1)
+                out.append([merged, t[1].copy()])
+                continue
+        out.append([t1, t[1].copy()])
+    return out
+
+
 class ZiggartRegionalConditioningComposer:
     """
-    Encodes a global base scene prompt plus up to 4 regional prompts (Char 1, Char 2, Char 3, Prop)
-    and attaches feathered spatial masks so multi-character outfits/attributes never bleed across subjects.
-    Uses `spatial_layout` when connected, or falls back to `layout_preset` when disconnected.
+    Upgraded Regional Conditioning Composer with:
+    1. Partition-of-Unity Gaussian / Cosine Soft Masks (overlapping regions normalize so sum_i M_i <= 1.0).
+    2. Complementary Background Mask M_bg = clamp(1 - sum_i M_i, min=base_prompt_strength, max=1.0).
+    3. Scene Context Harmonization (automatically fuses scene style/lighting/environment into each character region).
+    4. Timestep Range Scheduling (regional separation during early/mid composition steps, seamless global unification in late steps).
     """
 
     DESCRIPTION = (
-        "Eliminates multi-character attribute bleeding by composing spatially masked ComfyUI CONDITIONING "
-        "for Character 1, Character 2, Character 3, and Prop/Region 4. Connects optionally to "
-        "ZiggartSpatialLayoutDesigner or uses built-in layout presets."
+        "Eliminates multi-character attribute bleeding and boundary seams by composing Partition-of-Unity "
+        "Gaussian/Cosine spatially masked ComfyUI CONDITIONING with Complementary Background Masking, "
+        "Scene Context Harmonization, and Timestep Range Scheduling."
     )
     CATEGORY = "Ziggart/Krea2 Prompt Director"
     FUNCTION = "compose_regional_conditioning"
@@ -4431,7 +4770,10 @@ class ZiggartRegionalConditioningComposer:
                         "default": "",
                         "multiline": True,
                         "dynamicPrompts": False,
-                        "tooltip": "Global scene context (style, environment, lighting, camera) applied across the full canvas.",
+                        "tooltip": (
+                            "Global scene context (style, environment, lighting, camera). "
+                            "If left blank and spatial_layout is wired from ZiggartKrea2TrioEnsembleDirector, it is auto-filled!"
+                        ),
                     },
                 ),
                 "char_1_prompt": (
@@ -4440,7 +4782,7 @@ class ZiggartRegionalConditioningComposer:
                         "default": "",
                         "multiline": True,
                         "dynamicPrompts": False,
-                        "tooltip": "Prompt for Region 1 / Character 1.",
+                        "tooltip": "Prompt for Region 1 / Character 1 (auto-filled from spatial_layout if left blank).",
                     },
                 ),
                 "layout_preset": (
@@ -4454,7 +4796,13 @@ class ZiggartRegionalConditioningComposer:
                 "canvas_height": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
                 "base_prompt_strength": (
                     "FLOAT",
-                    {"default": 0.40, "min": 0.0, "max": 2.0, "step": 0.05},
+                    {
+                        "default": 0.35,
+                        "min": 0.0,
+                        "max": 2.0,
+                        "step": 0.05,
+                        "tooltip": "Minimum floor strength of the base scene prompt inside character boxes (background outside boxes receives 1.0).",
+                    },
                 ),
                 "region_strength": (
                     "FLOAT",
@@ -4462,7 +4810,7 @@ class ZiggartRegionalConditioningComposer:
                 ),
                 "feather_ratio": (
                     "FLOAT",
-                    {"default": 0.10, "min": 0.0, "max": 0.45, "step": 0.01},
+                    {"default": 0.15, "min": 0.0, "max": 0.45, "step": 0.01},
                 ),
                 "set_cond_area_to_bounds": ("BOOLEAN", {"default": False}),
             },
@@ -4470,39 +4818,116 @@ class ZiggartRegionalConditioningComposer:
                 "char_2_prompt": ("STRING", {"default": "", "multiline": True, "dynamicPrompts": False}),
                 "char_3_prompt": ("STRING", {"default": "", "multiline": True, "dynamicPrompts": False}),
                 "region_4_prompt": ("STRING", {"default": "", "multiline": True, "dynamicPrompts": False}),
+                "full_scene_prompt": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "dynamicPrompts": False,
+                        "tooltip": (
+                            "Optional full compiled prompt (e.g. krea2_compiled_prompt from Trio Director) used during "
+                            "late denoising steps (after regional_end_percent) to seamlessly unify lighting, hands, and boundaries."
+                        ),
+                    },
+                ),
                 "spatial_layout": (
                     "ZIGGART_SPATIAL_LAYOUT",
                     {
-                        "tooltip": "Optional custom layout from ZiggartSpatialLayoutDesigner or ZiggartKrea2TrioEnsembleDirector. Overrides layout_preset when connected.",
+                        "tooltip": "Optional layout from ZiggartSpatialLayoutDesigner or ZiggartKrea2TrioEnsembleDirector. Overrides layout_preset when connected.",
                     },
                 ),
                 "base_conditioning": ("CONDITIONING",),
+                "mask_mode": (
+                    REGIONAL_MASK_MODES,
+                    {
+                        "default": "gaussian_soft_partition",
+                        "tooltip": "Gaussian soft partition eliminates hard box seams and normalizes overlapping regions.",
+                    },
+                ),
+                "normalize_overlap": (
+                    "BOOLEAN",
+                    {
+                        "default": True,
+                        "tooltip": "Enforces Partition-of-Unity (sum of regional masks <= 1.0) so overlapping boxes never double-count or cause fused limbs.",
+                    },
+                ),
+                "context_harmonization": (
+                    REGIONAL_CONTEXT_HARMONIZATION_MODES,
+                    {
+                        "default": "inject_base_style_and_lighting",
+                        "tooltip": "Ensures each masked character region shares the global render style, lighting, and atmosphere.",
+                    },
+                ),
+                "regional_start_percent": (
+                    "FLOAT",
+                    {
+                        "default": 0.0,
+                        "min": 0.0,
+                        "max": 0.95,
+                        "step": 0.05,
+                        "tooltip": "Denoising timestep start percent for regional masks (0.0 = start from step 0).",
+                    },
+                ),
+                "regional_end_percent": (
+                    "FLOAT",
+                    {
+                        "default": 1.0,
+                        "min": 0.10,
+                        "max": 1.0,
+                        "step": 0.05,
+                        "tooltip": (
+                            "Denoising timestep end percent for regional masks. Set to e.g. 0.70 to run regional separation "
+                            "for the first 70% of steps and unify the full canvas for the final 30% of steps."
+                        ),
+                    },
+                ),
             },
         }
 
     def compose_regional_conditioning(
         self,
         clip: Any,
-        base_scene_prompt: str,
-        char_1_prompt: str,
+        base_scene_prompt: str = "",
+        char_1_prompt: str = "",
         layout_preset: str = "Left / Right Split (Duo)",
         canvas_width: int = 1024,
         canvas_height: int = 1024,
-        base_prompt_strength: float = 0.40,
+        base_prompt_strength: float = 0.35,
         region_strength: float = 1.0,
-        feather_ratio: float = 0.10,
+        feather_ratio: float = 0.15,
         set_cond_area_to_bounds: bool = False,
         char_2_prompt: str = "",
         char_3_prompt: str = "",
         region_4_prompt: str = "",
+        full_scene_prompt: str = "",
         spatial_layout: dict[str, Any] | None = None,
         base_conditioning: list[Any] | None = None,
+        mask_mode: str = "gaussian_soft_partition",
+        normalize_overlap: bool = True,
+        context_harmonization: str = "inject_base_style_and_lighting",
+        regional_start_percent: float = 0.0,
+        regional_end_percent: float = 1.0,
     ):
+        layout_char_prompts: list[str] = []
+        layout_base_prompt = ""
+        layout_compiled_prompt = ""
+        layout_style_context = ""
+
         if isinstance(spatial_layout, dict) and spatial_layout.get("regions"):
             w_px = max(64, int(spatial_layout.get("canvas_width", canvas_width)))
             h_px = max(64, int(spatial_layout.get("canvas_height", canvas_height)))
             active_preset_name = str(spatial_layout.get("preset_name", "Connected Spatial Layout"))
             raw_regions = list(spatial_layout["regions"])
+            layout_base_prompt = str(spatial_layout.get("base_scene_prompt", "") or "").strip()
+            layout_compiled_prompt = str(spatial_layout.get("compiled_prompt", "") or "").strip()
+            if isinstance(spatial_layout.get("char_prompts"), list):
+                layout_char_prompts = [str(x or "").strip() for x in spatial_layout["char_prompts"]]
+            style_bits = [
+                str(spatial_layout.get("stage_style", "") or "").strip(),
+                str(spatial_layout.get("stage_environment", "") or "").strip(),
+                str(spatial_layout.get("stage_lighting", "") or "").strip(),
+            ]
+            layout_style_context = ", ".join(b.rstrip(".,") for b in style_bits if b)
         else:
             w_px = max(64, int(canvas_width))
             h_px = max(64, int(canvas_height))
@@ -4532,58 +4957,106 @@ class ZiggartRegionalConditioningComposer:
                     }
                 )
 
-        combined_cond: list[Any] = []
-        full_mask = torch.ones((1, h_px, w_px), dtype=torch.float32)
+        eff_base_prompt = base_scene_prompt.strip() or layout_base_prompt
+        raw_region_prompts = [
+            char_1_prompt.strip() or (layout_char_prompts[0] if len(layout_char_prompts) > 0 else ""),
+            char_2_prompt.strip() or (layout_char_prompts[1] if len(layout_char_prompts) > 1 else ""),
+            char_3_prompt.strip() or (layout_char_prompts[2] if len(layout_char_prompts) > 2 else ""),
+            region_4_prompt.strip() or (layout_char_prompts[3] if len(layout_char_prompts) > 3 else ""),
+        ]
 
-        if base_conditioning is not None:
-            if base_prompt_strength > 0.0:
-                combined_cond.extend(
-                    _apply_conditioning_mask(
-                        list(base_conditioning),
-                        full_mask,
-                        strength=float(base_prompt_strength),
-                        set_area_to_bounds=False,
-                    )
-                )
-        elif base_scene_prompt.strip() and base_prompt_strength > 0.0:
-            base_encoded = _encode_clip_text(clip, base_scene_prompt.strip())
-            combined_cond.extend(
-                _apply_conditioning_mask(
-                    base_encoded,
-                    full_mask,
-                    strength=float(base_prompt_strength),
-                    set_area_to_bounds=False,
+        # Collect active regions that have a non-empty prompt and a corresponding layout region
+        active_entries: list[tuple[int, dict[str, Any], str, tuple[int, int, int, int], float]] = []
+        for idx, prompt_str in enumerate(raw_region_prompts):
+            if not prompt_str or idx >= len(raw_regions):
+                continue
+            reg = raw_regions[idx]
+            bbox_px = tuple(
+                reg.get("bbox_px")
+                or (
+                    int(round(float(reg["x1"]) * w_px)),
+                    int(round(float(reg["y1"]) * h_px)),
+                    int(round(float(reg["x2"]) * w_px)),
+                    int(round(float(reg["y2"]) * h_px)),
                 )
             )
+            w_val = float(reg.get("weight", 1.0))
+            active_entries.append((idx, reg, prompt_str, bbox_px, w_val))
 
-        region_prompts = [
-            char_1_prompt.strip(),
-            char_2_prompt.strip(),
-            char_3_prompt.strip(),
-            region_4_prompt.strip(),
-        ]
+        # Build Partition-of-Unity regional masks + Complementary Background Mask
+        active_bboxes = [item[3] for item in active_entries]
+        active_weights = [item[4] for item in active_entries]
+        partitioned_masks, complementary_bg_mask = _build_partitioned_region_masks(
+            canvas_w=w_px,
+            canvas_h=h_px,
+            bboxes_px=active_bboxes,
+            weights=active_weights,
+            feather_ratio=feather_ratio,
+            mask_mode=mask_mode,
+            normalize_overlap=normalize_overlap,
+            base_floor_strength=min(1.0, max(0.0, float(base_prompt_strength))),
+        )
+
+        combined_cond: list[Any] = []
+        base_encoded_cache: list[Any] | None = None
+        if base_conditioning is not None:
+            base_encoded_cache = list(base_conditioning)
+        elif eff_base_prompt:
+            base_encoded_cache = _encode_clip_text(clip, eff_base_prompt)
+
+        # 1. Complementary Background / Base Scene Conditioning
+        if base_encoded_cache is not None and (base_prompt_strength > 0.0 or not active_entries):
+            bg_strength = max(1.0, float(base_prompt_strength)) if active_entries else max(0.05, float(base_prompt_strength))
+            bg_mask_to_use = complementary_bg_mask if (active_entries and normalize_overlap) else torch.ones((1, h_px, w_px), dtype=torch.float32)
+            bg_masked_cond = _apply_conditioning_mask(
+                base_encoded_cache,
+                bg_mask_to_use,
+                strength=bg_strength if (active_entries and normalize_overlap) else float(base_prompt_strength),
+                set_area_to_bounds=False,
+            )
+            bg_masked_cond = _apply_conditioning_timestep_range(
+                bg_masked_cond,
+                start_percent=regional_start_percent,
+                end_percent=regional_end_percent,
+            )
+            combined_cond.extend(bg_masked_cond)
+
+        # Determine scene context clause for harmonizing regional character prompts
+        harmonize_clause = layout_style_context or eff_base_prompt
         used_regions_summary: list[dict[str, Any]] = []
         bboxes_out: list[tuple[int, int, int, int]] = []
         preview_regions: list[dict[str, Any]] = []
 
-        for idx, prompt_str in enumerate(region_prompts):
-            if not prompt_str or idx >= len(raw_regions):
-                continue
-            reg = raw_regions[idx]
-            bbox_px = tuple(reg.get("bbox_px") or (
-                int(round(float(reg["x1"]) * w_px)),
-                int(round(float(reg["y1"]) * h_px)),
-                int(round(float(reg["x2"]) * w_px)),
-                int(round(float(reg["y2"]) * h_px)),
-            ))
-            eff_strength = float(region_strength) * float(reg.get("weight", 1.0))
-            reg_mask = _build_feathered_region_mask(w_px, h_px, bbox_px, feather_ratio=feather_ratio)
-            reg_cond = _encode_clip_text(clip, prompt_str)
+        # 2. Regional Character / Prop Conditionings
+        for list_pos, (idx, reg, prompt_str, bbox_px, w_val) in enumerate(active_entries):
+            reg_mask = partitioned_masks[list_pos]
+            eff_strength = float(region_strength) * w_val
+
+            if context_harmonization == "inject_base_style_and_lighting" and harmonize_clause:
+                # Avoid duplicating if harmonize_clause is already inside prompt_str
+                if harmonize_clause[:32].lower() not in prompt_str.lower():
+                    harmonized_text = f"{prompt_str.rstrip('., ')}, {harmonize_clause}"
+                else:
+                    harmonized_text = prompt_str
+                reg_cond = _encode_clip_text(clip, harmonized_text)
+            elif context_harmonization == "conditioning_concat_base" and base_encoded_cache is not None:
+                raw_cond = _encode_clip_text(clip, prompt_str)
+                reg_cond = _concat_conditioning(raw_cond, base_encoded_cache)
+                harmonized_text = prompt_str
+            else:
+                harmonized_text = prompt_str
+                reg_cond = _encode_clip_text(clip, prompt_str)
+
             masked_cond = _apply_conditioning_mask(
                 reg_cond,
                 reg_mask,
                 strength=eff_strength,
                 set_area_to_bounds=set_cond_area_to_bounds,
+            )
+            masked_cond = _apply_conditioning_timestep_range(
+                masked_cond,
+                start_percent=regional_start_percent,
+                end_percent=regional_end_percent,
             )
             combined_cond.extend(masked_cond)
             bboxes_out.append(bbox_px)
@@ -4596,19 +5069,52 @@ class ZiggartRegionalConditioningComposer:
                     "label": reg.get("label", f"Region {idx + 1}"),
                     "bbox_px": bbox_px,
                     "effective_strength": round(eff_strength, 3),
-                    "prompt_preview": prompt_str[:120],
+                    "mask_peak": round(float(reg_mask.max().item()), 3),
+                    "mask_mean": round(float(reg_mask.mean().item()), 3),
+                    "prompt_preview": harmonized_text[:140],
                 }
             )
 
+        # 3. Late-Step Global Unification Pass when regional_end_percent < 1.0
+        unification_pass_added = False
+        if float(regional_end_percent) < 0.999 and active_entries:
+            unify_text = (
+                full_scene_prompt.strip()
+                or layout_compiled_prompt
+                or ", ".join([eff_base_prompt] + [item[2] for item in active_entries if item[2]]).strip(", ")
+            )
+            if unify_text:
+                unify_cond = _encode_clip_text(clip, unify_text)
+                unify_cond = _apply_conditioning_timestep_range(
+                    unify_cond,
+                    start_percent=float(regional_end_percent),
+                    end_percent=1.0,
+                )
+                combined_cond.extend(unify_cond)
+                unification_pass_added = True
+
         if not combined_cond:
-            fallback_text = base_scene_prompt.strip() or char_1_prompt.strip() or ""
+            fallback_text = eff_base_prompt or raw_region_prompts[0] or ""
             combined_cond = _encode_clip_text(clip, fallback_text)
 
-        preview_img = _render_spatial_layout_preview(w_px, h_px, preview_regions or raw_regions)
+        preview_img = _render_spatial_layout_preview(
+            w_px,
+            h_px,
+            preview_regions or raw_regions,
+            region_masks=partitioned_masks if partitioned_masks else None,
+            complementary_bg_mask=complementary_bg_mask,
+        )
+        max_mask_sum = float(torch.stack(partitioned_masks, dim=0).sum(dim=0).max().item()) if partitioned_masks else 0.0
         summary = {
             "layout_source": "spatial_layout_input" if (isinstance(spatial_layout, dict) and spatial_layout.get("regions")) else "layout_preset",
             "active_preset": active_preset_name,
             "canvas_size": [w_px, h_px],
+            "mask_mode": mask_mode,
+            "normalize_overlap": bool(normalize_overlap),
+            "max_regional_mask_sum": round(max_mask_sum, 4),
+            "context_harmonization": context_harmonization,
+            "timestep_range": [round(float(regional_start_percent), 3), round(float(regional_end_percent), 3)],
+            "late_step_unification_pass": unification_pass_added,
             "feather_ratio": feather_ratio,
             "active_regions_encoded": len(used_regions_summary),
             "regions": used_regions_summary,

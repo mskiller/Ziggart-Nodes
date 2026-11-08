@@ -452,6 +452,11 @@ class Krea2PromptDirectorTests(unittest.TestCase):
             )
 
             trio_node = wildcard_nodes.ZiggartKrea2TrioEnsembleDirector()
+            # Verify socket type compatibility with ZiggartSceneStageAtmosphere (ZIGGART_STAGE) and ZiggartThemeUniverseContext (ZIGGART_CONTEXT)
+            trio_inputs = trio_node.INPUT_TYPES()
+            self.assertEqual(trio_inputs["optional"]["stage_data"][0], "ZIGGART_STAGE")
+            self.assertEqual(trio_inputs["optional"]["context"][0], "ZIGGART_CONTEXT")
+
             (
                 compiled,
                 base_scene,
@@ -480,10 +485,30 @@ class Krea2PromptDirectorTests(unittest.TestCase):
             self.assertIn("JASMINE", compiled)
             self.assertIn("golden condor automaton", compiled)
             self.assertEqual(len(spatial_layout["regions"]), 3)
+            self.assertIn("base_scene_prompt", spatial_layout)
+            self.assertIn("char_prompts", spatial_layout)
             stats = json.loads(stats_json)
             self.assertEqual(stats["mode"], "Trio / Ensemble")
 
-            # Test ZiggartSpatialLayoutDesigner custom boxes
+            # Test Trio Ensemble Director with ONLY `context` connected (auto-resolving distinct characters & stage)
+            ctx_node = wildcard_nodes.ZiggartThemeUniverseContext()
+            ctx, _, _, _ = ctx_node.build_context(
+                source_mode="Theme (Collection/Themes)",
+                theme_selection="01-TestTheme",
+                seed=7,
+            )
+            auto_compiled, auto_base, auto_c1, auto_c2, auto_c3, auto_layout, auto_stats_json = trio_node.direct_ensemble(
+                ensemble_layout_preset="Left / Center / Right (Trio)",
+                interaction_mode="Combat Clash / Duel",
+                seed=7,
+                context=ctx,
+            )
+            self.assertTrue(auto_c1 != "")
+            self.assertTrue(auto_c2 != "")
+            self.assertTrue(auto_c3 != "")
+            self.assertIn("Franco-Japanese", auto_compiled)
+
+            # Test ZiggartSpatialLayoutDesigner custom boxes AND preset selection
             designer = wildcard_nodes.ZiggartSpatialLayoutDesigner()
             custom_layout, bboxes, preview_img, layout_json = designer.design_layout(
                 canvas_width=512,
@@ -492,15 +517,15 @@ class Krea2PromptDirectorTests(unittest.TestCase):
                 r1_label="Left Hero",
                 r1_x1=0.05,
                 r1_y1=0.10,
-                r1_x2=0.35,
+                r1_x2=0.45,
                 r1_y2=0.90,
                 r2_label="Center Hero",
-                r2_x1=0.35,
+                r2_x1=0.30,
                 r2_y1=0.05,
-                r2_x2=0.65,
+                r2_x2=0.70,
                 r2_y2=0.95,
                 r3_label="Right Hero",
-                r3_x1=0.65,
+                r3_x1=0.55,
                 r3_y1=0.10,
                 r3_x2=0.95,
                 r3_y2=0.90,
@@ -508,9 +533,19 @@ class Krea2PromptDirectorTests(unittest.TestCase):
             self.assertEqual(len(bboxes), 3)
             self.assertEqual(preview_img.shape, (1, 512, 512, 3))
 
-            # Test ZiggartRegionalConditioningComposer WITH connected spatial_layout and WITHOUT (preset fallback)
+            preset_layout, preset_bboxes, _, _ = designer.design_layout(
+                canvas_width=512,
+                canvas_height=512,
+                layout_preset="Center Hero / Flanking Duo",
+            )
+            self.assertEqual(preset_layout["preset_name"], "Center Hero / Flanking Duo")
+            self.assertEqual(len(preset_bboxes), 3)
+
+            # Test ZiggartRegionalConditioningComposer WITH connected spatial_layout, Partition-of-Unity masks,
+            # Scene Context Harmonization, and Timestep Range Unification
+            encoded_prompts_log: list[str] = []
             mock_clip = mock.MagicMock()
-            mock_clip.tokenize.side_effect = lambda text: [text]
+            mock_clip.tokenize.side_effect = lambda text: (encoded_prompts_log.append(text) or [text])
             mock_clip.encode_from_tokens.side_effect = lambda toks, return_pooled=True: (
                 torch.ones((1, 8, 64)),
                 torch.ones((1, 64)),
@@ -526,12 +561,34 @@ class Krea2PromptDirectorTests(unittest.TestCase):
                 spatial_layout=custom_layout,
                 canvas_width=512,
                 canvas_height=512,
+                mask_mode="gaussian_soft_partition",
+                normalize_overlap=True,
+                context_harmonization="inject_base_style_and_lighting",
+                regional_start_percent=0.0,
+                regional_end_percent=1.0,
             )
             s1 = json.loads(summary1_json)
             self.assertEqual(s1["layout_source"], "spatial_layout_input")
             self.assertEqual(s1["active_regions_encoded"], 3)
-            self.assertEqual(len(cond_with_layout), 4)  # 1 base + 3 regions
+            # Partition-of-Unity ensures overlapping regional masks never sum > 1.0
+            self.assertLessEqual(s1["max_regional_mask_sum"], 1.0001)
+            self.assertEqual(len(cond_with_layout), 4)  # 1 complementary bg + 3 regions
             self.assertIn("mask", cond_with_layout[1][1])
+            # Scene Context Harmonization injects base scene style/lighting into regional character prompts
+            self.assertTrue(any("ZIA" in p and "1980s cel animation" in p for p in encoded_prompts_log))
+
+            # Test Timestep Range Scheduling (regional_end_percent=0.70 adds a 5th global unification pass for 0.70 -> 1.00)
+            cond_scheduled, _, _, summary_sched_json = reg_node.compose_regional_conditioning(
+                clip=mock_clip,
+                spatial_layout=spatial_layout,  # Auto-fills base_scene_prompt, char_1..3_prompt, and full_scene_prompt!
+                regional_start_percent=0.0,
+                regional_end_percent=0.70,
+            )
+            s_sched = json.loads(summary_sched_json)
+            self.assertTrue(s_sched["late_step_unification_pass"])
+            self.assertEqual(len(cond_scheduled), 5)  # 1 bg (0..0.7) + 3 regions (0..0.7) + 1 global unification (0.7..1.0)
+            self.assertAlmostEqual(cond_scheduled[-1][1]["start_percent"], 0.70, places=2)
+            self.assertAlmostEqual(cond_scheduled[-1][1]["end_percent"], 1.00, places=2)
 
             # Without spatial_layout connected -> uses layout_preset
             cond_preset, mask_prev2, reg_boxes2, summary2_json = reg_node.compose_regional_conditioning(

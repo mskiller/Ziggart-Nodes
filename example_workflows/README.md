@@ -126,13 +126,13 @@ Pipeline complet des **6 nœuds `Ziggart/Krea2 Prompt Director`** optimisés pou
 ---
 
 ### 11. [`11_Trio_Ensemble_Spatial_Layout_and_Regional_Conditioning.json`](./11_Trio_Ensemble_Spatial_Layout_and_Regional_Conditioning.json)
-Pipeline complet **Multi-Personnages Trio/Ensemble + Conditionnement Régional Spatial + Optimisation d'Attention** :
-- **`ZiggartKrea2TrioEnsembleDirector`** :
-  - Assemble jusqu'à **3 personnages complets** (`char_1_slot`, `char_2_slot`, `char_3_slot`) + un compagnon/monture/accessoire (`companion_or_prop_text`) et génère à la fois le prompt compilé Krea2 et une disposition spatiale `ZIGGART_SPATIAL_LAYOUT`.
-- **`ZiggartSpatialLayoutDesigner` (Interactive Regions)** :
-  - Permet de dessiner/redimensionner jusqu'à 4 boîtes englobantes 2D (`[x1, y1, x2, y2]`) directement à la souris sur le canevas interactif du nœud (ou via les curseurs) et de les connecter **optionnellement** à `ZiggartRegionalConditioningComposer`.
-- **`ZiggartRegionalConditioningComposer`** :
-  - Encode le décor global (`base_scene_prompt`) et chaque personnage (`char_1..3_prompt`) avec des masques spatiaux adoucis (`feather_ratio`) pour éviter toute fuite d'attributs ou de vêtements entre personnages (utilise `spatial_layout` s'il est connecté, ou `layout_preset` sinon).
+Pipeline complet **Multi-Personnages Trio/Ensemble + Contexte Thème/Univers + Conditionnement Régional Partition-de-l'Unité + Optimisation d'Attention** :
+- **`ZiggartThemeUniverseContext` $\rightarrow$ `Char 1 (Primary)`, `Char 2 (Secondary)`, `Char 3 (Tertiary)`, `Scene Stage`, et `ZiggartKrea2TrioEnsembleDirector`** :
+  - Connecte `ZIGGART_CONTEXT` et `ZIGGART_STAGE` directement au **Trio & Ensemble Director**. Si certains slots personnages ne sont pas câblés, le Trio Director génère automatiquement des personnages canoniques distincts depuis le `context`.
+- **`ZiggartSpatialLayoutDesigner` (Interactive Regions + Preset Snapping)** :
+  - Permet de choisir un préréglage (`layout_preset`) pour positionner instantanément les boîtes sur le canevas 2D interactif, puis de les déplacer/redimensionner à la souris et de les connecter **optionnellement** à `ZiggartRegionalConditioningComposer`.
+- **`ZiggartRegionalConditioningComposer` (Partition-of-Unity + Harmonisation + Timestep Range)** :
+  - Utilise des masques doux **Partition-de-l'Unité (`gaussian_soft_partition`, `normalize_overlap = True`)** garantissant $\sum_i M_i(y,x) \le 1.0$, un **masque de fond complémentaire** $M_{\text{bg}}(y,x)$, l'**harmonisation automatique du style/éclairage** (`inject_base_style_and_lighting`), et la **planification temporelle (`0.0 -> 0.70` séparation régionale + `0.70 -> 1.00` unification globale avec `full_scene_prompt`)**.
 - **`ZiggartPromptTokenInspectorAndCompressor`** :
   - Analyse le budget de tokens CLIP (blocs de 77 tokens) et Qwen3VL-4B, détecte les doublons/contradictions et compresse les prompts trop longs en préservant les verrous personnages.
 - **`ZiggartAttentionSelector`** :

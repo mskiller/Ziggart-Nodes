@@ -1,23 +1,23 @@
 {
   "id": "c82f1532-9d45-4b63-a2e1-1a2b305191aa",
   "revision": 0,
-  "last_node_id": 11,
-  "last_link_id": 14,
+  "last_node_id": 12,
+  "last_link_id": 20,
   "nodes": [
     {
       "id": 1,
       "type": "Note",
-      "pos": [-420.0, -220.0],
-      "size": [2100.0, 130.0],
+      "pos": [-480.0, -240.0],
+      "size": [2320.0, 140.0],
       "flags": {},
       "order": 0,
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "Guide — Trio & Ensemble Director, Spatial Layout BBox Designer, Regional Conditioning Composer, Token Inspector & Attention Selector",
+      "title": "Guide — Trio & Ensemble Director, Theme Context, Spatial Layout BBox Designer, Partition-of-Unity Regional Conditioning & Attention Selector",
       "properties": { "Node name for S&R": "Note" },
       "widgets_values": [
-        "WORKFLOW 11 : TRIO ENSEMBLE DIRECTOR + SPATIAL LAYOUT DESIGNER + REGIONAL CONDITIONING + ATTENTION SELECTOR\n1. ZiggartCharacterUnitBuilder (Char 1, Char 2, Char 3) + ZiggartSceneStageAtmosphere feed ZiggartKrea2TrioEnsembleDirector.\n2. ZiggartSpatialLayoutDesigner designs custom 2D bounding boxes interactively and connects optionally to ZiggartRegionalConditioningComposer (or leave disconnected to use built-in layout presets).\n3. ZiggartPromptTokenInspectorAndCompressor inspects CLIP/Qwen3VL token budgets and deduplicates/compacts prompts.\n4. ZiggartAttentionSelector optimizes MODEL attention (Sage / Flash / XFormers / PyTorch SDPA) before KSampler."
+        "WORKFLOW 11 : TRIO ENSEMBLE DIRECTOR + THEME CONTEXT + SPATIAL LAYOUT DESIGNER + PARTITION-OF-UNITY REGIONAL CONDITIONING + ATTENTION SELECTOR\n1. ZiggartThemeUniverseContext outputs ZIGGART_CONTEXT to Char 1 (Primary), Char 2 (Secondary), Char 3 (Tertiary), Scene Stage, and Trio Ensemble Director.\n2. ZiggartSceneStageAtmosphere outputs ZIGGART_STAGE directly into ZiggartKrea2TrioEnsembleDirector.\n3. ZiggartSpatialLayoutDesigner provides preset snapping + interactive 2D bounding boxes and connects optionally to ZiggartRegionalConditioningComposer.\n4. ZiggartRegionalConditioningComposer uses Partition-of-Unity Gaussian Soft Masks, Complementary Background Masking, Scene Context Harmonization, and Timestep Range Scheduling (0.0 -> 0.70 regional separation + 0.70 -> 1.00 global scene unification)."
       ],
       "color": "#234",
       "bgcolor": "#356"
@@ -25,8 +25,8 @@
     {
       "id": 2,
       "type": "CheckpointLoaderSimple",
-      "pos": [-420.0, 20.0],
-      "size": [320.0, 100.0],
+      "pos": [-480.0, 20.0],
+      "size": [340.0, 100.0],
       "flags": {},
       "order": 1,
       "mode": 0,
@@ -42,7 +42,7 @@
     {
       "id": 3,
       "type": "ZiggartAttentionSelector",
-      "pos": [-420.0, 170.0],
+      "pos": [-480.0, 170.0],
       "size": [340.0, 240.0],
       "flags": {},
       "order": 2,
@@ -59,18 +59,39 @@
       "widgets_values": ["auto", true, "pytorch", true, false, 1024, 512, true]
     },
     {
-      "id": 4,
-      "type": "ZiggartCharacterUnitBuilder",
-      "pos": [-20.0, 20.0],
-      "size": [400.0, 320.0],
+      "id": 12,
+      "type": "ZiggartThemeUniverseContext",
+      "pos": [-480.0, 460.0],
+      "size": [380.0, 260.0],
       "flags": {},
       "order": 3,
       "mode": 0,
       "inputs": [],
       "outputs": [
+        { "name": "context", "type": "ZIGGART_CONTEXT", "slot_index": 0, "links": [15, 16, 17, 18, 19] },
+        { "name": "active_theme_or_universe", "type": "STRING", "slot_index": 1, "links": [] },
+        { "name": "default_style", "type": "STRING", "slot_index": 2, "links": [] },
+        { "name": "default_environment", "type": "STRING", "slot_index": 3, "links": [] }
+      ],
+      "title": "Krea2 Theme & Universe Context",
+      "properties": { "Node name for S&R": "ZiggartThemeUniverseContext" },
+      "widgets_values": ["Theme (Collection/Themes)", "[Random Theme]", "[Random Universe]", "[Any / No Filter]", true, 42, "", ""]
+    },
+    {
+      "id": 4,
+      "type": "ZiggartCharacterUnitBuilder",
+      "pos": [-40.0, 20.0],
+      "size": [400.0, 320.0],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        { "name": "context", "type": "ZIGGART_CONTEXT", "link": 15 }
+      ],
+      "outputs": [
         { "name": "char_slot", "type": "ZIGGART_CHAR_SLOT", "slot_index": 0, "links": [4] },
-        { "name": "character_block_text", "type": "STRING", "slot_index": 1, "links": [] },
-        { "name": "occlusion_report_json", "type": "STRING", "slot_index": 2, "links": [] }
+        { "name": "character_prompt_block", "type": "STRING", "slot_index": 1, "links": [] },
+        { "name": "occlusion_debug_info", "type": "STRING", "slot_index": 2, "links": [] }
       ],
       "title": "Char 1 (Primary)",
       "properties": { "Node name for S&R": "ZiggartCharacterUnitBuilder" },
@@ -79,16 +100,18 @@
     {
       "id": 5,
       "type": "ZiggartCharacterUnitBuilder",
-      "pos": [-20.0, 380.0],
+      "pos": [-40.0, 380.0],
       "size": [400.0, 320.0],
       "flags": {},
-      "order": 4,
+      "order": 5,
       "mode": 0,
-      "inputs": [],
+      "inputs": [
+        { "name": "context", "type": "ZIGGART_CONTEXT", "link": 16 }
+      ],
       "outputs": [
         { "name": "char_slot", "type": "ZIGGART_CHAR_SLOT", "slot_index": 0, "links": [5] },
-        { "name": "character_block_text", "type": "STRING", "slot_index": 1, "links": [] },
-        { "name": "occlusion_report_json", "type": "STRING", "slot_index": 2, "links": [] }
+        { "name": "character_prompt_block", "type": "STRING", "slot_index": 1, "links": [] },
+        { "name": "occlusion_debug_info", "type": "STRING", "slot_index": 2, "links": [] }
       ],
       "title": "Char 2 (Secondary)",
       "properties": { "Node name for S&R": "ZiggartCharacterUnitBuilder" },
@@ -97,20 +120,22 @@
     {
       "id": 6,
       "type": "ZiggartCharacterUnitBuilder",
-      "pos": [-20.0, 740.0],
+      "pos": [-40.0, 740.0],
       "size": [400.0, 320.0],
       "flags": {},
-      "order": 5,
+      "order": 6,
       "mode": 0,
-      "inputs": [],
+      "inputs": [
+        { "name": "context", "type": "ZIGGART_CONTEXT", "link": 17 }
+      ],
       "outputs": [
         { "name": "char_slot", "type": "ZIGGART_CHAR_SLOT", "slot_index": 0, "links": [6] },
-        { "name": "character_block_text", "type": "STRING", "slot_index": 1, "links": [] },
-        { "name": "occlusion_report_json", "type": "STRING", "slot_index": 2, "links": [] }
+        { "name": "character_prompt_block", "type": "STRING", "slot_index": 1, "links": [] },
+        { "name": "occlusion_debug_info", "type": "STRING", "slot_index": 2, "links": [] }
       ],
       "title": "Char 3 (Tertiary)",
       "properties": { "Node name for S&R": "ZiggartCharacterUnitBuilder" },
-      "widgets_values": ["Secondary", "From Context (Theme / Universe)", "Female", "[From Context (Theme / Universe)]", "Canonical (1:1 Strict Character Outfit)", "[From Context (Theme / Universe)]", false, true, "[Random From Category]", "[None]", 44, "", "", "", ""]
+      "widgets_values": ["Tertiary", "From Context (Theme / Universe)", "Female", "[From Context (Theme / Universe)]", "Canonical (1:1 Strict Character Outfit)", "[From Context (Theme / Universe)]", false, true, "[Random From Category]", "[None]", 44, "", "", "", ""]
     },
     {
       "id": 7,
@@ -118,11 +143,13 @@
       "pos": [420.0, 20.0],
       "size": [400.0, 280.0],
       "flags": {},
-      "order": 6,
+      "order": 7,
       "mode": 0,
-      "inputs": [],
+      "inputs": [
+        { "name": "context", "type": "ZIGGART_CONTEXT", "link": 18 }
+      ],
       "outputs": [
-        { "name": "stage_data", "type": "ZIGGART_STAGE_DATA", "slot_index": 0, "links": [7] },
+        { "name": "stage_data", "type": "ZIGGART_STAGE", "slot_index": 0, "links": [7] },
         { "name": "style_text", "type": "STRING", "slot_index": 1, "links": [] },
         { "name": "action_text", "type": "STRING", "slot_index": 2, "links": [] },
         { "name": "environment_text", "type": "STRING", "slot_index": 3, "links": [] },
@@ -137,18 +164,19 @@
       "id": 8,
       "type": "ZiggartKrea2TrioEnsembleDirector",
       "pos": [860.0, 20.0],
-      "size": [460.0, 360.0],
+      "size": [460.0, 380.0],
       "flags": {},
-      "order": 7,
+      "order": 8,
       "mode": 0,
       "inputs": [
         { "name": "char_1_slot", "type": "ZIGGART_CHAR_SLOT", "link": 4 },
         { "name": "char_2_slot", "type": "ZIGGART_CHAR_SLOT", "link": 5 },
         { "name": "char_3_slot", "type": "ZIGGART_CHAR_SLOT", "link": 6 },
-        { "name": "stage_data", "type": "ZIGGART_STAGE_DATA", "link": 7 }
+        { "name": "stage_data", "type": "ZIGGART_STAGE", "link": 7 },
+        { "name": "context", "type": "ZIGGART_CONTEXT", "link": 19 }
       ],
       "outputs": [
-        { "name": "krea2_compiled_prompt", "type": "STRING", "slot_index": 0, "links": [8] },
+        { "name": "krea2_compiled_prompt", "type": "STRING", "slot_index": 0, "links": [8, 20] },
         { "name": "base_scene_prompt", "type": "STRING", "slot_index": 1, "links": [9] },
         { "name": "char_1_detailer_prompt", "type": "STRING", "slot_index": 2, "links": [10] },
         { "name": "char_2_detailer_prompt", "type": "STRING", "slot_index": 3, "links": [11] },
@@ -164,9 +192,9 @@
       "id": 9,
       "type": "ZiggartSpatialLayoutDesigner",
       "pos": [420.0, 380.0],
-      "size": [410.0, 520.0],
+      "size": [410.0, 560.0],
       "flags": {},
-      "order": 8,
+      "order": 9,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -177,15 +205,15 @@
       ],
       "title": "Spatial Layout BBox Designer (Optional)",
       "properties": { "Node name for S&R": "ZiggartSpatialLayoutDesigner" },
-      "widgets_values": [1024, 1024, 3, "Char 1 (Left)", 0.02, 0.08, 0.36, 0.96, 1.0, "Char 2 (Center)", 0.32, 0.04, 0.68, 0.98, 1.0, "Char 3 (Right)", 0.64, 0.08, 0.98, 0.96, 1.0, "Prop / Foreground", 0.20, 0.55, 0.80, 0.98, 0.9, ""]
+      "widgets_values": [1024, 1024, 3, "Char 1 (Left)", 0.01, 0.06, 0.37, 0.96, 1.0, "Char 2 (Center)", 0.31, 0.04, 0.69, 0.98, 1.05, "Char 3 (Right)", 0.63, 0.06, 0.99, 0.96, 1.0, "Prop / Foreground", 0.20, 0.55, 0.80, 0.98, 0.9, "Left / Center / Right (Trio)", ""]
     },
     {
       "id": 10,
       "type": "ZiggartRegionalConditioningComposer",
       "pos": [1380.0, 20.0],
-      "size": [450.0, 380.0],
+      "size": [470.0, 460.0],
       "flags": {},
-      "order": 9,
+      "order": 10,
       "mode": 0,
       "inputs": [
         { "name": "clip", "type": "CLIP", "link": 2 },
@@ -193,6 +221,7 @@
         { "name": "char_1_prompt", "type": "STRING", "link": 10 },
         { "name": "char_2_prompt", "type": "STRING", "link": 11 },
         { "name": "char_3_prompt", "type": "STRING", "link": 12 },
+        { "name": "full_scene_prompt", "type": "STRING", "link": 20 },
         { "name": "spatial_layout", "type": "ZIGGART_SPATIAL_LAYOUT", "link": 13 }
       ],
       "outputs": [
@@ -201,17 +230,17 @@
         { "name": "region_bboxes", "type": "ZIGGART_BBOX", "slot_index": 2, "links": [] },
         { "name": "layout_summary_json", "type": "STRING", "slot_index": 3, "links": [] }
       ],
-      "title": "Regional Conditioning Composer",
+      "title": "Regional Conditioning Composer (Partition-of-Unity)",
       "properties": { "Node name for S&R": "ZiggartRegionalConditioningComposer" },
-      "widgets_values": ["", "", "Left / Center / Right (Trio)", 1024, 1024, 0.40, 1.0, 0.10, false, "", "", ""]
+      "widgets_values": ["", "", "Left / Center / Right (Trio)", 1024, 1024, 0.35, 1.0, 0.15, false, "", "", "", "", "gaussian_soft_partition", true, "inject_base_style_and_lighting", 0.0, 0.70]
     },
     {
       "id": 11,
       "type": "ZiggartPromptTokenInspectorAndCompressor",
-      "pos": [1380.0, 450.0],
-      "size": [450.0, 240.0],
+      "pos": [1380.0, 530.0],
+      "size": [470.0, 240.0],
       "flags": {},
-      "order": 10,
+      "order": 11,
       "mode": 0,
       "inputs": [
         { "name": "prompt_text", "type": "STRING", "link": 8 },
@@ -235,13 +264,19 @@
     [4, 4, 0, 8, 0, "ZIGGART_CHAR_SLOT"],
     [5, 5, 0, 8, 1, "ZIGGART_CHAR_SLOT"],
     [6, 6, 0, 8, 2, "ZIGGART_CHAR_SLOT"],
-    [7, 7, 0, 8, 3, "ZIGGART_STAGE_DATA"],
+    [7, 7, 0, 8, 3, "ZIGGART_STAGE"],
     [8, 8, 0, 11, 0, "STRING"],
     [9, 8, 1, 10, 1, "STRING"],
     [10, 8, 2, 10, 2, "STRING"],
     [11, 8, 3, 10, 3, "STRING"],
     [12, 8, 4, 10, 4, "STRING"],
-    [13, 9, 0, 10, 5, "ZIGGART_SPATIAL_LAYOUT"]
+    [13, 9, 0, 10, 6, "ZIGGART_SPATIAL_LAYOUT"],
+    [15, 12, 0, 4, 0, "ZIGGART_CONTEXT"],
+    [16, 12, 0, 5, 0, "ZIGGART_CONTEXT"],
+    [17, 12, 0, 6, 0, "ZIGGART_CONTEXT"],
+    [18, 12, 0, 7, 0, "ZIGGART_CONTEXT"],
+    [19, 12, 0, 8, 4, "ZIGGART_CONTEXT"],
+    [20, 8, 0, 10, 5, "STRING"]
   ],
   "groups": [],
   "config": {},

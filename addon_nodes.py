@@ -748,22 +748,49 @@ class ZiggartCropByBBox:
                 ),
                 "skip_upscale_if_larger": ("BOOLEAN", {"default": True}),
                 "feather_mask": ("INT", {"default": 16, "min": 0, "max": 128}),
-            }
+            },
+            "optional": {
+                "bboxes": (
+                    "ZIGGART_BBOX",
+                    {
+                        "tooltip": "Optional ZIGGART_BBOX connection from ZiggartSpatialLayoutDesigner, ZiggartRegionalConditioningComposer, or ZiggartContourMaskRefiner.",
+                    },
+                ),
+            },
         }
 
     def crop(
         self,
         image: torch.Tensor,
-        bboxes_json: str,
+        bboxes_json: str = "[]",
         target_resolution: int = 768,
         crop_factor_override: float = 0.0,
         skip_upscale_if_larger: bool = True,
         feather_mask: int = 16,
+        bboxes: Any = None,
     ):
         batch_size, img_h, img_w, _ = image.shape
-        records = _parse_bboxes_json_payload(
-            bboxes_json, batch_size, img_w, img_h, crop_factor_override
-        )
+        records: list[dict[str, Any]] = []
+        eff_factor = crop_factor_override if crop_factor_override > 0.0 else 1.4
+        if bboxes is not None and isinstance(bboxes, list):
+            for item in bboxes:
+                if isinstance(item, (list, tuple)) and len(item) == 4:
+                    box_t = (int(item[0]), int(item[1]), int(item[2]), int(item[3]))
+                    padded = crop_with_padding(box_t, img_w, img_h, crop_factor=eff_factor)
+                    records.append({"frame_index": 0, "box": box_t, "padded_crop": padded})
+                elif isinstance(item, dict) and "box" in item:
+                    b = item["box"]
+                    box_t = (int(b[0]), int(b[1]), int(b[2]), int(b[3]))
+                    padded = (
+                        crop_with_padding(box_t, img_w, img_h, crop_factor=crop_factor_override)
+                        if crop_factor_override > 0.0 or "padded_crop" not in item
+                        else tuple(item["padded_crop"])
+                    )
+                    records.append({"frame_index": int(item.get("frame_index", 0)), "box": box_t, "padded_crop": padded})
+        if not records:
+            records = _parse_bboxes_json_payload(
+                bboxes_json, batch_size, img_w, img_h, crop_factor_override
+            )
 
         crops_list: list[torch.Tensor] = []
         masks_list: list[torch.Tensor] = []
@@ -2205,15 +2232,25 @@ def _score_crop_with_vlm_or_signal(
             'of this image crop from 1.0 to 10.0. Reply ONLY with JSON: {"score": 8.0, "fix_hint": "..."}'
         )
         user_msg = f"Target subject: {detail_prompt or 'high detail subject'}. Rate quality 1-10."
-        raw = MODEL_MANAGER.chat_with_image(
-            config=vlm_config,
-            system_prompt=sys_prompt,
-            user_prompt=user_msg,
-            image_data_uri=data_uri,
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": sys_prompt},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": data_uri}},
+                    {"type": "text", "text": user_msg},
+                ],
+            },
+        ]
+        MODEL_MANAGER.load(vlm_config, unload_comfy_models=False)
+        raw = MODEL_MANAGER.chat(
+            messages=messages,
             max_tokens=128,
             temperature=0.1,
             top_p=0.9,
+            top_k=20,
             seed=42,
+            enable_thinking=False,
         )
         cleaned = strip_thinking_tags(raw)
         m = re.search(r'"score"\s*:\s*([0-9]+(?:\.[0-9]+)?)', cleaned)
@@ -2487,7 +2524,15 @@ class ZiggartClosedLoopSelfHealingDetailer(ZiggartDetailerKrea2):
 
             # Blend best candidate crop back into out_image using contour or feathered mask
             if isinstance(rec.get("contour_mask"), torch.Tensor):
-                blend_m = rec["contour_mask"].to(device=out_image.device, dtype=out_image.dtype)
+                cm_ten = rec["contour_mask"].squeeze()
+                if cm_ten.ndim == 2 and (cm_ten.shape[0] != ch or cm_ten.shape[1] != cw):
+                    cm_ten = F.interpolate(
+                        cm_ten.unsqueeze(0).unsqueeze(0).float(),
+                        size=(ch, cw),
+                        mode="bilinear",
+                        align_corners=False,
+                    ).squeeze(0).squeeze(0)
+                blend_m = cm_ten.clamp(0.0, 1.0).to(device=out_image.device, dtype=out_image.dtype)
             elif use_contour_mask:
                 blend_m = _extract_subject_contour_mask(
                     crop_orig,

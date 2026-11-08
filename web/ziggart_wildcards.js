@@ -63,6 +63,53 @@ app.registerExtension({
 
                 let activeDrag = null; // { idx, mode: 'move'|'resize', startX, startY, orig: [x1,y1,x2,y2] }
 
+                const LAYOUT_PRESETS_MAP = {
+                    "Left / Right Split (Duo)": [
+                        { label: "Character 1 (Left)", x1: 0.02, y1: 0.05, x2: 0.52, y2: 0.96, weight: 1.0 },
+                        { label: "Character 2 (Right)", x1: 0.48, y1: 0.05, x2: 0.98, y2: 0.96, weight: 1.0 },
+                    ],
+                    "Left / Center / Right (Trio)": [
+                        { label: "Character 1 (Left)", x1: 0.02, y1: 0.08, x2: 0.36, y2: 0.96, weight: 1.0 },
+                        { label: "Character 2 (Center)", x1: 0.32, y1: 0.04, x2: 0.68, y2: 0.98, weight: 1.0 },
+                        { label: "Character 3 (Right)", x1: 0.64, y1: 0.08, x2: 0.98, y2: 0.96, weight: 1.0 },
+                    ],
+                    "Center Hero / Flanking Duo": [
+                        { label: "Character 1 (Center Hero)", x1: 0.28, y1: 0.03, x2: 0.72, y2: 0.98, weight: 1.1 },
+                        { label: "Character 2 (Left Flank)", x1: 0.02, y1: 0.14, x2: 0.34, y2: 0.94, weight: 0.95 },
+                        { label: "Character 3 (Right Flank)", x1: 0.66, y1: 0.14, x2: 0.98, y2: 0.94, weight: 0.95 },
+                    ],
+                    "Foreground / Midground / Background": [
+                        { label: "Character 1 (Foreground)", x1: 0.06, y1: 0.20, x2: 0.56, y2: 0.98, weight: 1.05 },
+                        { label: "Character 2 (Midground)", x1: 0.42, y1: 0.12, x2: 0.90, y2: 0.88, weight: 1.0 },
+                        { label: "Character 3 (Background)", x1: 0.18, y1: 0.03, x2: 0.82, y2: 0.55, weight: 0.9 },
+                    ],
+                    "Triangle Combat Stance": [
+                        { label: "Character 1 (Apex)", x1: 0.25, y1: 0.04, x2: 0.75, y2: 0.68, weight: 1.0 },
+                        { label: "Character 2 (Left Base)", x1: 0.03, y1: 0.25, x2: 0.48, y2: 0.98, weight: 1.0 },
+                        { label: "Character 3 (Right Base)", x1: 0.52, y1: 0.25, x2: 0.97, y2: 0.98, weight: 1.0 },
+                    ],
+                    "Back-to-Back Trio": [
+                        { label: "Character 1 (Center Vanguard)", x1: 0.30, y1: 0.05, x2: 0.70, y2: 0.97, weight: 1.0 },
+                        { label: "Character 2 (Left Guard)", x1: 0.04, y1: 0.10, x2: 0.42, y2: 0.95, weight: 1.0 },
+                        { label: "Character 3 (Right Guard)", x1: 0.58, y1: 0.10, x2: 0.96, y2: 0.95, weight: 1.0 },
+                    ],
+                    "Duo + Boss Threat": [
+                        { label: "Character 1 (Left Hero)", x1: 0.04, y1: 0.32, x2: 0.46, y2: 0.98, weight: 1.0 },
+                        { label: "Character 2 (Right Hero)", x1: 0.54, y1: 0.32, x2: 0.96, y2: 0.98, weight: 1.0 },
+                        { label: "Character 3 (Looming Boss)", x1: 0.15, y1: 0.02, x2: 0.85, y2: 0.65, weight: 1.1 },
+                    ],
+                    "Top / Bottom Split": [
+                        { label: "Region 1 (Top)", x1: 0.05, y1: 0.03, x2: 0.95, y2: 0.52, weight: 1.0 },
+                        { label: "Region 2 (Bottom)", x1: 0.05, y1: 0.48, x2: 0.95, y2: 0.97, weight: 1.0 },
+                    ],
+                    "Four Quadrants": [
+                        { label: "Region 1 (Top-Left)", x1: 0.03, y1: 0.03, x2: 0.51, y2: 0.51, weight: 1.0 },
+                        { label: "Region 2 (Top-Right)", x1: 0.49, y1: 0.03, x2: 0.97, y2: 0.51, weight: 1.0 },
+                        { label: "Region 3 (Bottom-Left)", x1: 0.03, y1: 0.49, x2: 0.51, y2: 0.97, weight: 1.0 },
+                        { label: "Region 4 (Bottom-Right)", x1: 0.49, y1: 0.49, x2: 0.97, y2: 0.97, weight: 1.0 },
+                    ],
+                };
+
                 const getW = (name) => node.widgets?.find((w) => w.name === name);
                 const getRegionBox = (idx) => {
                     const p = `r${idx}_`;
@@ -86,6 +133,25 @@ app.registerExtension({
                     if (getW(p + "x2")) getW(p + "x2").value = nx2;
                     if (getW(p + "y2")) getW(p + "y2").value = ny2;
                 };
+
+                const presetWidget = getW("layout_preset");
+                if (presetWidget) {
+                    const origPresetCb = presetWidget.callback;
+                    presetWidget.callback = function (val) {
+                        if (origPresetCb) origPresetCb.apply(this, arguments);
+                        const specs = LAYOUT_PRESETS_MAP[val];
+                        if (Array.isArray(specs) && specs.length > 0) {
+                            if (getW("active_regions")) getW("active_regions").value = specs.length;
+                            specs.forEach((reg, idx) => {
+                                const p = `r${idx + 1}_`;
+                                if (getW(p + "label")) getW(p + "label").value = reg.label;
+                                if (getW(p + "weight")) getW(p + "weight").value = reg.weight;
+                                setRegionBox(idx + 1, reg.x1, reg.y1, reg.x2, reg.y2);
+                            });
+                            app.graph?.setDirtyCanvas?.(true, true);
+                        }
+                    };
+                }
 
                 const layoutWidget = {
                     name: "ziggart_spatial_canvas",
@@ -170,6 +236,9 @@ app.registerExtension({
                                 }
                             }
                         } else if (event.type === "pointermove" && activeDrag) {
+                            if (presetWidget && presetWidget.value !== "Custom (Use Sliders / Canvas)") {
+                                presetWidget.value = "Custom (Use Sliders / Canvas)";
+                            }
                             const dx = mx - activeDrag.startX;
                             const dy = my - activeDrag.startY;
                             const [ox1, oy1, ox2, oy2] = activeDrag.orig;

@@ -391,6 +391,54 @@ class UpgradeBSelfHealingAndMattingTests(unittest.TestCase):
         audit = json.loads(audit_json)
         self.assertEqual(len(audit["regions"]), 1)
 
+        # Test VLM scoring via MODEL_MANAGER.chat + mismatched contour_mask resizing + ZiggartCropByBBox ZIGGART_BBOX support
+        fake_vlm_cfg = mock.MagicMock()
+        fake_vlm_cfg.model_path = "dummy_qwen3vl.gguf"
+        with mock.patch.object(addon_nodes.MODEL_MANAGER, "load") as mock_load, mock.patch.object(
+            addon_nodes.MODEL_MANAGER,
+            "chat",
+            return_value='{"score": 9.2, "fix_hint": "clean hands"}',
+        ) as mock_chat:
+            v_score, v_hint = addon_nodes._score_crop_with_vlm_or_signal(
+                img[:, :64, :64, :], fake_vlm_cfg, "hero portrait"
+            )
+            mock_load.assert_called_once()
+            mock_chat.assert_called_once()
+            self.assertGreater(v_score, 6.0)
+            self.assertEqual(v_hint, "clean hands")
+
+        # Test mismatched contour_mask tensor inside bboxes dict
+        mismatched_bbox_payload = [
+            {
+                "frame_index": 0,
+                "box": (16, 16, 112, 112),
+                "padded_crop": (8, 8, 120, 120),
+                "contour_mask": torch.ones((32, 32), dtype=torch.float32),
+            }
+        ]
+        healed_img2, _, _, _, _ = node.self_heal(
+            image=img,
+            model=mock_model,
+            clip=mock_clip,
+            vae=mock_vae,
+            detail_positive_prompt="sharp detailed face",
+            detail_negative_prompt="blurry",
+            target_score=8.5,
+            max_iterations=1,
+            bboxes=mismatched_bbox_payload,
+        )
+        self.assertEqual(healed_img2.shape, (1, 128, 128, 3))
+
+        # Test ZiggartCropByBBox with ZIGGART_BBOX input
+        crop_node = addon_nodes.ZiggartCropByBBox()
+        crops_t, masks_t, pipe = crop_node.crop(
+            image=img,
+            bboxes=[(16, 16, 80, 80)],
+            target_resolution=64,
+        )
+        self.assertEqual(crops_t.shape[0], 1)
+        self.assertEqual(masks_t.shape[0], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

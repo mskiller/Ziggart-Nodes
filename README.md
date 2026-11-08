@@ -467,9 +467,12 @@ Combines Nodes 8–11 (`ZiggartThemeUniverseContext`, `ZiggartCharacterUnitBuild
 
 *Class: `ZiggartKrea2TrioEnsembleDirector` | Category: `Ziggart/Krea2 Prompt Director`*
 
-Extends the Krea2 Prompt Director from Duo to **3 full Character Slots** (`char_1_slot`, `char_2_slot`, `char_3_slot`) + an optional **Companion / Mount / Prop** descriptor (`companion_or_prop_text`) and outputs both the compiled Krea2 prompt and a ready-to-wire `ZIGGART_SPATIAL_LAYOUT`.
+Extends the Krea2 Prompt Director from Duo to **3 full Character Slots** (`char_1_slot`, `char_2_slot`, `char_3_slot` — supporting `Primary`, `Secondary`, and `Tertiary` roles) + an optional **Companion / Mount / Prop** descriptor (`companion_or_prop_text`), and outputs both the compiled Krea2 prompt and an enriched `ZIGGART_SPATIAL_LAYOUT`.
 
-- **Outputs**: `krea2_compiled_prompt` (`STRING`), `base_scene_prompt` (`STRING`), `char_1_detailer_prompt` (`STRING`), `char_2_detailer_prompt` (`STRING`), `char_3_detailer_prompt` (`STRING`), `spatial_layout` (`ZIGGART_SPATIAL_LAYOUT`), `krea2_stats_and_metadata_json` (`STRING`).
+- **Seamless Stage & Context Connections**:
+  - `stage_data` (`ZIGGART_STAGE`): Connects directly from **Ziggart Krea2 Scene Stage (`ZiggartSceneStageAtmosphere`)**.
+  - `context` (`ZIGGART_CONTEXT`): Connects directly from **Ziggart Krea2 Theme & Universe Context (`ZiggartThemeUniverseContext`)**. When `context` is connected, any unconnected character slots (`char_1_slot`, `char_2_slot`, `char_3_slot`) are **automatically populated with distinct canonical characters** from the Theme/Universe (with `used_char_ids` deduplication), and `stage_data` is auto-generated if unconnected!
+- **Outputs**: `krea2_compiled_prompt` (`STRING`), `base_scene_prompt` (`STRING`), `char_1_detailer_prompt` (`STRING`), `char_2_detailer_prompt` (`STRING`), `char_3_detailer_prompt` (`STRING`), `spatial_layout` (`ZIGGART_SPATIAL_LAYOUT` — includes region boxes + embedded `base_scene_prompt`, `compiled_prompt`, `char_prompts`, and stage style/lighting context), `krea2_stats_and_metadata_json` (`STRING`).
 
 ---
 
@@ -477,7 +480,7 @@ Extends the Krea2 Prompt Director from Duo to **3 full Character Slots** (`char_
 
 *Class: `ZiggartSpatialLayoutDesigner` | Category: `Ziggart/Krea2 Prompt Director`*
 
-Lets you design up to 4 normalized `[x1, y1, x2, y2]` bounding-box regions (`Char 1`, `Char 2`, `Char 3`, `Prop / Foreground`) using sliders or the **interactive 2D drag-and-resize canvas widget** inside the node. Connects **optionally** to **Ziggart Regional Conditioning Composer** (or to any Detailer via `bboxes`).
+Lets you design up to 4 normalized `[x1, y1, x2, y2]` bounding-box regions (`Char 1`, `Char 2`, `Char 3`, `Prop / Foreground`) using built-in **Layout Presets (`layout_preset`)**, sliders, or the **interactive 2D drag-and-resize canvas widget** inside the node. Selecting a `layout_preset` immediately snaps the 2D canvas boxes to that formation so you can fine-tune them visually with your mouse. Connects **optionally** to **Ziggart Regional Conditioning Composer** (or to any Detailer / **BBox Crop** via `bboxes`).
 
 - **Outputs**: `spatial_layout` (`ZIGGART_SPATIAL_LAYOUT`), `bboxes` (`ZIGGART_BBOX`), `layout_preview_image` (`IMAGE`), `layout_json` (`STRING`).
 
@@ -487,9 +490,19 @@ Lets you design up to 4 normalized `[x1, y1, x2, y2]` bounding-box regions (`Cha
 
 *Class: `ZiggartRegionalConditioningComposer` | Category: `Ziggart/Krea2 Prompt Director`*
 
-Eliminates multi-character attribute bleeding by encoding `base_scene_prompt` plus individual regional prompts (`char_1_prompt`, `char_2_prompt`, `char_3_prompt`, `region_4_prompt`) with `CLIP` and attaching feathered 2D spatial masks to ComfyUI `CONDITIONING`.
-- **Optional `spatial_layout` Input**: Connect `ZiggartSpatialLayoutDesigner` (or `ZiggartKrea2TrioEnsembleDirector`) to use custom bounding boxes, or leave `spatial_layout` disconnected to use the built-in `layout_preset` (`Left / Right Split (Duo)`, `Left / Center / Right (Trio)`, `Center Hero / Flanking Duo`, `Foreground / Midground / Background`, `Triangle Combat Stance`, `Back-to-Back Trio`, `Duo + Boss Threat`, `Top / Bottom Split`, `Four Quadrants`).
-- **Outputs**: `regional_conditioning` (`CONDITIONING`), `region_masks_preview` (`IMAGE`), `region_bboxes` (`ZIGGART_BBOX`), `layout_summary_json` (`STRING`).
+Eliminates multi-character attribute bleeding and boundary seams by composing spatially masked ComfyUI `CONDITIONING` with four key architectural upgrades:
+1. **Partition-of-Unity Soft Masks (`mask_mode = "gaussian_soft_partition"` | `"cosine_feathered_partition"` | `"linear_box_legacy"`, `normalize_overlap = True`)**:
+   - Builds smooth 2D plateau-Gaussian or raised-cosine masks for each active region and normalizes overlapping regions weighted by priority (`weight`) so $\sum_i M_i(y, x) \le 1.0$ everywhere—preventing double-counted conditioning and fused limbs in overlap zones.
+2. **Complementary Background Masking**:
+   - Automatically computes $M_{\text{bg}}(y, x) = \text{clamp}(1.0 - \sum_i M_i(y, x), \text{min}=\text{base\_prompt\_strength}, \text{max}=1.0)$ so `base_scene_prompt` guides empty background areas at full `1.0` strength while softly anchoring character boxes at `base_prompt_strength` (default `0.35`).
+3. **Scene Context Harmonization (`context_harmonization`)**:
+   - `inject_base_style_and_lighting` *(Default)*: Automatically fuses the global render style, environment, and lighting context into each regional character prompt so every region denoises under identical lighting and art style.
+   - `conditioning_concat_base`: Concatenates `base_conditioning` tokens onto each regional character conditioning.
+   - `isolated_region_prompt`: Encodes only the raw regional prompt.
+4. **Timestep Range Scheduling & Late-Step Global Unification (`regional_start_percent`, `regional_end_percent`, `full_scene_prompt`)**:
+   - Restricts regional masks to `[regional_start_percent, regional_end_percent]` (e.g. `0.0 -> 0.70`) to lock character positions and outfits during early/mid composition steps, then automatically appends an unmasked global unification pass from `regional_end_percent -> 1.0` (using `full_scene_prompt` or the compiled ensemble prompt) so late denoising steps seamlessly unify hands, lighting, and borders while running only 1 UNet pass per step.
+- **Auto-Fill from `spatial_layout`**: When `spatial_layout` is connected directly from **Ziggart Krea2 Trio & Ensemble Director**, `base_scene_prompt`, `char_1..3_prompt`, and `full_scene_prompt` are automatically read from `spatial_layout` if their text pins are left blank.
+- **Outputs**: `regional_conditioning` (`CONDITIONING`), `region_masks_preview` (`IMAGE` — renders the true Partition-of-Unity soft mask heatmap), `region_bboxes` (`ZIGGART_BBOX`), `layout_summary_json` (`STRING`).
 
 ---
 
