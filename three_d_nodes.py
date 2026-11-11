@@ -63,9 +63,20 @@ def _get_output_3d_dir(subfolder: str = "ziggart_3d") -> Path:
 
 
 def _next_output_path(prefix: str, ext: str, output_dir: Path | None = None) -> Path:
-    out_dir = output_dir or _get_output_3d_dir()
+    if output_dir is not None:
+        out_dir = output_dir
+        file_prefix = prefix or "model_3d"
+    else:
+        norm_prefix = str(prefix or "ziggart_3d").replace("\\", "/")
+        if "/" in norm_prefix:
+            subfolder, file_prefix = norm_prefix.rsplit("/", 1)
+            out_dir = _get_output_3d_dir(subfolder=subfolder)
+        else:
+            out_dir = _get_output_3d_dir(subfolder="ziggart_3d")
+            file_prefix = norm_prefix
+
     out_dir.mkdir(parents=True, exist_ok=True)
-    safe_prefix = "".join(c if c.isalnum() or c in ("_", "-") else "_" for c in (prefix or "ziggart_3d"))
+    safe_prefix = "".join(c if c.isalnum() or c in ("_", "-") else "_" for c in (file_prefix or "model_3d"))
     ext = ext.lstrip(".").lower()
     timestamp = int(time.time() * 1000) % 100000000
     candidate = out_dir / f"{safe_prefix}_{timestamp}.{ext}"
@@ -185,7 +196,7 @@ def remove_background_fallback(pil_img: Image.Image) -> Image.Image:
 # ---------------------------------------------------------------------------
 
 
-def load_gaussian_ply(ply_path: str | Path) -> dict[str, Any]:
+def load_gaussian_ply(ply_path: str | Path, invert_y: bool = False) -> dict[str, Any]:
     """
     Parse a 3D Gaussian Splatting .ply file (binary_little_endian or ascii) into
     activated numpy arrays:
@@ -297,10 +308,8 @@ def load_gaussian_ply(ply_path: str | Path) -> dict[str, Any]:
         ]
     )
 
-    # Standard 3DGS PLY files (including speridlabs/idol) store coordinates in
-    # OpenCV/3DGS convention (-Y up, -Z front: xyz = [x, -z_up, y_depth]).
-    # Rotate 180 deg around X -> (x, -y, -z) to convert to standard Y-up (+Y up, +Z front).
-    if not is_y_up and {"f_dc_0", "scale_0", "rot_0"}.issubset(names):
+    # Optional Y/Z axis inversion if a source PLY is upside down
+    if invert_y:
         positions[:, 1] = -positions[:, 1]
         positions[:, 2] = -positions[:, 2]
 
@@ -2705,6 +2714,7 @@ class ZiggartGaussianToMesh:
             "optional": {
                 "gsplat_data": ("ZIGGART_GSPLAT", {"tooltip": "Gaussian splat data from ZiggartIdolImageToGaussian."}),
                 "ply_path": ("STRING", {"default": "", "tooltip": "Or path to an existing .ply Gaussian Splat file."}),
+                "invert_y": ("BOOLEAN", {"default": False, "tooltip": "Invert Y-axis if source model is upside down."}),
             },
         }
 
@@ -2719,11 +2729,18 @@ class ZiggartGaussianToMesh:
         filename_prefix: str = "ziggart_idol_mesh",
         gsplat_data: dict[str, Any] | None = None,
         ply_path: str = "",
+        invert_y: bool = False,
     ) -> tuple[str, dict[str, Any], Any]:
         if gsplat_data is None:
             if not ply_path or not str(ply_path).strip():
                 raise ValueError("Provide either 'gsplat_data' or a valid 'ply_path' to convert to a mesh.")
-            gsplat_data = load_gaussian_ply(ply_path.strip())
+            gsplat_data = load_gaussian_ply(ply_path.strip(), invert_y=invert_y)
+        elif invert_y:
+            gsplat_data = dict(gsplat_data)
+            pos = np.asarray(gsplat_data["positions"]).copy()
+            pos[:, 1] = -pos[:, 1]
+            pos[:, 2] = -pos[:, 2]
+            gsplat_data["positions"] = pos
 
         mesh_data = convert_gaussian_to_mesh(
             gsplat_data,
@@ -3053,6 +3070,7 @@ class Ziggart3DTurntableRenderer:
                 "gsplat_data": ("ZIGGART_GSPLAT",),
                 "mesh_data": ("ZIGGART_MESH",),
                 "ply_path": ("STRING", {"default": ""}),
+                "invert_y": ("BOOLEAN", {"default": False, "tooltip": "Invert Y-axis if model is upside down."}),
             },
         }
 
@@ -3067,6 +3085,7 @@ class Ziggart3DTurntableRenderer:
         gsplat_data: dict[str, Any] | None = None,
         mesh_data: dict[str, Any] | None = None,
         ply_path: str = "",
+        invert_y: bool = False,
     ) -> tuple[Any, Any]:
         if mesh_data is not None:
             positions = mesh_data["vertices"]
@@ -3074,11 +3093,21 @@ class Ziggart3DTurntableRenderer:
             faces = mesh_data.get("faces")
             normals = mesh_data.get("normals")
             opacities = None
+            if invert_y:
+                positions = np.asarray(positions).copy()
+                positions[:, 1] = -positions[:, 1]
+                positions[:, 2] = -positions[:, 2]
         else:
             if gsplat_data is None:
                 if not ply_path or not str(ply_path).strip():
                     raise ValueError("Connect 'gsplat_data', 'mesh_data', or provide a 'ply_path' to render.")
-                gsplat_data = load_gaussian_ply(ply_path.strip())
+                gsplat_data = load_gaussian_ply(ply_path.strip(), invert_y=invert_y)
+            elif invert_y:
+                gsplat_data = dict(gsplat_data)
+                pos = np.asarray(gsplat_data["positions"]).copy()
+                pos[:, 1] = -pos[:, 1]
+                pos[:, 2] = -pos[:, 2]
+                gsplat_data["positions"] = pos
             positions = gsplat_data["positions"]
             colors = gsplat_data["colors"]
             faces = None

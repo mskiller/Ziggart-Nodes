@@ -744,6 +744,9 @@ All 5 nodes in `Ziggart/3D` share `Ziggart3DModelManager`, which automatically e
 *Class: `ZiggartGaussianToMesh` | Category: `Ziggart/3D`*
 - Converts `gsplat_data` or any `.ply` Gaussian Splat file into a watertight/smoothed polygon 3D mesh (`.glb`, `.obj`, or `.ply`) with baked vertex colors and normals.
 - Supports `auto`, `open3d_poisson`, `open3d_ball_pivoting`, and a built-in zero-dependency `gaussian_density_surface` reconstructor with Taubin smoothing and vertex-clustering decimation.
+- **Natural Upright Coordinate Preservation**: Standardizes coordinates to natural Y-up (+Y head up, -Y feet down) matching glTF 2.0 / Blender / Three.js without upside-down flips.
+- **Invert Y Axis Toggle**: Optional `invert_y` boolean input to flip coordinates upside-down if processing third-party inverted models.
+- **Hierarchical Relative Paths**: Automatically creates and routes output files into subdirectories when `filename_prefix` contains a path (e.g. `studio-light/3d/my_mesh`).
 
 ### 24. SPAR3D Image to 3D Mesh (Fast 7GB VRAM)
 *Class: `ZiggartSPAR3DImageToMesh` | Category: `Ziggart/3D`*
@@ -757,6 +760,7 @@ All 5 nodes in `Ziggart/3D` share `Ziggart3DModelManager`, which automatically e
 ### 26. 3D Gaussian / Mesh Turntable Renderer
 *Class: `Ziggart3DTurntableRenderer` | Category: `Ziggart/3D`*
 - Renders single or multi-frame 360° turntable `IMAGE` (`[N, H, W, 3]`) and `MASK` (`[N, H, W]`) batches from either a `ZIGGART_GSPLAT` or `ZIGGART_MESH`.
+- Standard upright perspective camera projection (+Y up) with optional `invert_y` toggle for legacy models.
 
 ---
 
