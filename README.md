@@ -1,6 +1,6 @@
-# Ziggart Nodes for ComfyUI (`v1.6.0`)
+# Ziggart Nodes for ComfyUI (`v1.7.0`)
 
-A complete collection of **45 local, in-process ComfyUI nodes** combining:
+A complete collection of **56 local, in-process ComfyUI nodes** combining:
 - **Zero-Freeze 700+ MB Wildcard & Canonical Theme Engines** (Way A + Way C architectures + **`🎲 Pre-Generate Prompt (Test Without Queue)`** UI button + Token Inspector/Compressor)
 - **Krea2 (`Qwen3VL-4B` CLIP) Prompt Director & Regional Conditioning Suite** (Modular & All-in-One Theme/Universe context, Trio/Ensemble Director, Interactive 2D Spatial Layout BBox Designer, Regional Conditioning Composer, Head-to-Toe 28-Section Anatomy Character Creator with per-section `[None]` & View Presets, 1:1 Character-Outfit linking, and automatic 9-zone Outfit $\rightarrow$ Anatomy occlusion filtering)
 - **GGUF Vision-Language Models (VLMs)** via `llama-cpp-python`
@@ -8,6 +8,7 @@ A complete collection of **45 local, in-process ComfyUI nodes** combining:
 - **Krea 2 Turbo** High-Resolution Detailing, **Autonomous Closed-Loop Self-Healing Detailer**, **Reinhard Color & Frequency Matcher**, and **Tiled Upscaling**
 - **RTX 3070 Ti (8GB–16GB VRAM) 3D Generation Suite**: **`speridlabs/idol` Image-to-Gaussian Splat (`.ply`)**, **Gaussian-to-Mesh (`.glb`/`.obj`)**, **SPAR3D**, **Hunyuan3D-2mini**, and **360° Turntable Rendering**
 - **3D VRM Avatar, HairDeck & Live Webcam Mocap ("Replace Me!") Suite (`Ziggart/3D/Avatar`)**: One-time automatic model downloader & permanent disk cache (`ComfyUI/models/3d/ziggart_avatars/`), 2D Canonical T-Pose & Hair Splitter, **HairDeck** 3D Hair Cards & Spring-Bone physics generator, 25-Bone VRM Humanoid Auto-Rigger, 20-Morph Facial BlendShape & Viseme Builder, VRM 1.0 / 0.x Assembler, Fun Physics/Props/Emote Configurator, and **Interactive 3D VRM Pose Editor & 60 FPS Live Webcam Mocap Studio**
+- **FlowHMR 3D Video & Webcam Mocap Pipeline (`Ziggart/3D/Mocap`)**: Recover physically plausible 3D motion from loaded video or live webcams via **FlowHMR** (0.46B generative flow matching with GRPO physics reinforcement learning), featuring 52 SMPL-H joint to 25-bone VRM Humanoid retargeting, ground contact locking ($Y \ge 0$), temporal EMA smoothing, synchronized multi-pass video generation (`RGB`, `MASK`, `DEPTH`, `NORMAL`, `OPENPOSE`), and `.bvh`, `.npz`, and `.json` export
 - **Dynamic System Attention Selector (`Ziggart/Model`)**: Startup detection and per-model/global switching across **SageAttention**, **FlashAttention (v2/v3)**, **xFormers**, **PyTorch SDPA** (`flash`, `mem_efficient`, `cudnn`, `math`), **Sub-Quad**, **Split**, and **Basic** attention
 
 ---
@@ -119,6 +120,13 @@ A complete collection of **45 local, in-process ComfyUI nodes** combining:
    - [26F. Avatar VRM 1.0 / GLB Assembler & SpringBone Linker](#26f-avatar-vrm-10--glb-assembler--springbone-linker)
    - [26G. Avatar Fun Physics, Props & Emote Configurator](#26g-avatar-fun-physics-props--emote-configurator)
    - [26H. Interactive 3D VRM Pose Editor & Live Webcam Mocap Studio](#26h-interactive-3d-vrm-pose-editor--live-webcam-mocap-studio)
+6C. [FlowHMR 3D Video & Webcam Mocap Suite (`Ziggart/3D/Mocap`)](#6c-flowhmr-3d-video--webcam-mocap-suite-ziggart3dmocap)
+   - [26I. FlowHMR 3D Mocap Model Loader & Cache Manager](#26i-flowhmr-3d-mocap-model-loader--cache-manager)
+   - [26J. FlowHMR Webcam Live Stream & Video Buffer](#26j-flowhmr-webcam-live-stream--video-buffer)
+   - [26K. FlowHMR Video-to-Mocap 3D Motion Extractor](#26k-flowhmr-video-to-mocap-3d-motion-extractor)
+   - [26L. FlowHMR Mocap to VRM 25-Bone Retargeter](#26l-flowhmr-mocap-to-vrm-25-bone-retargeter)
+   - [26M. Avatar 3D FlowHMR Mocap Multi-Pass Video Drive](#26m-avatar-3d-flowhmr-mocap-multi-pass-video-drive)
+   - [26N. FlowHMR 3D Mocap Exporter (BVH / NPZ / JSON)](#26n-flowhmr-3d-mocap-exporter-bvh--npz--json)
 7. [Model Optimization Suite (`Ziggart/Model`)](#model-optimization-suite-ziggartmodel)
    - [27. Ziggart Attention Selector](#27-ziggart-attention-selector)
 8. [Architecture & Workflows (`example_workflows/`)](#architecture--workflows)
@@ -1040,12 +1048,15 @@ cd C:\path\to\ComfyUI_windows_portable
 ComfyUI/
 ├── custom_nodes/
 │   └── Ziggart-Nodes/
-│       ├── example_workflows/          <-- 10 ready-to-load ComfyUI workflow JSON templates
+│       ├── example_workflows/          <-- 14 ready-to-load ComfyUI workflow JSON templates
 │       └── wildcards/                  <-- Place Ziggart.yaml, Collection/, and .txt wildcards here
 │           ├── Ziggart.yaml
 │           ├── Collection/
 │           └── *.txt
 ├── models/
+│   ├── 3d/
+│   │   ├── ziggart_avatars/           <-- HairDeck, Make-It-Animatable, UniRig auto-cache
+│   │   └── ziggart_mocap/             <-- FlowHMR Base/Latest, YOLOX, SAM 3D Body auto-cache
 │   ├── LLM/
 │   │   └── GGUF/
 │   │       ├── WeVisOne-VL-2B-Q4_K_M.gguf
@@ -1059,6 +1070,14 @@ ComfyUI/
 
 ### Download Links
 
+- **FlowHMR & Motius 3D Mocap Models** *(auto-downloaded on first run or manual drop-in)*:
+  - [Motius-FlowHMR-Base on HuggingFace](https://huggingface.co/ZeyuLing/Motius-FlowHMR-Base)
+  - [FlowHMR Latest (GRPO Physics-Refined) on HuggingFace](https://huggingface.co/fafsaf1/flowhmr-0.46B)
+  - [Official FlowHMR GitHub Repository](https://github.com/flowhmr/flowhmr)
+- **3D Avatar & HairDeck Models** *(auto-downloaded on first run)*:
+  - [HairDeck on HuggingFace](https://huggingface.co/hyz317/HairDeck)
+  - [Make-It-Animatable on HuggingFace](https://huggingface.co/jasongzy/Make-It-Animatable)
+  - [UniRig on HuggingFace](https://huggingface.co/VAST-AI/UniRig)
 - **WeVisOne-VL GGUFs**:
   - [WeVisOne-VL-2B-GGUF (mradermacher)](https://huggingface.co/mradermacher/WeVisOne-VL-2B-GGUF)
   - [WeVisOne-VL-4B-GGUF (mradermacher)](https://huggingface.co/mradermacher/WeVisOne-VL-4B-GGUF)
