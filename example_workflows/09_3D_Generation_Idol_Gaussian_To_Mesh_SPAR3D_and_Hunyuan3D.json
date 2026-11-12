@@ -1,8 +1,8 @@
 {
   "id": "a49d1302-7c88-4e11-b8f2-3d00103070ee",
   "revision": 0,
-  "last_node_id": 11,
-  "last_link_id": 9,
+  "last_node_id": 12,
+  "last_link_id": 11,
   "nodes": [
     {
       "id": 1,
@@ -25,7 +25,7 @@
         "Node name for S&R": "Note"
       },
       "widgets_values": [
-        "WORKFLOW 10 : ZIGGART 3D GENERATION SUITE (RTX 3070 Ti 8GB-16GB VRAM READY)\n1. PATH A (Idol -> Gaussian Splat -> Mesh + Turntable) : ZiggartIdolImageToGaussian generates a .ply 3D Gaussian Splat (~7.2GB VRAM), ZiggartGaussianToMesh converts it into a .glb/.obj mesh, and Ziggart3DTurntableRenderer renders 360-degree turntable frames.\n2. PATH B (SPAR3D Fast Textured Mesh) : ZiggartSPAR3DImageToMesh runs with low_vram_mode=True (~7.0GB VRAM) to produce a UV-unwrapped textured .glb mesh in ~1-2s.\n3. PATH C (Hunyuan3D-2mini High-Sharpness Mesh) : ZiggartHunyuan3DImageToMesh runs the 0.6B shape model (~5.5GB VRAM) and unloads it before running optional PBR texture painting."
+        "WORKFLOW 10 : ZIGGART 3D GENERATION SUITE (RTX 3070 Ti 8GB-16GB VRAM READY)\n1. PATH A (Idol -> Gaussian Splat -> Mesh + Turntable + Discord Animated GIF) : ZiggartIdolImageToGaussian generates a .ply 3D Gaussian Splat (~7.2GB VRAM), ZiggartGaussianToMesh converts it into a .glb/.obj mesh, Ziggart3DTurntableRenderer renders 360-degree turntable frames, and Ziggart3DTurntableGifSaver saves an optimized animated GIF with direct Discord node outputs.\n2. PATH B (SPAR3D Fast Textured Mesh) : ZiggartSPAR3DImageToMesh runs with low_vram_mode=True (~7.0GB VRAM) to produce a UV-unwrapped textured .glb mesh in ~1-2s.\n3. PATH C (Hunyuan3D-2mini High-Sharpness Mesh) : ZiggartHunyuan3DImageToMesh runs the 0.6B shape model (~5.5GB VRAM) and unloads it before running optional PBR texture painting."
       ],
       "color": "#234",
       "bgcolor": "#356"
@@ -224,14 +224,17 @@
           "type": "IMAGE",
           "slot_index": 0,
           "links": [
-            9
+            9,
+            10
           ]
         },
         {
           "name": "masks",
           "type": "MASK",
           "slot_index": 1,
-          "links": []
+          "links": [
+            11
+          ]
         }
       ],
       "title": "1C. 360\u00b0 Turntable Renderer",
@@ -489,6 +492,66 @@
       "properties": {
         "Node name for S&R": "PreviewImage"
       }
+    },
+    {
+      "id": 12,
+      "type": "Ziggart3DTurntableGifSaver",
+      "pos": [
+        1340.0,
+        1040.0
+      ],
+      "size": [
+        380.0,
+        340.0
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 10
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "link": 11
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "gif_path",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "filename",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        }
+      ],
+      "title": "1D. 3D Turntable Animated GIF Saver (Discord Ready)",
+      "properties": {
+        "Node name for S&R": "Ziggart3DTurntableGifSaver"
+      },
+      "widgets_values": [
+        12,
+        "ziggart_3d_turntable",
+        0,
+        false,
+        "original",
+        512,
+        true
+      ]
     }
   ],
   "links": [
@@ -563,6 +626,22 @@
       11,
       0,
       "IMAGE"
+    ],
+    [
+      10,
+      5,
+      0,
+      12,
+      0,
+      "IMAGE"
+    ],
+    [
+      11,
+      5,
+      1,
+      12,
+      1,
+      "MASK"
     ]
   ],
   "groups": [],

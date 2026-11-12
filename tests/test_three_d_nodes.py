@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import os
 import struct
 import sys
@@ -328,6 +329,91 @@ class ThreeDNodesMockedInferenceTests(unittest.TestCase):
         )
         self.assertEqual(tuple(images.shape), (6, 128, 128, 3))
         self.assertEqual(tuple(masks.shape), (6, 128, 128))
+
+    def test_prune_gaussian_splat(self):
+        positions, colors, opacities, scales = _make_sphere_gaussians(100)
+        opacities[:40] = 0.01
+        opacities[40:] = 0.8
+        gsplat = {
+            "positions": positions,
+            "colors": colors,
+            "opacities": opacities,
+            "scales": scales,
+        }
+        pruned = three_d_nodes.prune_gaussian_splat(gsplat, opacity_threshold=0.05)
+        self.assertEqual(pruned["num_gaussians"], 60)
+        self.assertTrue(np.all(pruned["opacities"] >= 0.05))
+
+    def test_turntable_gif_saver_node(self):
+        dummy_batch = np.zeros((4, 64, 64, 3), dtype=np.float32)
+        dummy_batch[0, 10:20, 10:20, :] = 1.0
+        dummy_batch[1, 20:30, 20:30, :] = 0.8
+        dummy_batch[2, 30:40, 30:40, :] = 0.6
+        dummy_batch[3, 40:50, 40:50, :] = 0.4
+
+        with tempfile.TemporaryDirectory() as tmp:
+            saver = three_d_nodes.Ziggart3DTurntableGifSaver()
+            with mock.patch.object(three_d_nodes, "_get_output_3d_dir", return_value=Path(tmp)):
+                res = saver.save_turntable_gif(
+                    images=dummy_batch,
+                    fps=10,
+                    filename_prefix="test_turntable",
+                    loop_count=0,
+                    ping_pong=True,
+                    background="original",
+                    max_dimension=64,
+                    optimize_for_discord=True,
+                )
+                self.assertIn("ui", res)
+                self.assertIn("images", res["ui"])
+                self.assertEqual(res["ui"]["images"][0]["format"], "image/gif")
+
+                out_tensor, gif_path_str, filename = res["result"]
+                self.assertEqual(out_tensor.shape[0], 6)
+                gif_path = Path(gif_path_str)
+                self.assertTrue(gif_path.is_file())
+                self.assertTrue(gif_path.stat().st_size > 0)
+                with open(gif_path, "rb") as f:
+                    header = f.read(6)
+                self.assertIn(header, [b"GIF89a", b"GIF87a"])
+
+    def test_idol_preprocess_node(self):
+        dummy_image = np.zeros((1, 100, 100, 3), dtype=np.float32)
+        dummy_image[:, 25:75, 25:75, :] = 1.0
+        node = three_d_nodes.ZiggartIdolPreprocess()
+        img_out, mask_out = node.preprocess_image(
+            image=dummy_image,
+            mode="synthetic",
+            remove_background=False,
+            background_color="black",
+        )
+        self.assertEqual(tuple(img_out.shape), (1, 1024, 1024, 3))
+        self.assertEqual(tuple(mask_out.shape), (1, 1024, 1024))
+
+    def test_idol_input_camera_node(self):
+        node = three_d_nodes.ZiggartIdolInputCamera()
+        raw_json = '{"yaw": 45.0, "pitch": -10.0, "fov": 35.0, "radius": 2.5}'
+        az, el, fov, dist, cam_str = node.get_camera_params(camera_json=raw_json)
+        self.assertEqual(az, 45.0)
+        self.assertEqual(el, -10.0)
+        self.assertEqual(fov, 35.0)
+        self.assertEqual(dist, 2.5)
+        self.assertIn('"azimuth": 45.0', cam_str)
+
+    def test_3d_model_downloader_node(self):
+        node = three_d_nodes.Ziggart3DModelDownloader()
+        with mock.patch.object(three_d_nodes, "find_or_download_idol_weight", return_value=Path("dummy_path.safetensors")):
+            with mock.patch("pathlib.Path.is_file", return_value=True):
+                with mock.patch("pathlib.Path.stat") as mock_stat:
+                    mock_stat.return_value.st_size = 50 * 1024 * 1024
+                    (manifest_str,) = node.download_models(
+                        download_idol_fp16=True,
+                        download_idol_fp32=False,
+                        download_triposplat_aux=False,
+                    )
+                    manifest = json.loads(manifest_str)
+                    self.assertTrue(manifest["all_ready"])
+                    self.assertGreater(manifest["total_size_mb"], 0)
 
 
 if __name__ == "__main__":

@@ -52,6 +52,273 @@ def _register_3d_folders() -> None:
 _register_3d_folders()
 
 
+# ---------------------------------------------------------------------------
+# 3D Model Registry & Auto-Downloader
+# ---------------------------------------------------------------------------
+
+IDOL_MODEL_REGISTRY: dict[str, dict[str, Any]] = {
+    "idol_denoiser_fp16": {
+        "repo_id": "PedroMarinhoDev/Idol-ComfyUI",
+        "filename": "diffusion_models/idol_fp16.safetensors",
+        "subfolder": "diffusion_models",
+        "local_name": "idol_fp16.safetensors",
+        "description": "Idol TripoSplat Denoiser fp16 (~740 MB)",
+    },
+    "idol_denoiser_fp32": {
+        "repo_id": "PedroMarinhoDev/Idol-ComfyUI",
+        "filename": "diffusion_models/idol_fp32.safetensors",
+        "subfolder": "diffusion_models",
+        "local_name": "idol_fp32.safetensors",
+        "description": "Idol TripoSplat Denoiser fp32 (~1.48 GB)",
+    },
+    "idol_vae_fp16": {
+        "repo_id": "PedroMarinhoDev/Idol-ComfyUI",
+        "filename": "vae/idol_vae_decoder_fp16.safetensors",
+        "subfolder": "vae",
+        "local_name": "idol_vae_decoder_fp16.safetensors",
+        "description": "Idol Gaussian VAE Decoder fp16 (~580 MB)",
+    },
+    "idol_vae_fp32": {
+        "repo_id": "PedroMarinhoDev/Idol-ComfyUI",
+        "filename": "vae/idol_vae_decoder_fp32.safetensors",
+        "subfolder": "vae",
+        "local_name": "idol_vae_decoder_fp32.safetensors",
+        "description": "Idol Gaussian VAE Decoder fp32 (~1.15 GB)",
+    },
+    "triposplat_dino": {
+        "repo_id": "VAST-AI/TripoSplat",
+        "filename": "clip_vision/dino_v3_vit_h.safetensors",
+        "subfolder": "clip_vision",
+        "local_name": "dino_v3_vit_h.safetensors",
+        "description": "TripoSplat DINOv3 ViT-H Vision Encoder (~850 MB)",
+    },
+    "triposplat_flux2_vae": {
+        "repo_id": "VAST-AI/TripoSplat",
+        "filename": "vae/flux2-vae.safetensors",
+        "subfolder": "vae",
+        "local_name": "flux2-vae.safetensors",
+        "description": "TripoSplat Flux2 VAE (~330 MB)",
+    },
+    "birefnet_matting": {
+        "repo_id": "ZhengPeng7/BiRefNet-matting",
+        "filename": "model.safetensors",
+        "subfolder": "3d/birefnet",
+        "local_name": "birefnet_matting.safetensors",
+        "description": "BiRefNet high-precision alpha matting weights (~850 MB)",
+    },
+}
+
+
+def get_3d_models_root() -> Path:
+    """Returns persistent directory where 3D models are cached."""
+    if folder_paths is not None and hasattr(folder_paths, "models_dir"):
+        root = Path(folder_paths.models_dir) / "3d" / THREED_MODEL_FOLDER
+    else:
+        root = Path(__file__).resolve().parent / ".cache" / "models_3d" / THREED_MODEL_FOLDER
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def find_or_download_idol_weight(
+    key: str,
+    auto_download: bool = True,
+    force_redownload: bool = False,
+    hf_token: str = "",
+) -> Path | None:
+    spec = IDOL_MODEL_REGISTRY.get(key)
+    if spec is None:
+        return None
+
+    subfolder = spec["subfolder"]
+    local_name = spec["local_name"]
+    candidates: list[Path] = []
+
+    if folder_paths is not None:
+        if hasattr(folder_paths, "get_full_path"):
+            try:
+                full = folder_paths.get_full_path(subfolder, local_name)
+                if full and Path(full).is_file():
+                    candidates.append(Path(full))
+            except Exception:
+                pass
+        if hasattr(folder_paths, "models_dir"):
+            m_dir = Path(folder_paths.models_dir)
+            candidates.append(m_dir / subfolder / local_name)
+            candidates.append(m_dir / "3d" / THREED_MODEL_FOLDER / "idol" / subfolder / local_name)
+            candidates.append(m_dir / "3d" / THREED_MODEL_FOLDER / "idol" / local_name)
+            candidates.append(m_dir / "3d" / local_name)
+
+    root_3d = get_3d_models_root()
+    candidates.append(root_3d / "idol" / subfolder / local_name)
+    candidates.append(root_3d / "idol" / local_name)
+    candidates.append(root_3d / local_name)
+
+    if not force_redownload:
+        for c in candidates:
+            if c.is_file() and c.stat().st_size > 1024:
+                return c
+
+    if not auto_download:
+        return None
+
+    if folder_paths is not None and hasattr(folder_paths, "models_dir"):
+        dest_dir = Path(folder_paths.models_dir) / subfolder
+    else:
+        dest_dir = root_3d / "idol" / subfolder
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_file = dest_dir / local_name
+
+    try:
+        from huggingface_hub import hf_hub_download  # type: ignore[import-not-found]
+
+        token = hf_token.strip() if (hf_token and hf_token.strip()) else os.environ.get("HF_TOKEN")
+        downloaded = hf_hub_download(
+            repo_id=spec["repo_id"],
+            filename=spec["filename"],
+            local_dir=str(dest_dir.parent if spec["filename"].startswith(subfolder) else dest_dir),
+            token=token,
+            force_download=bool(force_redownload),
+        )
+        downloaded_path = Path(downloaded)
+        if downloaded_path.is_file():
+            if dest_file != downloaded_path and not dest_file.exists():
+                try:
+                    shutil.copyfile(downloaded_path, dest_file)
+                except Exception:
+                    pass
+            return downloaded_path if downloaded_path.exists() else dest_file
+    except Exception:
+        pass
+
+    return dest_file if dest_file.is_file() else None
+
+
+def ensure_all_idol_models_cached(
+    precision: str = "fp16",
+    auto_download: bool = True,
+    force_redownload: bool = False,
+    hf_token: str = "",
+) -> dict[str, Any]:
+    prec = "fp32" if str(precision).lower() == "fp32" else "fp16"
+    keys_to_fetch = [
+        f"idol_denoiser_{prec}",
+        f"idol_vae_{prec}",
+        "triposplat_dino",
+        "triposplat_flux2_vae",
+    ]
+    results: dict[str, Any] = {}
+    all_ready = True
+    total_size_mb = 0.0
+
+    for k in keys_to_fetch:
+        p = find_or_download_idol_weight(
+            k,
+            auto_download=auto_download,
+            force_redownload=force_redownload,
+            hf_token=hf_token,
+        )
+        if p is not None and p.is_file():
+            sz = p.stat().st_size / (1024 * 1024)
+            total_size_mb += sz
+            results[k] = {"status": "ready", "path": str(p), "size_mb": round(sz, 2)}
+        else:
+            all_ready = False
+            results[k] = {"status": "missing_or_failed", "repo": IDOL_MODEL_REGISTRY[k]["repo_id"]}
+
+    return {
+        "status": "ready" if all_ready else "incomplete",
+        "precision": prec,
+        "total_cached_mb": round(total_size_mb, 2),
+        "weights": results,
+    }
+
+
+def prune_gaussian_splat(
+    gsplat_data: dict[str, Any],
+    opacity_threshold: float = 0.05,
+    min_gaussians_keep: int = 16,
+) -> dict[str, Any]:
+    """Drops Gaussians with opacity below threshold to eliminate floaters and haze."""
+    opacities = np.asarray(gsplat_data["opacities"], dtype=np.float32)
+    mask = opacities >= float(opacity_threshold)
+    if np.count_nonzero(mask) < min_gaussians_keep:
+        k = min(len(opacities), max(min_gaussians_keep, int(len(opacities) * 0.1)))
+        top_k_indices = np.argsort(opacities)[-k:]
+        mask = np.zeros_like(opacities, dtype=bool)
+        mask[top_k_indices] = True
+
+    pruned: dict[str, Any] = {
+        "positions": np.ascontiguousarray(gsplat_data["positions"][mask]),
+        "colors": np.ascontiguousarray(gsplat_data["colors"][mask]),
+        "opacities": np.ascontiguousarray(opacities[mask]),
+        "num_gaussians": int(np.count_nonzero(mask)),
+        "ply_path": gsplat_data.get("ply_path", ""),
+    }
+    if "scales" in gsplat_data and gsplat_data["scales"] is not None:
+        pruned["scales"] = np.ascontiguousarray(gsplat_data["scales"][mask])
+    if "rotations" in gsplat_data and gsplat_data["rotations"] is not None:
+        pruned["rotations"] = np.ascontiguousarray(gsplat_data["rotations"][mask])
+    return pruned
+
+
+def create_animated_gif(
+    frames: list[Image.Image],
+    output_path: Path,
+    fps: int = 12,
+    loop_count: int = 0,
+    ping_pong: bool = False,
+    optimize_for_discord: bool = True,
+    max_dimension: int = 512,
+) -> Path:
+    """Create an optimized animated GIF with ping-pong, palette optimization, and discord size constraints."""
+    if not frames:
+        raise ValueError("Cannot create GIF from empty frames list.")
+
+    output_frames = list(frames)
+    if ping_pong and len(output_frames) > 2:
+        output_frames = output_frames + output_frames[-2:0:-1]
+
+    if max_dimension > 0:
+        processed_frames: list[Image.Image] = []
+        for f in output_frames:
+            w, h = f.size
+            if max(w, h) > max_dimension:
+                scale = max_dimension / float(max(w, h))
+                nw, nh = max(1, int(round(w * scale))), max(1, int(round(h * scale)))
+                processed_frames.append(f.resize((nw, nh), Image.Resampling.BILINEAR))
+            else:
+                processed_frames.append(f)
+        output_frames = processed_frames
+
+    duration_ms = max(10, int(round(1000.0 / max(1, fps))))
+
+    prepared_frames: list[Image.Image] = []
+    for f in output_frames:
+        if f.mode == "RGBA":
+            alpha = f.split()[-1]
+            p_img = f.convert("RGB").convert("P", palette=Image.Palette.ADAPTIVE, colors=255)
+            mask = Image.eval(alpha, lambda a: 255 if a <= 128 else 0)
+            p_img.paste(255, mask)
+            p_img.info["transparency"] = 255
+            prepared_frames.append(p_img)
+        else:
+            p_img = f.convert("RGB").convert("P", palette=Image.Palette.ADAPTIVE, colors=256)
+            prepared_frames.append(p_img)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    first_frame = prepared_frames[0]
+    first_frame.save(
+        output_path,
+        save_all=True,
+        append_images=prepared_frames[1:],
+        duration=duration_ms,
+        loop=int(loop_count),
+        optimize=bool(optimize_for_discord),
+        disposal=2,
+    )
+    return output_path
+
+
 def _get_output_3d_dir(subfolder: str = "ziggart_3d") -> Path:
     if folder_paths is not None and hasattr(folder_paths, "get_output_directory"):
         base = Path(folder_paths.get_output_directory())
@@ -2061,6 +2328,8 @@ class Ziggart3DModelManager:
         unload_comfy_models: bool,
         free_vram_after: bool,
         output_ply_path: Path,
+        auto_download_weights: bool = True,
+        prune_opacity_threshold: float = 0.05,
     ) -> tuple[Path, Image.Image]:
         with self._lock:
             if hf_token and hf_token.strip():
@@ -2073,6 +2342,16 @@ class Ziggart3DModelManager:
             key = ("idol", model_id_or_path, precision)
             if self._active_kind != "idol" or self._active_key != key:
                 self.unload()
+
+            if auto_download_weights:
+                try:
+                    ensure_all_idol_models_cached(
+                        precision=precision,
+                        auto_download=True,
+                        hf_token=hf_token,
+                    )
+                except Exception:
+                    pass
 
             _ensure_backend_installed("idol", auto_install=True)
 
@@ -2150,6 +2429,20 @@ class Ziggart3DModelManager:
                         )
                     if free_vram_after:
                         self.unload()
+                    if output_ply_path.is_file() and float(prune_opacity_threshold) > 0.0:
+                        try:
+                            s = load_gaussian_ply(output_ply_path)
+                            pr = prune_gaussian_splat(s, opacity_threshold=float(prune_opacity_threshold))
+                            save_gaussian_ply(
+                                output_ply_path,
+                                positions=pr["positions"],
+                                colors=pr["colors"],
+                                opacities=pr.get("opacities"),
+                                scales=pr.get("scales"),
+                                rotations=pr.get("rotations"),
+                            )
+                        except Exception:
+                            pass
                     return output_ply_path, preprocessed
             except ImportError:
                 pass
@@ -2209,6 +2502,20 @@ class Ziggart3DModelManager:
                 shutil.copyfile(ply_candidates[0], output_ply_path)
                 input_pngs = sorted(out_dir.rglob("*_input.png"))
                 preprocessed = Image.open(input_pngs[0]).convert("RGBA") if input_pngs else pil_image
+                if output_ply_path.is_file() and float(prune_opacity_threshold) > 0.0:
+                    try:
+                        s = load_gaussian_ply(output_ply_path)
+                        pr = prune_gaussian_splat(s, opacity_threshold=float(prune_opacity_threshold))
+                        save_gaussian_ply(
+                            output_ply_path,
+                            positions=pr["positions"],
+                            colors=pr["colors"],
+                            opacities=pr.get("opacities"),
+                            scales=pr.get("scales"),
+                            rotations=pr.get("rotations"),
+                        )
+                    except Exception:
+                        pass
                 return output_ply_path, preprocessed
 
     def run_spar3d(
@@ -2585,6 +2892,23 @@ class ZiggartIdolImageToGaussian:
                         "tooltip": "Optional Hugging Face token for gated DINOv3 / FLUX.2-dev VAE weights.",
                     },
                 ),
+                "auto_download_weights": (
+                    "BOOLEAN",
+                    {
+                        "default": True,
+                        "tooltip": "Automatically download PedroMarinhoDev/Idol-ComfyUI weights if missing.",
+                    },
+                ),
+                "prune_opacity_threshold": (
+                    "FLOAT",
+                    {
+                        "default": 0.05,
+                        "min": 0.0,
+                        "max": 0.95,
+                        "step": 0.01,
+                        "tooltip": "Filter out near-transparent Gaussians to clean up floater haze.",
+                    },
+                ),
             },
         }
 
@@ -2601,6 +2925,8 @@ class ZiggartIdolImageToGaussian:
         mask: Any = None,
         model_id_or_path: str = "speridlabs/idol",
         hf_token: str = "",
+        auto_download_weights: bool = True,
+        prune_opacity_threshold: float = 0.05,
     ) -> tuple[str, dict[str, Any], Any, Any]:
         pil_img = tensor_to_pil(image, mask=mask)
         clean_prefix = str(filename_prefix).strip()
@@ -2623,9 +2949,13 @@ class ZiggartIdolImageToGaussian:
             unload_comfy_models=bool(unload_comfy_models),
             free_vram_after=bool(free_vram_after),
             output_ply_path=out_ply,
+            auto_download_weights=bool(auto_download_weights),
+            prune_opacity_threshold=float(prune_opacity_threshold),
         )
 
         gsplat_data = load_gaussian_ply(ply_path)
+        if float(prune_opacity_threshold) > 0.0:
+            gsplat_data = prune_gaussian_splat(gsplat_data, opacity_threshold=float(prune_opacity_threshold))
         preview_tensor = render_4view_contact_sheet(
             positions=gsplat_data["positions"],
             colors=gsplat_data["colors"],
@@ -3140,18 +3470,489 @@ class Ziggart3DTurntableRenderer:
         return (batch_rgb, batch_mask)
 
 
+class ZiggartIdolPreprocess:
+    """Preprocess single input image for Idol (crop framing, square padding, and background matting)."""
+
+    DESCRIPTION = (
+        "Preprocesses input images specifically for Idol/TripoSplat 3D generation. "
+        "Performs foreground segmentation and applies either synthetic "
+        "(1.2x tight crop) or real photo (1.7x contextual crop) framing onto a 1024x1024 canvas."
+    )
+    CATEGORY = "Ziggart/3D"
+    FUNCTION = "preprocess_image"
+    RETURN_TYPES = ("IMAGE", "MASK")
+    RETURN_NAMES = ("image", "mask")
+    OUTPUT_TOOLTIPS = (
+        "Preprocessed 1024x1024 square image ready for Idol / TripoSplat conditioning.",
+        "Alpha mask corresponding to the cropped and centered object.",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, Any]:
+        return {
+            "required": {
+                "image": ("IMAGE", {"tooltip": "Input image (photo, AI render, or character drawing)."}),
+                "mode": (
+                    ["synthetic", "real"],
+                    {
+                        "default": "synthetic",
+                        "tooltip": "'synthetic' applies a tighter ~1.2x bounding box; 'real' applies a wider ~1.7x crop.",
+                    },
+                ),
+                "remove_background": (
+                    "BOOLEAN",
+                    {"default": True, "tooltip": "Automatically remove background if image does not have alpha."},
+                ),
+                "background_color": (
+                    ["black", "white", "transparent"],
+                    {"default": "black", "tooltip": "Background color for padding to 1024x1024 square."},
+                ),
+                "crop_padding": (
+                    "FLOAT",
+                    {"default": 1.2, "min": 1.0, "max": 3.0, "step": 0.05, "tooltip": "Custom bounding box multiplier."},
+                ),
+            },
+            "optional": {
+                "mask": ("MASK", {"tooltip": "Optional manual foreground mask."}),
+            },
+        }
+
+    def preprocess_image(
+        self,
+        image: Any,
+        mode: str = "synthetic",
+        remove_background: bool = True,
+        background_color: str = "black",
+        crop_padding: float = 1.2,
+        mask: Any = None,
+    ) -> tuple[Any, Any]:
+        pil_img = tensor_to_pil(image, mask=mask)
+        if remove_background and pil_img.mode != "RGBA":
+            pil_img = remove_background_fallback(pil_img)
+
+        if pil_img.mode == "RGBA":
+            alpha_np = np.asarray(pil_img.split()[-1])
+            fg_indices = np.argwhere(alpha_np > 16)
+            if fg_indices.size > 0:
+                y0, x0 = fg_indices.min(axis=0)
+                y1, x1 = fg_indices.max(axis=0) + 1
+            else:
+                x0, y0, x1, y1 = 0, 0, pil_img.width, pil_img.height
+        else:
+            x0, y0, x1, y1 = 0, 0, pil_img.width, pil_img.height
+
+        w_box = max(1, x1 - x0)
+        h_box = max(1, y1 - y0)
+        cx = (x0 + x1) / 2.0
+        cy = (y0 + y1) / 2.0
+
+        mult = float(crop_padding) if crop_padding != 1.2 else (1.2 if mode == "synthetic" else 1.7)
+        box_side = int(round(max(w_box, h_box) * mult))
+
+        half = box_side / 2.0
+        src_x0 = int(round(cx - half))
+        src_y0 = int(round(cy - half))
+        src_x1 = src_x0 + box_side
+        src_y1 = src_y0 + box_side
+
+        target_size = 1024
+        if background_color == "white":
+            bg_tuple = (255, 255, 255, 255)
+        elif background_color == "transparent":
+            bg_tuple = (0, 0, 0, 0)
+        else:
+            bg_tuple = (0, 0, 0, 255)
+
+        square_canvas = Image.new("RGBA", (box_side, box_side), bg_tuple)
+        paste_x = max(0, -src_x0)
+        paste_y = max(0, -src_y0)
+        crop_src_x0 = max(0, src_x0)
+        crop_src_y0 = max(0, src_y0)
+        crop_src_x1 = min(pil_img.width, src_x1)
+        crop_src_y1 = min(pil_img.height, src_y1)
+
+        if crop_src_x1 > crop_src_x0 and crop_src_y1 > crop_src_y0:
+            region = pil_img.crop((crop_src_x0, crop_src_y0, crop_src_x1, crop_src_y1))
+            square_canvas.paste(region, (paste_x, paste_y), mask=region if region.mode == "RGBA" else None)
+
+        final_img = square_canvas.resize((target_size, target_size), Image.Resampling.LANCZOS)
+        final_alpha = np.asarray(final_img.split()[-1], dtype=np.float32) / 255.0
+        if background_color != "transparent":
+            final_img = final_img.convert("RGB")
+
+        img_tensor = pil_to_tensor(final_img)
+        mask_tensor = final_alpha[None, ...]
+        if torch is not None:
+            mask_tensor = torch.from_numpy(mask_tensor)
+        return (img_tensor, mask_tensor)
+
+
+class ZiggartIdolInputCamera:
+    """Extract or define the predicted input camera perspective for Idol 3D generations."""
+
+    DESCRIPTION = (
+        "Extracts and controls the 3D camera viewpoints predicted by Idol alongside the generated object. "
+        "Allows direct chaining of predicted camera azimuth, elevation, and FOV into Ziggart3DTurntableRenderer "
+        "so turntable rotations begin aligned with the original input photograph."
+    )
+    CATEGORY = "Ziggart/3D"
+    FUNCTION = "get_camera_params"
+    RETURN_TYPES = ("FLOAT", "FLOAT", "FLOAT", "FLOAT", "STRING")
+    RETURN_NAMES = ("azimuth", "elevation", "fov", "distance", "camera_info")
+    OUTPUT_TOOLTIPS = (
+        "Camera azimuth (yaw) angle in degrees.",
+        "Camera elevation (pitch) angle in degrees.",
+        "Camera field of view in degrees.",
+        "Camera distance / radius from the 3D scene center.",
+        "Formatted JSON camera configuration string.",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, Any]:
+        return {
+            "required": {
+                "azimuth": ("FLOAT", {"default": 0.0, "min": -360.0, "max": 360.0, "step": 1.0, "tooltip": "Camera azimuth / yaw angle in degrees."}),
+                "elevation": ("FLOAT", {"default": 15.0, "min": -90.0, "max": 90.0, "step": 1.0, "tooltip": "Camera elevation / pitch angle in degrees."}),
+                "fov": ("FLOAT", {"default": 40.0, "min": 10.0, "max": 120.0, "step": 1.0, "tooltip": "Field of view angle in degrees."}),
+                "distance": ("FLOAT", {"default": 2.0, "min": 0.5, "max": 10.0, "step": 0.1, "tooltip": "Camera radius / distance from scene center."}),
+            },
+            "optional": {
+                "camera_json": ("STRING", {"default": "", "tooltip": "Optional raw JSON camera dict from Idol pipeline output."}),
+            },
+        }
+
+    def get_camera_params(
+        self,
+        azimuth: float = 0.0,
+        elevation: float = 15.0,
+        fov: float = 40.0,
+        distance: float = 2.0,
+        camera_json: str = "",
+    ) -> tuple[float, float, float, float, str]:
+        az, el, f_val, dist = float(azimuth), float(elevation), float(fov), float(distance)
+        if camera_json and camera_json.strip():
+            try:
+                parsed = json.loads(camera_json.strip())
+                if isinstance(parsed, dict):
+                    az = float(parsed.get("azimuth", parsed.get("yaw", az)))
+                    el = float(parsed.get("elevation", parsed.get("pitch", el)))
+                    f_val = float(parsed.get("fov", f_val))
+                    dist = float(parsed.get("distance", parsed.get("radius", dist)))
+            except Exception:
+                pass
+
+        info_dict = {
+            "azimuth": az,
+            "elevation": el,
+            "fov": f_val,
+            "distance": dist,
+        }
+        return (az, el, f_val, dist, json.dumps(info_dict, indent=2))
+
+
+class ZiggartIdolPruneSplat:
+    """Filter out near-transparent / low-opacity floaters from 3D Gaussian Splats."""
+
+    DESCRIPTION = (
+        "Removes low-opacity and stray Gaussians from an Idol 3D Gaussian Splat (.ply or in-memory data). "
+        "Eliminates cloudy haze, reduces export file sizes, and produces cleaner polygon meshes."
+    )
+    CATEGORY = "Ziggart/3D"
+    FUNCTION = "prune_splat"
+    RETURN_TYPES = ("STRING", "ZIGGART_GSPLAT", "IMAGE")
+    RETURN_NAMES = ("ply_path", "gsplat_data", "preview_image")
+    OUTPUT_TOOLTIPS = (
+        "Path to the saved pruned .ply file.",
+        "Cleaned in-memory Gaussian Splat data.",
+        "Updated 4-view preview contact sheet.",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, Any]:
+        return {
+            "required": {
+                "opacity_threshold": (
+                    "FLOAT",
+                    {"default": 0.05, "min": 0.0, "max": 0.99, "step": 0.01, "tooltip": "Gaussians with opacity below this value will be pruned."},
+                ),
+                "save_cleaned_ply": (
+                    "BOOLEAN",
+                    {"default": True, "tooltip": "Save the cleaned splat to a new .ply file in the output directory."},
+                ),
+                "filename_prefix": ("STRING", {"default": "ziggart_pruned_splat"}),
+            },
+            "optional": {
+                "gsplat_data": ("ZIGGART_GSPLAT", {"tooltip": "In-memory 3D Gaussian Splat dictionary from Idol."}),
+                "ply_path": ("STRING", {"default": "", "tooltip": "Path to an existing .ply file."}),
+            },
+        }
+
+    def prune_splat(
+        self,
+        opacity_threshold: float = 0.05,
+        save_cleaned_ply: bool = True,
+        filename_prefix: str = "ziggart_pruned_splat",
+        gsplat_data: dict[str, Any] | None = None,
+        ply_path: str = "",
+    ) -> tuple[str, dict[str, Any], Any]:
+        if gsplat_data is None:
+            if not ply_path or not Path(ply_path.strip()).is_file():
+                raise ValueError("Must provide either 'gsplat_data' or a valid 'ply_path'.")
+            gsplat_data = load_gaussian_ply(ply_path.strip())
+
+        cleaned = prune_gaussian_splat(gsplat_data, opacity_threshold=float(opacity_threshold))
+
+        out_ply_str = gsplat_data.get("ply_path", "")
+        if save_cleaned_ply:
+            clean_prefix = str(filename_prefix).strip() or "ziggart_pruned_splat"
+            out_ply = _next_output_path(clean_prefix, "ply")
+            save_gaussian_ply(
+                out_ply,
+                positions=cleaned["positions"],
+                colors=cleaned["colors"],
+                opacities=cleaned.get("opacities"),
+                scales=cleaned.get("scales"),
+                rotations=cleaned.get("rotations"),
+            )
+            out_ply_str = str(out_ply)
+            cleaned["ply_path"] = out_ply_str
+
+        preview = render_4view_contact_sheet(
+            positions=cleaned["positions"],
+            colors=cleaned["colors"],
+            opacities=cleaned.get("opacities"),
+        )
+        return (out_ply_str, cleaned, preview)
+
+
+class Ziggart3DModelDownloader:
+    """Inspect and automatically download weights for 3D suite models (Idol, SPAR3D, Hunyuan3D)."""
+
+    DESCRIPTION = (
+        "Checks local cache status and pre-downloads weights for 3D generation pipelines "
+        "(PedroMarinhoDev/Idol-ComfyUI, VAST-AI/TripoSplat, BiRefNet) into persistent model directories."
+    )
+    CATEGORY = "Ziggart/3D"
+    FUNCTION = "download_models"
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("manifest_json",)
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, Any]:
+        return {
+            "required": {
+                "download_idol_fp16": ("BOOLEAN", {"default": True, "tooltip": "Download Idol fp16 denoiser + VAE (~1.3 GB)."}),
+                "download_idol_fp32": ("BOOLEAN", {"default": False, "tooltip": "Download Idol fp32 denoiser + VAE (~2.6 GB)."}),
+                "download_triposplat_aux": ("BOOLEAN", {"default": True, "tooltip": "Download DINOv3 ViT-H and Flux2 VAE (~1.2 GB)."}),
+                "download_birefnet": ("BOOLEAN", {"default": False, "tooltip": "Download BiRefNet background matting (~0.85 GB)."}),
+                "force_redownload": ("BOOLEAN", {"default": False}),
+            },
+            "optional": {
+                "hf_token": ("STRING", {"default": "", "tooltip": "Optional Hugging Face authentication token."}),
+            },
+        }
+
+    def download_models(
+        self,
+        download_idol_fp16: bool = True,
+        download_idol_fp32: bool = False,
+        download_triposplat_aux: bool = True,
+        download_birefnet: bool = False,
+        force_redownload: bool = False,
+        hf_token: str = "",
+    ) -> tuple[str]:
+        keys = []
+        if download_idol_fp16:
+            keys.extend(["idol_denoiser_fp16", "idol_vae_fp16"])
+        if download_idol_fp32:
+            keys.extend(["idol_denoiser_fp32", "idol_vae_fp32"])
+        if download_triposplat_aux:
+            keys.extend(["triposplat_dino", "triposplat_flux2_vae"])
+        if download_birefnet:
+            keys.append("birefnet_matting")
+
+        status_dict: dict[str, Any] = {}
+        total_size_mb = 0.0
+        for k in keys:
+            p = find_or_download_idol_weight(
+                k,
+                auto_download=True,
+                force_redownload=force_redownload,
+                hf_token=hf_token,
+            )
+            if p is not None and p.is_file():
+                sz = round(p.stat().st_size / (1024 * 1024), 2)
+                total_size_mb += sz
+                status_dict[k] = {"status": "ready", "path": str(p), "size_mb": sz}
+            else:
+                status_dict[k] = {"status": "error_or_missing", "spec": IDOL_MODEL_REGISTRY.get(k)}
+
+        summary = {
+            "cached_models": status_dict,
+            "total_size_mb": round(total_size_mb, 2),
+            "all_ready": all(v.get("status") == "ready" for v in status_dict.values()),
+        }
+        return (json.dumps(summary, indent=2),)
+
+
+class Ziggart3DTurntableGifSaver:
+    """Save 3D turntable frame batch as an animated GIF with direct Discord node compatibility."""
+
+    DESCRIPTION = (
+        "Converts a 3D turntable frame batch into an optimized animated GIF showing 360-degree rotation. "
+        "Saves the .gif file to disk and outputs both the IMAGE frame tensor and the absolute GIF path so you "
+        "can directly connect it to Discord webhook / bot nodes."
+    )
+    CATEGORY = "Ziggart/3D"
+    FUNCTION = "save_turntable_gif"
+    OUTPUT_NODE = True
+    RETURN_TYPES = ("IMAGE", "STRING", "STRING")
+    RETURN_NAMES = ("image", "gif_path", "filename")
+    OUTPUT_TOOLTIPS = (
+        "Rendered frame batch [N, H, W, 3] for downstream image/animation nodes (including Discord image inputs).",
+        "Absolute path to the saved .gif file on disk for Discord webhook attachments and file uploaders.",
+        "Filename of the saved GIF relative to ComfyUI output directory.",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, Any]:
+        return {
+            "required": {
+                "images": ("IMAGE", {"tooltip": "Rendered turntable frame batch [N, H, W, 3] from Ziggart3DTurntableRenderer."}),
+                "fps": ("INT", {"default": 12, "min": 1, "max": 60, "step": 1, "tooltip": "Playback frames per second (12-15 fps recommended)."}),
+                "filename_prefix": ("STRING", {"default": "ziggart_3d_turntable"}),
+                "loop_count": ("INT", {"default": 0, "min": 0, "max": 100, "step": 1, "tooltip": "0 = infinite loop."}),
+                "ping_pong": ("BOOLEAN", {"default": False, "tooltip": "Play forward then backward for an oscillating 3D turn."}),
+                "background": (
+                    ["original", "transparent", "white", "black"],
+                    {"default": "original", "tooltip": "Composite frames against a clean background using alpha mask."},
+                ),
+                "max_dimension": (
+                    "INT",
+                    {"default": 512, "min": 0, "max": 2048, "step": 64, "tooltip": "0 to keep full resolution; 512 or 384 recommended for Discord limits."},
+                ),
+                "optimize_for_discord": (
+                    "BOOLEAN",
+                    {"default": True, "tooltip": "Quantizes palette & compresses frames to fit Discord webhook size limits (free tier 10MB/25MB)."},
+                ),
+            },
+            "optional": {
+                "mask": ("MASK", {"tooltip": "Optional alpha mask batch [N, H, W] from Ziggart3DTurntableRenderer."}),
+            },
+        }
+
+    def save_turntable_gif(
+        self,
+        images: Any,
+        fps: int = 12,
+        filename_prefix: str = "ziggart_3d_turntable",
+        loop_count: int = 0,
+        ping_pong: bool = False,
+        background: str = "original",
+        max_dimension: int = 512,
+        optimize_for_discord: bool = True,
+        mask: Any = None,
+    ) -> dict[str, Any]:
+        if hasattr(images, "detach"):
+            arr = images.detach().cpu().float().numpy()
+        else:
+            arr = np.asarray(images, dtype=np.float32)
+
+        if arr.ndim == 3:
+            arr = arr[None, ...]
+        n_frames = arr.shape[0]
+
+        mask_arr = None
+        if mask is not None:
+            if hasattr(mask, "detach"):
+                mask_arr = mask.detach().cpu().float().numpy()
+            else:
+                mask_arr = np.asarray(mask, dtype=np.float32)
+            while mask_arr.ndim < 3:
+                mask_arr = mask_arr[None, ...]
+
+        pil_frames: list[Image.Image] = []
+        for idx in range(n_frames):
+            frame_rgb = np.clip(arr[idx], 0.0, 1.0)
+            if mask_arr is not None and idx < len(mask_arr):
+                frame_m = np.clip(mask_arr[idx], 0.0, 1.0)
+                if frame_m.shape != frame_rgb.shape[:2]:
+                    m_pil = Image.fromarray((frame_m * 255.0 + 0.5).astype(np.uint8), mode="L")
+                    m_pil = m_pil.resize((frame_rgb.shape[1], frame_rgb.shape[0]), Image.Resampling.BILINEAR)
+                    frame_m = np.asarray(m_pil, dtype=np.float32) / 255.0
+
+                if background == "transparent":
+                    rgba = np.dstack([(frame_rgb * 255.0 + 0.5).astype(np.uint8), (frame_m * 255.0 + 0.5).astype(np.uint8)])
+                    pil_frames.append(Image.fromarray(rgba, mode="RGBA"))
+                    continue
+                elif background == "white":
+                    comp = frame_rgb * frame_m[..., None] + 1.0 * (1.0 - frame_m[..., None])
+                    pil_frames.append(Image.fromarray((np.clip(comp, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8), mode="RGB"))
+                    continue
+                elif background == "black":
+                    comp = frame_rgb * frame_m[..., None]
+                    pil_frames.append(Image.fromarray((np.clip(comp, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8), mode="RGB"))
+                    continue
+
+            pil_frames.append(Image.fromarray((frame_rgb * 255.0 + 0.5).astype(np.uint8), mode="RGB"))
+
+        clean_prefix = str(filename_prefix).strip() or "ziggart_3d_turntable"
+        out_gif = _next_output_path(clean_prefix, "gif")
+
+        saved_path = create_animated_gif(
+            frames=pil_frames,
+            output_path=out_gif,
+            fps=int(fps),
+            loop_count=int(loop_count),
+            ping_pong=bool(ping_pong),
+            optimize_for_discord=bool(optimize_for_discord),
+            max_dimension=int(max_dimension),
+        )
+
+        final_pil_frames = list(pil_frames)
+        if ping_pong and len(final_pil_frames) > 2:
+            final_pil_frames = final_pil_frames + final_pil_frames[-2:0:-1]
+        out_tensors = [np.asarray(f.convert("RGB"), dtype=np.float32) / 255.0 for f in final_pil_frames]
+        out_batch = np.stack(out_tensors, axis=0)
+        output_tensor = torch.from_numpy(out_batch) if torch is not None else out_batch
+
+        subfolder = "ziggart_3d"
+        relative_filename = saved_path.name
+        ui_info = {
+            "images": [
+                {
+                    "filename": relative_filename,
+                    "subfolder": subfolder,
+                    "type": "output",
+                    "format": "image/gif",
+                }
+            ]
+        }
+        return {"ui": ui_info, "result": (output_tensor, str(saved_path), relative_filename)}
+
+
 NODE_CLASS_MAPPINGS = {
     "ZiggartIdolImageToGaussian": ZiggartIdolImageToGaussian,
+    "ZiggartIdolPreprocess": ZiggartIdolPreprocess,
+    "ZiggartIdolInputCamera": ZiggartIdolInputCamera,
+    "ZiggartIdolPruneSplat": ZiggartIdolPruneSplat,
+    "Ziggart3DModelDownloader": Ziggart3DModelDownloader,
     "ZiggartGaussianToMesh": ZiggartGaussianToMesh,
     "ZiggartSPAR3DImageToMesh": ZiggartSPAR3DImageToMesh,
     "ZiggartHunyuan3DImageToMesh": ZiggartHunyuan3DImageToMesh,
     "Ziggart3DTurntableRenderer": Ziggart3DTurntableRenderer,
+    "Ziggart3DTurntableGifSaver": Ziggart3DTurntableGifSaver,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "ZiggartIdolImageToGaussian": "Idol Image to 3D Gaussian Splat (PLY)",
+    "ZiggartIdolPreprocess": "Idol Image Preprocess (Synthetic / Real Crop)",
+    "ZiggartIdolInputCamera": "Idol Predicted Input Camera Extractor",
+    "ZiggartIdolPruneSplat": "Idol Gaussian Splat Floater Pruner",
+    "Ziggart3DModelDownloader": "3D Model Auto-Downloader & Cache Manager",
     "ZiggartGaussianToMesh": "Convert Idol Gaussian Splat to 3D Mesh (GLB/OBJ)",
     "ZiggartSPAR3DImageToMesh": "SPAR3D Image to 3D Mesh (Fast 7GB VRAM)",
     "ZiggartHunyuan3DImageToMesh": "Hunyuan3D-2mini Image to 3D Mesh (GLB)",
     "Ziggart3DTurntableRenderer": "3D Gaussian / Mesh Turntable Renderer",
+    "Ziggart3DTurntableGifSaver": "3D Turntable Animated GIF Saver (Discord Ready)",
 }

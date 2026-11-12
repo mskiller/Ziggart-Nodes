@@ -12,7 +12,7 @@ A complete collection of **45 local, in-process ComfyUI nodes** combining:
 
 ---
 
-## Included Nodes (45 Nodes)
+## Included Nodes (50 Nodes)
 
 | Display Name | Internal Class | Category | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -47,11 +47,16 @@ A complete collection of **45 local, in-process ComfyUI nodes** combining:
 | **Ziggart Contour Mask Refiner (Silhouette Matting)** | `ZiggartContourMaskRefiner` | `Ziggart/Detector` | Refines rectangular bounding boxes (`bboxes_json` or `ZIGGART_BBOX`) into tight subject-contour alpha masks using border-background contrast, Sobel edge energy, and morphological closing. |
 | **BBox Crop** | `ZiggartCropByBBox` | `Ziggart/Detector` | Extracts mod-8 padded, resolution-standardized crops from `bboxes_json` and outputs a `ZIGGART_STITCH_PIPE` for custom ComfyUI workflows. |
 | **BBox Feathered Stitch** | `ZiggartStitchByBBox` | `Ziggart/Detector` | Blends externally processed crops back into their original locations using `ZIGGART_STITCH_PIPE` and Gaussian alpha feathering (or optional `custom_crop_masks` from `ZiggartContourMaskRefiner`). |
-| **Idol Image to 3D Gaussian Splat (PLY)** | `ZiggartIdolImageToGaussian` | `Ziggart/3D` | Generates 3D Gaussian Splats (`.ply`, up to 1,048,576 Gaussians) from a single image using **`speridlabs/idol`** (`~7.2 GB` peak VRAM, auto-evicts ComfyUI VRAM). |
+| **Idol Image to 3D Gaussian Splat (PLY)** | `ZiggartIdolImageToGaussian` | `Ziggart/3D` | Generates 3D Gaussian Splats (`.ply`, up to 1,048,576 Gaussians) from a single image using **`speridlabs/idol`** (`~7.2 GB` peak VRAM, auto-evicts ComfyUI VRAM, with automatic `PedroMarinhoDev/Idol-ComfyUI` weights downloading and floater pruning). |
+| **Idol Image Preprocess (Synthetic / Real Crop)** | `ZiggartIdolPreprocess` | `Ziggart/3D` | Preprocesses input images for Idol/TripoSplat: foreground alpha matting, square padding, and synthetic (1.2× tight crop) vs real photo (1.7× contextual crop) framing onto a 1024×1024 canvas. |
+| **Idol Predicted Input Camera Extractor** | `ZiggartIdolInputCamera` | `Ziggart/3D` | Extracts camera azimuth, elevation, FOV, and distance predicted by Idol to align downstream 3D turntable rotations with the input camera perspective. |
+| **Idol Gaussian Splat Floater Pruner** | `ZiggartIdolPruneSplat` | `Ziggart/3D` | Filters out near-transparent / low-opacity floaters from 3D Gaussian Splats (`.ply` or `ZIGGART_GSPLAT`) to eliminate haze and artifacts. |
+| **3D Model Auto-Downloader & Cache Manager** | `Ziggart3DModelDownloader` | `Ziggart/3D` | Inspects and automatically downloads weights for Idol fp16/fp32, TripoSplat DINOv3 + Flux2 VAE, and BiRefNet into persistent ComfyUI model directories. |
 | **Convert Idol Gaussian Splat to 3D Mesh (GLB/OBJ)** | `ZiggartGaussianToMesh` | `Ziggart/3D` | Converts `ZIGGART_GSPLAT` or `.ply` Gaussian Splats into watertight/smoothed polygon 3D meshes (`.glb`, `.obj`, `.ply`) with vertex colors and normals. |
 | **SPAR3D Image to 3D Mesh (Fast 7GB VRAM)** | `ZiggartSPAR3DImageToMesh` | `Ziggart/3D` | Generates UV-unwrapped textured 3D meshes (`.glb`) + intermediate point clouds (`.ply`) in ~1–2s using Stability AI's **SPAR3D** with `low_vram_mode=True` (`~7.0 GB` VRAM). |
 | **Hunyuan3D-2mini Image to 3D Mesh (GLB)** | `ZiggartHunyuan3DImageToMesh` | `Ziggart/3D` | Generates high-sharpness 3D meshes (`.glb`) using **Hunyuan3D-2mini (0.6B, ~5.5 GB VRAM)** and sequentially unloads Shape before running optional PBR Paint. |
 | **3D Gaussian / Mesh Turntable Renderer** | `Ziggart3DTurntableRenderer` | `Ziggart/3D` | Renders 360° turntable `IMAGE` and `MASK` batches from any `ZIGGART_GSPLAT` or `ZIGGART_MESH`. |
+| **3D Turntable Animated GIF Saver (Discord Ready)** | `Ziggart3DTurntableGifSaver` | `Ziggart/3D` | Converts 3D turntable frame batches into optimized animated GIFs (with ping-pong, background transparency, and Discord size optimization). Outputs both `IMAGE` frame tensors and `gif_path` string for instant Discord webhook sending. |
 | **Avatar 3D Model Auto-Downloader & Cache Manager** | `ZiggartAvatarModelDownloader` | `Ziggart/3D/Avatar` | Automatically downloads 3D Avatar models (`HairDeck`, `Make-It-Animatable`, `UniRig`, `BiRefNet`) on first run into `ComfyUI/models/3d/ziggart_avatars/` and keeps them permanently cached on disk. |
 | **Avatar 2D Canonical T-Pose & Hair Splitter** | `ZiggartAvatarCanonicalPrep` | `Ziggart/3D/Avatar` | Segments character hair vs. body, suppresses draping shoulder hair on the body reference image (preventing fused 3D neck/shoulder geometry), and outputs `body_ready_image`, `hair_source_image`, `hair_mask`, and `head_crop_image`. |
 | **HairDeck 3D Hair Cards & Spring-Bone Generator** | `ZiggartHairDeckGenerator` | `Ziggart/3D/Avatar` | Generates stylized 3D Hair Cards (`.glb` + `ZIGGART_HAIR`) and hierarchical VRM Spring-Bone physics chains (`anime_layered`, `long_flowing`, `twin_tails`, `short_spiky`) with automatic weight caching. |
@@ -732,13 +737,35 @@ Takes an `IMAGE`, a `MASK` (drawn in ComfyUI's MaskEditor or from a detector), a
 
 ## 3D Generation Suite (`Ziggart/3D` — RTX 3070 Ti 8GB–16GB VRAM Optimized)
 
-All 5 nodes in `Ziggart/3D` share `Ziggart3DModelManager`, which automatically evicts loaded ComfyUI checkpoints/VLMs before running 3D generation (`unload_comfy_models = True`), ensures only **one** 3D model is in VRAM at a time, and **automatically downloads/installs missing 3D SDKs (`idol-sdk`, `stable-point-aware-3d`, `Hunyuan3D-2`) into `Ziggart-Nodes/.cache/vendor_3d/` on first execution**.
+All nodes in `Ziggart/3D` share `Ziggart3DModelManager`, which automatically evicts loaded ComfyUI checkpoints/VLMs before running 3D generation (`unload_comfy_models = True`), ensures only **one** 3D model is in VRAM at a time, and **automatically downloads/caches missing weights (`PedroMarinhoDev/Idol-ComfyUI`, `VAST-AI/TripoSplat`, `BiRefNet`) and SDKs (`stable-point-aware-3d`, `Hunyuan3D-2`) on first execution**.
 
 ### 22. Idol Image to 3D Gaussian Splat (PLY)
 *Class: `ZiggartIdolImageToGaussian` | Category: `Ziggart/3D`*
-- Uses **`speridlabs/idol`** (`~7.2 GB` peak VRAM, <2s inference) to convert a single image (`synthetic` render or `real` photo) into up to `1,048,576` 3D Gaussians saved as a `.ply` file.
-- **Hugging Face Authentication**: Because Idol uses `facebook/dinov3-vith16plus-pretrain-lvd1689m` and `black-forest-labs/FLUX.2-dev` (VAE), paste your Hugging Face token into the `hf_token` input field on the first run (or set `HF_TOKEN` in your environment) after accepting their terms on Hugging Face.
+- Generates high-density 3D Gaussian Splats (`.ply`, up to `1,048,576` Gaussians) from a single image (`synthetic` render or `real` photo) using **`speridlabs/idol`** architecture with **PedroMarinhoDev native safetensors weights** (`~7.2 GB` peak VRAM).
+- **Auto-Downloader**: Automatically downloads and caches `PedroMarinhoDev/Idol-ComfyUI` (`idol_fp16.safetensors` or `idol_fp32.safetensors` + VAE) and `VAST-AI/TripoSplat` (DINOv3 ViT-H + Flux2 VAE) into `ComfyUI/models/` directories on first run when `auto_download_weights = True`.
+- **Integrated Floater Pruner**: Includes `prune_opacity_threshold` (default `0.05`) to automatically strip low-opacity hazy Gaussians.
 - **Outputs**: `ply_path` (`STRING`), `gsplat_data` (`ZIGGART_GSPLAT`), `preprocessed_image` (`IMAGE`), and `preview_image` (`IMAGE` 2×2 contact sheet).
+
+### 22A. Idol Image Preprocess (Synthetic / Real Crop)
+*Class: `ZiggartIdolPreprocess` | Category: `Ziggart/3D`*
+- Prepares input images specifically for Idol/TripoSplat 3D generation with automated foreground matting and either `synthetic` (1.2× tight crop) or `real` photo (1.7× contextual crop) framing centered onto a 1024×1024 square canvas.
+- **Outputs**: `image` (`IMAGE`), `mask` (`MASK`).
+
+### 22B. Idol Predicted Input Camera Extractor
+*Class: `ZiggartIdolInputCamera` | Category: `Ziggart/3D`*
+- Decodes the 3D camera viewpoint (azimuth/yaw, elevation/pitch, FOV, distance) predicted by Idol alongside the generated object.
+- Connects directly into `Ziggart3DTurntableRenderer` (`azimuth_start`, `elevation`) so turntable animations start aligned with the original input photograph.
+- **Outputs**: `azimuth` (`FLOAT`), `elevation` (`FLOAT`), `fov` (`FLOAT`), `distance` (`FLOAT`), `camera_info` (`STRING`).
+
+### 22C. Idol Gaussian Splat Floater Pruner
+*Class: `ZiggartIdolPruneSplat` | Category: `Ziggart/3D`*
+- Standalone post-processing node that filters out near-transparent / low-opacity floaters from 3D Gaussian Splats (`.ply` or `ZIGGART_GSPLAT`), eliminating haze and reducing export file sizes.
+- **Outputs**: `ply_path` (`STRING`), `gsplat_data` (`ZIGGART_GSPLAT`), `preview_image` (`IMAGE`).
+
+### 22D. 3D Model Auto-Downloader & Cache Manager
+*Class: `Ziggart3DModelDownloader` | Category: `Ziggart/3D`*
+- Inspects local cache status and pre-downloads weights for 3D generation pipelines (`PedroMarinhoDev/Idol-ComfyUI`, `VAST-AI/TripoSplat`, `BiRefNet`) in a single click with progress reporting.
+- **Outputs**: `manifest_json` (`STRING`).
 
 ### 23. Convert Idol Gaussian Splat to 3D Mesh (GLB/OBJ)
 *Class: `ZiggartGaussianToMesh` | Category: `Ziggart/3D`*
@@ -761,6 +788,12 @@ All 5 nodes in `Ziggart/3D` share `Ziggart3DModelManager`, which automatically e
 *Class: `Ziggart3DTurntableRenderer` | Category: `Ziggart/3D`*
 - Renders single or multi-frame 360° turntable `IMAGE` (`[N, H, W, 3]`) and `MASK` (`[N, H, W]`) batches from either a `ZIGGART_GSPLAT` or `ZIGGART_MESH`.
 - Standard upright perspective camera projection (+Y up) with optional `invert_y` toggle for legacy models.
+
+### 26A. 3D Turntable Animated GIF Saver (Discord Ready)
+*Class: `Ziggart3DTurntableGifSaver` | Category: `Ziggart/3D`*
+- Saves 3D turntable frame batches as high-quality, lightweight animated GIFs with adaptive 256-color palette quantization, ping-pong looping, and background compositing (`transparent`, `white`, `black`, `original`).
+- **Discord Ready**: Directly provides both an `IMAGE` frame batch (for Discord nodes that accept image tensors) and an absolute `gif_path` `STRING` (for webhook file uploaders), while playing the animated spinning 3D GIF live on the ComfyUI canvas node.
+- **Outputs**: `image` (`IMAGE`), `gif_path` (`STRING`), `filename` (`STRING`).
 
 ---
 
