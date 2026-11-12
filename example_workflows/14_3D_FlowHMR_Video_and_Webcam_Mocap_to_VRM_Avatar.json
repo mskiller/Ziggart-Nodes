@@ -1,0 +1,308 @@
+{
+  "id": "c83f5692-0f23-4d99-b522-9900bbccdd14",
+  "revision": 0,
+  "last_node_id": 8,
+  "last_link_id": 9,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Note",
+      "pos": [-440.0, -240.0],
+      "size": [2320.0, 140.0],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Guide — Ziggart FlowHMR 3D Video & Webcam Mocap to VRM Avatar Pipeline",
+      "properties": {
+        "Node name for S&R": "Note"
+      },
+      "widgets_values": [
+        "WORKFLOW 14 : ZIGGART FLOWHMR MOCAP TO 3D VRM AVATAR\n1. MODEL LOADER : ZiggartFlowHMRModelLoader manages Motius-FlowHMR-Base / Latest checkpoints, caching them under models/3d/ziggart_mocap.\n2. VIDEO / WEBCAM CAPTURE : Feed any video sequence or use ZiggartFlowHMRWebcamCapture to record live camera takes.\n3. FLOW-MATCHING EXTRACTION : ZiggartFlowHMRVideoExtractor generates 52-joint SMPL-H motion with physics-based contact and root translation without foot sliding.\n4. RETARGET & GROUND LOCK : ZiggartMocapRetargetVRM converts SMPL-H into the 25-bone VRM humanoid hierarchy, clamping ground contact and applying temporal smoothing.\n5. AVATAR MOCAP DRIVE : ZiggartAvatarMocapDrive drives your 3D VRM avatar with the extracted mocap, generating synchronized RGB, Mask, Depth, Normal, and OpenPose passes for video diffusion models (AnimateDiff, Wan2.1, HunyuanVideo)!"
+      ],
+      "color": "#234",
+      "bgcolor": "#356"
+    },
+    {
+      "id": 2,
+      "type": "ZiggartFlowHMRModelLoader",
+      "pos": [-440.0, -40.0],
+      "size": [360.0, 210.0],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "flowhmr_model",
+          "type": "ZIGGART_FLOWHMR_MODEL",
+          "slot_index": 0,
+          "links": [1]
+        },
+        {
+          "name": "model_info",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "widgets_values": [
+        "Motius-FlowHMR-Base (Hugging Face)",
+        "auto",
+        "fp16",
+        true,
+        true,
+        ""
+      ]
+    },
+    {
+      "id": 3,
+      "type": "ZiggartFlowHMRWebcamCapture",
+      "pos": [-40.0, -40.0],
+      "size": [340.0, 190.0],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "image_batch",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [2]
+        },
+        {
+          "name": "frame_count",
+          "type": "INT",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "fps",
+          "type": "FLOAT",
+          "slot_index": 2,
+          "links": []
+        }
+      ],
+      "widgets_values": [
+        0,
+        3.0,
+        30,
+        512
+      ]
+    },
+    {
+      "id": 4,
+      "type": "ZiggartFlowHMRVideoExtractor",
+      "pos": [340.0, -40.0],
+      "size": [380.0, 240.0],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "flowhmr_model",
+          "type": "ZIGGART_FLOWHMR_MODEL",
+          "link": 1
+        },
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mocap_data",
+          "type": "ZIGGART_MOCAP",
+          "slot_index": 0,
+          "links": [3]
+        },
+        {
+          "name": "preview_image",
+          "type": "IMAGE",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "mocap_summary",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        }
+      ],
+      "widgets_values": [
+        "static_camera (Webcam / Fixed Shot)",
+        15,
+        30.0,
+        0.2
+      ]
+    },
+    {
+      "id": 5,
+      "type": "ZiggartMocapRetargetVRM",
+      "pos": [760.0, -40.0],
+      "size": [360.0, 210.0],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mocap_data",
+          "type": "ZIGGART_MOCAP",
+          "link": 3
+        }
+      ],
+      "outputs": [
+        {
+          "name": "retargeted_mocap",
+          "type": "ZIGGART_MOCAP",
+          "slot_index": 0,
+          "links": [4, 5]
+        },
+        {
+          "name": "retarget_log",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "widgets_values": [
+        "Full 3D Root Motion",
+        true,
+        0.25
+      ]
+    },
+    {
+      "id": 6,
+      "type": "ZiggartMocapExporter",
+      "pos": [760.0, 220.0],
+      "size": [340.0, 160.0],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mocap_data",
+          "type": "ZIGGART_MOCAP",
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "name": "exported_file_path",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        }
+      ],
+      "widgets_values": [
+        "BVH",
+        "ziggart_flowhmr_mocap"
+      ]
+    },
+    {
+      "id": 7,
+      "type": "ZiggartVRMPoseAndMocapStudio",
+      "pos": [1160.0, -40.0],
+      "size": [400.0, 520.0],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mocap_data",
+          "type": "ZIGGART_MOCAP",
+          "link": 5
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [6]
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "depth_image",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "normal_image",
+          "type": "IMAGE",
+          "slot_index": 3,
+          "links": []
+        },
+        {
+          "name": "openpose_image",
+          "type": "IMAGE",
+          "slot_index": 4,
+          "links": []
+        },
+        {
+          "name": "vrm_path",
+          "type": "STRING",
+          "slot_index": 5,
+          "links": []
+        }
+      ],
+      "widgets_values": [
+        "FlowHMR Mocap Animation Drive",
+        "Peace Sign ✌️ (Kawaii / VTuber)",
+        "dark_studio",
+        15.0,
+        10.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.5,
+        0.0,
+        90,
+        512,
+        "default",
+        "",
+        ""
+      ]
+    },
+    {
+      "id": 8,
+      "type": "PreviewImage",
+      "pos": [1600.0, -40.0],
+      "size": [440.0, 480.0],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 6
+        }
+      ],
+      "outputs": [],
+      "widgets_values": []
+    }
+  ],
+  "links": [
+    [1, 2, 0, 4, 0, "ZIGGART_FLOWHMR_MODEL"],
+    [2, 3, 0, 4, 1, "IMAGE"],
+    [3, 4, 0, 5, 0, "ZIGGART_MOCAP"],
+    [4, 5, 0, 6, 0, "ZIGGART_MOCAP"],
+    [5, 5, 0, 7, 0, "ZIGGART_MOCAP"],
+    [6, 7, 0, 8, 0, "IMAGE"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {}
+}

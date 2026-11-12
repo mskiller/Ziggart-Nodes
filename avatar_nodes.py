@@ -2685,6 +2685,7 @@ class ZiggartVRMPoseAndMocapStudio:
                         "Pose Preset / Manual Sliders",
                         "Live Webcam Mocap Capture (Browser Studio)",
                         "Animated Pose Turntable Batch",
+                        "FlowHMR Mocap Animation Drive",
                     ],
                     {"default": "Pose Preset / Manual Sliders"},
                 ),
@@ -2713,6 +2714,7 @@ class ZiggartVRMPoseAndMocapStudio:
                 "avatar_data": ("ZIGGART_AVATAR",),
                 "vrm_or_glb_path": ("STRING", {"default": ""}),
                 "webcam_pose_json": ("STRING", {"default": ""}),
+                "mocap_data": ("ZIGGART_MOCAP",),
             },
         }
 
@@ -2736,6 +2738,7 @@ class ZiggartVRMPoseAndMocapStudio:
         avatar_data: dict[str, Any] | None = None,
         vrm_or_glb_path: str = "",
         webcam_pose_json: str = "",
+        mocap_data: dict[str, Any] | None = None,
     ) -> tuple[Any, Any, Any, Any, Any, str]:
         # Load .vrm/.glb from disk if provided, or build a default procedural avatar when disconnected
         if avatar_data is None and vrm_or_glb_path and str(vrm_or_glb_path).strip():
@@ -2796,16 +2799,29 @@ class ZiggartVRMPoseAndMocapStudio:
         fx_cfg = avatar_data.get("fun_fx_config") or {}
         physics_preset = str(fx_cfg.get("physics_preset", "Bouncy Anime"))
 
-        n_frames = max(1, int(num_frames)) if "Animated" in studio_mode else 1
+        # Check if mocap_data provides an animation sequence
+        mocap_rots_list: list[dict[str, list[float]]] = []
+        if isinstance(mocap_data, dict) and "bone_rotations_deg" in mocap_data:
+            mocap_rots_list = mocap_data.get("bone_rotations_deg", [])
+
+        if mocap_rots_list and ("FlowHMR" in studio_mode or num_frames > 1 or studio_mode == "Pose Preset / Manual Sliders"):
+            n_frames = len(mocap_rots_list)
+        else:
+            n_frames = max(1, int(num_frames)) if "Animated" in studio_mode else 1
         res = int(np.clip(resolution, 128, 1536))
 
         rgb_batch, mask_batch, depth_batch, norm_batch, pose_batch = [], [], [], [], []
         for f_idx in range(n_frames):
             t_sec = f_idx * 0.1
-            az = float(camera_azimuth) + (360.0 * f_idx / float(n_frames) if n_frames > 1 else 0.0)
+            az = float(camera_azimuth) + (360.0 * f_idx / float(n_frames) if (n_frames > 1 and "Animated" in studio_mode) else 0.0)
+
+            frame_rots = dict(rotations)
+            if mocap_rots_list and f_idx < len(mocap_rots_list):
+                frame_rots.update(mocap_rots_list[f_idx])
+
             posed = evaluate_avatar_pose_and_physics(
                 avatar_data,
-                bone_rotations_deg=rotations,
+                bone_rotations_deg=frame_rots,
                 expression_weights=expressions,
                 physics_preset=physics_preset,
                 time_sec=t_sec,

@@ -12,7 +12,7 @@ A complete collection of **45 local, in-process ComfyUI nodes** combining:
 
 ---
 
-## Included Nodes (50 Nodes)
+## Included Nodes (56 Nodes)
 
 | Display Name | Internal Class | Category | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -65,6 +65,12 @@ A complete collection of **45 local, in-process ComfyUI nodes** combining:
 | **Avatar VRM 1.0 / GLB Assembler & SpringBone Linker** | `ZiggartVRMAssembler` | `Ziggart/3D/Avatar` | Merges the rigged character body, HairDeck 3D hair cards + Spring-Bones, and optional 3D accessories into a self-contained `.vrm` or `.glb` file (`VRMC_vrm`, `VRMC_springBone`, and `VRM 0.x` metadata). |
 | **Avatar Fun Physics, Props & Emote Configurator** | `ZiggartAvatarFunFX` | `Ziggart/3D/Avatar` | Configures interactive physics presets (`Bouncy Anime`, `Zero-Gravity Space Hair`, `Bobblehead Chibi`, `Wind Tunnel`), 3D props (`cat_ears`, `angel_halo`, `cyber_visor`, `demon_horns`), and webcam gesture emotes. |
 | **Interactive 3D VRM Pose Editor & Live Webcam Mocap** | `ZiggartVRMPoseAndMocapStudio` | `Ziggart/3D/Avatar` | Interactive 3D viewport widget + **60 FPS Live Webcam & Mic Mocap ("Replace Me!")** with Pop-Out Broadcast Window for OBS/Discord/Zoom, outputting synchronized `IMAGE`, `MASK`, `DEPTH`, `NORMAL`, and `OPENPOSE` passes. |
+| **FlowHMR 3D Mocap Model Loader & Cache Manager** | `ZiggartFlowHMRModelLoader` | `Ziggart/3D/Mocap` | Downloads and manages FlowHMR (`Motius-FlowHMR-Base` / `FlowHMR-Latest` GRPO physics-refined) weights, caching under `models/3d/ziggart_mocap/`. |
+| **FlowHMR Webcam Live Stream & Video Buffer** | `ZiggartFlowHMRWebcamCapture` | `Ziggart/3D/Mocap` | Captures webcam video buffer directly via OpenCV or interactive browser recording into ComfyUI `IMAGE` batch tensors for mocap extraction. |
+| **FlowHMR Video-to-Mocap 3D Motion Extractor** | `ZiggartFlowHMRVideoExtractor` | `Ziggart/3D/Mocap` | Runs FlowHMR flow matching on video/webcam frames to extract 52-joint SMPL-H motion and physically grounded 3D root trajectory without foot sliding. |
+| **FlowHMR Mocap to VRM 25-Bone Retargeter** | `ZiggartMocapRetargetVRM` | `Ziggart/3D/Mocap` | Retargets 52 SMPL-H joints to Ziggart's 25-bone VRM Humanoid hierarchy, with ground contact locks, in-place vs full root motion, and temporal smoothing. |
+| **Avatar 3D FlowHMR Mocap Multi-Pass Video Drive** | `ZiggartAvatarMocapDrive` | `Ziggart/3D/Mocap` | Drives an assembled 3D Avatar (`ZIGGART_AVATAR`) with FlowHMR mocap, evaluating LBS skinning, HairDeck Verlet spring physics, and rendering synchronized multi-pass batches (`RGB`, `MASK`, `DEPTH`, `NORMAL`, `OPENPOSE`). |
+| **FlowHMR 3D Mocap Exporter (BVH / NPZ / JSON)** | `ZiggartMocapExporter` | `Ziggart/3D/Mocap` | Exports extracted motion to `.bvh` (BioVision Hierarchy), `.npz`, or `.json` for direct import into Blender, Unity, Unreal Engine 5, VSeeFace, and Warudo. |
 | **Ziggart Attention Selector** | `ZiggartAttentionSelector` | `Ziggart/Model` | Detects attention backends installed on the system at ComfyUI startup (`sage`, `flash`, `xformers`, `pytorch`, `sub_quad`, `split`, `basic`, `auto`) + optional sub-kernels and patches the connected `MODEL`. |
 
 ---
@@ -872,11 +878,45 @@ Detects all attention implementations installed on your system at ComfyUI startu
 
 ---
 
+## 6C. FlowHMR 3D Video & Webcam Mocap Suite (`Ziggart/3D/Mocap`)
+
+A complete monocular video-to-mocap and live webcam animation pipeline built on **FlowHMR** (*"Physically Plausible Motion Capture from Monocular Video"*, arXiv:2610.03691) and the **Motius** motion framework:
+
+### 26I. FlowHMR 3D Mocap Model Loader & Cache Manager
+*Class: `ZiggartFlowHMRModelLoader` | Category: `Ziggart/3D/Mocap`*
+- Downloads and manages FlowHMR weights (`ZeyuLing/Motius-FlowHMR-Base` or `flowhmr_latest` GRPO physics-refined) inside `ComfyUI/models/3d/ziggart_mocap/` with automatic persistent caching and manifest tracking.
+- Supports FP16/BF16/FP32 precision and integrates with `release_comfy_vram()` for low-VRAM environments.
+
+### 26J. FlowHMR Webcam Live Stream & Video Buffer
+*Class: `ZiggartFlowHMRWebcamCapture` | Category: `Ziggart/3D/Mocap`*
+- Captures video buffers directly from USB/integrated webcams via OpenCV or interactive browser capture, outputting standard `IMAGE` frame batches, frame counts, and target FPS.
+
+### 26K. FlowHMR Video-to-Mocap 3D Motion Extractor
+*Class: `ZiggartFlowHMRVideoExtractor` | Category: `Ziggart/3D/Mocap`*
+- Processes video frames or webcam clips with FlowHMR continuous flow matching to extract 52-joint SMPL-H motion data with true 3D spatial root translations.
+- Includes `--static_camera` optimization for webcams and fixed shots, skipping dynamic camera estimation to cut VRAM and inference latency in half.
+
+### 26L. FlowHMR Mocap to VRM 25-Bone Retargeter
+*Class: `ZiggartMocapRetargetVRM` | Category: `Ziggart/3D/Mocap`*
+- Retargets 52 SMPL-H joints to the standard **25-bone VRM Humanoid hierarchy** with Rodrigues axis-angle to Euler angle conversion.
+- Features physical **Ground Contact Snapping** ($Y \ge 0$) to eliminate foot skating and penetration, plus temporal Exponential Moving Average (EMA) smoothing and In-Place vs Full 3D Root Motion selection.
+
+### 26M. Avatar 3D FlowHMR Mocap Multi-Pass Video Drive
+*Class: `ZiggartAvatarMocapDrive` | Category: `Ziggart/3D/Mocap`*
+- Drives any assembled `ZIGGART_AVATAR` frame-by-frame with extracted mocap, evaluating Linear Blend Skinning (LBS) and dynamic HairDeck Verlet spring physics.
+- Outputs synchronized multi-pass video tensor batches: `RGB`, `MASK`, `DEPTH`, `NORMAL`, and `OPENPOSE`, ready for video diffusion conditioning (AnimateDiff, Wan2.1, HunyuanVideo).
+
+### 26N. FlowHMR 3D Mocap Exporter (BVH / NPZ / JSON)
+*Class: `ZiggartMocapExporter` | Category: `Ziggart/3D/Mocap`*
+- Exports motion capture animations to `.bvh` (BioVision Hierarchy), `.npz`, or `.json` for direct import into Blender, Unity, Unreal Engine 5, VSeeFace, and Warudo.
+
+---
+
 ## Architecture & Workflows
 
 ### Ready-to-Load Example Workflows (`example_workflows/`)
 
-All **45 Ziggart nodes** and their distinct operating modes are provided as **13 ready-to-load ComfyUI workflow JSON files** inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
+All **56 Ziggart nodes** and their distinct operating modes are provided as **14 ready-to-load ComfyUI workflow JSON files** inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
 
 | Workflow File | Featured Ziggart Nodes | Covered Usage Modes |
 | :--- | :--- | :--- |
@@ -893,6 +933,7 @@ All **45 Ziggart nodes** and their distinct operating modes are provided as **13
 | [`11_Trio_Ensemble_Spatial_Layout_and_Regional_Conditioning.json`](./example_workflows/11_Trio_Ensemble_Spatial_Layout_and_Regional_Conditioning.json) | `ZiggartKrea2TrioEnsembleDirector`, `ZiggartSpatialLayoutDesigner`, `ZiggartRegionalConditioningComposer`, `ZiggartPromptTokenInspectorAndCompressor`, `ZiggartAttentionSelector` | 3-Character Trio/Ensemble compilation, interactive 2D Bounding Box layout design, feathered multi-character regional conditioning, token budget inspection/compression, and dynamic model attention selection. |
 | [`12_Self_Healing_Detailer_Contour_Matting_and_Color_Lock.json`](./example_workflows/12_Self_Healing_Detailer_Contour_Matting_and_Color_Lock.json) | `ZiggartContourMaskRefiner`, `ZiggartClosedLoopSelfHealingDetailer`, `ZiggartColorAndFrequencyMatcher`, `ZiggartWeVisOneDetector` | Contour silhouette mask extraction from rectangular detections, autonomous `1..N` iterative self-healing detailer loop, and Reinhard perceptual color + frequency-separated detail matching. |
 | [`13_3D_Avatar_HairDeck_VRM_and_Live_Webcam_Mocap.json`](./example_workflows/13_3D_Avatar_HairDeck_VRM_and_Live_Webcam_Mocap.json) | `ZiggartAvatarModelDownloader`, `ZiggartAvatarCanonicalPrep`, `ZiggartHairDeckGenerator`, `ZiggartAutoRigger`, `ZiggartFacialBlendshapeBuilder`, `ZiggartVRMAssembler`, `ZiggartAvatarFunFX`, `ZiggartVRMPoseAndMocapStudio` | Complete 2D-to-3D `.vrm` Avatar creation pipeline with automatic first-run model caching, HairDeck 3D hair cards & spring-bones, 25-bone humanoid rigging, 20 facial BlendShapes, fun physics/accessories, and **Interactive 3D VRM Pose Editor + 60 FPS Live Webcam Mocap ("Replace Me!")**. |
+| [`14_3D_FlowHMR_Video_and_Webcam_Mocap_to_VRM_Avatar.json`](./example_workflows/14_3D_FlowHMR_Video_and_Webcam_Mocap_to_VRM_Avatar.json) | `ZiggartFlowHMRModelLoader`, `ZiggartFlowHMRWebcamCapture`, `ZiggartFlowHMRVideoExtractor`, `ZiggartMocapRetargetVRM`, `ZiggartAvatarMocapDrive`, `ZiggartMocapExporter`, `ZiggartVRMPoseAndMocapStudio` | End-to-end FlowHMR video/webcam motion capture to VRM 3D Avatar pipeline with SMPL-H ➔ VRM 25-bone retargeting, ground contact locking, multi-pass video conditioning generation (`RGB`, `MASK`, `DEPTH`, `NORMAL`, `OPENPOSE`), and `.bvh` / `.npz` / `.json` export. |
 
 ### Workflow A: Krea2 (`Qwen3VL-4B`) Modular Prompt Director + Multi-Character Detailing
 

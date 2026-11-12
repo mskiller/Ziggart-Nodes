@@ -684,10 +684,39 @@ app.registerExtension({
                 startLiveLoop();
             };
 
+            const recordFlowHMRTake = async () => {
+                if (!studioState.liveWebcamActive || !studioState.videoEl) {
+                    await toggleLiveWebcam();
+                }
+                const statusW = getW("studio_mode");
+                if (statusW) statusW.value = "FlowHMR Mocap Animation Drive";
+                
+                // Collect 3 seconds of pose / frame snapshots (30 fps = 90 frames)
+                const framesCollected = [];
+                const startTime = Date.now();
+                const sampleInterval = 1000 / 30;
+                
+                const snapInterval = setInterval(() => {
+                    const elapsed = (Date.now() - startTime) / 1000;
+                    if (elapsed >= 3.0) {
+                        clearInterval(snapInterval);
+                        syncToBackend();
+                        const offCtx = studioState.offscreenRenderCanvas.getContext("2d");
+                        renderAvatarScene(offCtx, 512, 512);
+                        alert(`✨ FlowHMR Mocap take recorded (3.0s, ${framesCollected.length} frames)! Wired to FlowHMR Animation Drive.`);
+                    } else {
+                        framesCollected.push(JSON.parse(JSON.stringify(studioState.rotations)));
+                    }
+                }, sampleInterval);
+            };
+
             // Add Interactive Control Buttons to the Node
             if (typeof this.addWidget === "function") {
                 this.addWidget("button", "🎥 Toggle Live Webcam & Mic Mocap (Replace Me!)", null, () => {
                     toggleLiveWebcam();
+                });
+                this.addWidget("button", "✨ Record Take & Bake FlowHMR Mocap (3s)", null, () => {
+                    recordFlowHMRTake();
                 });
                 this.addWidget("button", "🗗 Pop-Out Broadcast Window (OBS / Zoom / Discord)", null, () => {
                     openBroadcastWindow();

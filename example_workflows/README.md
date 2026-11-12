@@ -1,10 +1,10 @@
 # Ziggart Nodes — Workflows Exemples (`example_workflows/`)
 
-Ce dossier contient **13 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 45 nœuds Ziggart** dans tous leurs modes et cas d'usage.
+Ce dossier contient **14 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 56 nœuds Ziggart** dans tous leurs modes et cas d'usage.
 
 ---
 
-## Liste des 13 Workflows et des Usages Couverts
+## Liste des 14 Workflows et des Usages Couverts
 
 ### 1. [`01_Wildcards_3_Ways_and_LoRA_Encode.json`](./01_Wildcards_3_Ways_and_LoRA_Encode.json)
 Tour complet des **5 nœuds de génération par Wildcards** et de leurs différents modes :
@@ -163,4 +163,19 @@ Pipeline complet des **8 nœuds `Ziggart/3D/Avatar`** pour la création d'avatar
   - Rigge automatiquement le maillage avec une armature humanoïde **25 os VRM**, génère **20 BlendShapes faciaux & visèmes** (`aa`, `ih`, `ou`, `ee`, `oh`, `blink`, `happy`, `surprised`, `chibi_big_head`), assemble les cheveux physiques + accessoires 3D (`cat_ears`, `angel_halo`, `cyber_visor`, `demon_horns`) et exporte un fichier **`.vrm` binaire natif** (`VRMC_vrm` + `VRMC_springBone`).
 - **`ZiggartVRMPoseAndMocapStudio` (Interactive 3D VRM Pose Editor & Live Webcam "Replace Me!" Mocap)** :
   - Intègre un viewport 3D interactif (`web/ziggart_avatar_studio.js`) avec manipulation d'os à la souris, simulation physique Verlet des cheveux à 60 FPS, mode **`🎥 Toggle Live Webcam & Mic Mocap (Replace Me!)`** (suivi tête/corps/mains + lip-sync micro temps réel + composite fond webcam ou fond vert), fenêtre **`🗗 Pop-Out Broadcast Window`** pour OBS / Discord / Zoom, et génération synchronisée des passes `IMAGE`, `MASK`, `DEPTH`, `NORMAL` et `OPENPOSE`.
+
+---
+
+### 14. [`14_3D_FlowHMR_Video_and_Webcam_Mocap_to_VRM_Avatar.json`](./14_3D_FlowHMR_Video_and_Webcam_Mocap_to_VRM_Avatar.json)
+Pipeline complet **FlowHMR 3D Video & Webcam Mocap vers Avatar VRM** (`Ziggart/3D/Mocap`) :
+- **`ZiggartFlowHMRModelLoader` (Auto-Download & Cache FlowHMR)** :
+  - Télécharge et gère automatiquement les poids `ZeyuLing/Motius-FlowHMR-Base` ou `flowhmr_latest` (affiné par RL GRPO physique) dans `ComfyUI/models/3d/ziggart_mocap/`.
+- **`ZiggartFlowHMRWebcamCapture` & `ZiggartFlowHMRVideoExtractor`** :
+  - Capture des séquences vidéo ou le flux webcam OpenCV / buffer interactif et applique le flow matching pour extraire 52 articulations SMPL-H ainsi que la trajectoire 3D réelle de translation globale de la racine, sans glissement de pied ni pénétration.
+  - Comprend l'optimisation `--static_camera` pour les webcams et plans fixes, divisant la consommation VRAM par deux.
+- **`ZiggartMocapRetargetVRM` (Retargeting SMPL-H ➔ 25 Os VRM)** :
+  - Convertit les 52 articulations SMPL-H en angles d'Euler pour l'armature humanoïde VRM 25 os, applique le verrouillage de contact au sol ($Y \ge 0$) et un lissage temporel anti-bruit (EMA).
+- **`ZiggartAvatarMocapDrive` & `ZiggartMocapExporter`** :
+  - Anime le personnage 3D VRM image par image, simule la physique dynamique Verlet des mèches HairDeck et génère les passes vidéo synchronisées (`RGB`, `MASK`, `DEPTH`, `NORMAL`, `OPENPOSE`) prêtes pour les modèles de diffusion vidéo (AnimateDiff, Wan2.1, HunyuanVideo).
+  - Exporte la capture au format standard `.bvh`, `.npz` ou `.json` pour Blender, Unity, Unreal Engine 5, VSeeFace et Warudo.
 
