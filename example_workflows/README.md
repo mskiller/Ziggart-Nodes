@@ -1,10 +1,10 @@
 # Ziggart Nodes — Workflows Exemples (`example_workflows/`)
 
-Ce dossier contient **14 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 56 nœuds Ziggart** dans tous leurs modes et cas d'usage.
+Ce dossier contient **15 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 58 nœuds Ziggart** dans tous leurs modes et cas d'usage.
 
 ---
 
-## Liste des 14 Workflows et des Usages Couverts
+## Liste des 15 Workflows et des Usages Couverts
 
 ### 1. [`01_Wildcards_3_Ways_and_LoRA_Encode.json`](./01_Wildcards_3_Ways_and_LoRA_Encode.json)
 Tour complet des **5 nœuds de génération par Wildcards** et de leurs différents modes :
@@ -178,4 +178,18 @@ Pipeline complet **FlowHMR 3D Video & Webcam Mocap vers Avatar VRM** (`Ziggart/3
 - **`ZiggartAvatarMocapDrive` & `ZiggartMocapExporter`** :
   - Anime le personnage 3D VRM image par image, simule la physique dynamique Verlet des mèches HairDeck et génère les passes vidéo synchronisées (`RGB`, `MASK`, `DEPTH`, `NORMAL`, `OPENPOSE`) prêtes pour les modèles de diffusion vidéo (AnimateDiff, Wan2.1, HunyuanVideo).
   - Exporte la capture au format standard `.bvh`, `.npz` ou `.json` pour Blender, Unity, Unreal Engine 5, VSeeFace et Warudo.
+
+---
+
+### 15. [`15_Folder_Image_Batch_Queue_to_Vision_and_SingleLine_TXT_Saver.json`](./15_Folder_Image_Batch_Queue_to_Vision_and_SingleLine_TXT_Saver.json)
+Pipeline complet **Traitement de Dossier d'Images (1 par 1) vers `GGUF Vision Prompt` & Sauvegarde `.txt` Mono-Ligne (`Ziggart/LLM`)** :
+- **`ZiggartFolderImageQueueLoader` (Ziggart Folder Image Batch & Queue Loader)** :
+  - Scanne un dossier d'images (`.jpg`, `.jpeg`, `.png`, `.webp`, `.bmp`, `.tiff`, `.gif`, `.avif`, etc.), trie les fichiers (`natural_alphabetical`, `date_modified_asc`, `date_modified_desc`, `random_seeded`), propose les options `include_subfolders` et `skip_existing_txt` (pour reprendre un batch interrompu en ignorant les images ayant déjà un `.txt`), et affiche le nombre exact de queues nécessaires.
+  - Intègre 3 boutons interactifs dans l'interface ComfyUI (`web/ziggart_folder_queue.js`) : **`🔍 Scan Folder & Count Queues`**, **`🔄 Reset Index to 0`**, et **`▶️ Queue All Remaining Images (1-by-1)`** qui lance automatiquement toutes les queues nécessaires en incrémentant `image_index` image par image.
+- **`ZiggartGGUFVisionPrompt` + `ZiggartGGUFVLMLoader`** :
+  - Analyse chaque image chargée par le Folder Loader et rédige son prompt descriptif.
+- **`ZiggartVisionPromptTxtSaver` (Ziggart Vision Prompt TXT & Wildcard Line Saver)** :
+  - Reçoit la sortie `answer` du Vision Prompt et la sauvegarde dans un fichier `.txt` maître (ex. `all_prompts_krea2.txt`) en ajoutant **1 nouvelle ligne par passe** (`write_mode = "append_new_line"`, **0 ligne vide**).
+  - Inclut les options `flatten_to_single_line` (convertit les prompts multi-lignes en une seule ligne propre `' '.join(text.split())`), `clean_markdown_formatting` (supprime les titres `**...:**` et puces `- `), `skip_duplicate_lines` (évite les doublons), `line_prefix`/`line_suffix`, et `save_individual_sidecar_txt` (sauvegarde également `<image_name>.txt` à côté de chaque image).
+
 

@@ -1,0 +1,534 @@
+{
+  "id": "e15a94c0-7422-4f8b-9c2d-883a192e5415",
+  "revision": 0,
+  "last_node_id": 6,
+  "last_link_id": 5,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Note",
+      "pos": [
+        -420.0,
+        -210.0
+      ],
+      "size": [
+        1860.0,
+        130.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Guide — Workflow 15 : Folder Image Batch & Queue Loader -> GGUF Vision Prompt -> Single-Line TXT & Wildcard Saver",
+      "properties": {
+        "Node name for S&R": "Note"
+      },
+      "widgets_values": [
+        "WORKFLOW 15 : TRAITEMENT D'UN DOSSIER D'IMAGES (1 PAR 1) VERS GGUF VISION PROMPT & SAUVEGARDE TXT MONO-LIGNE (WILDCARD KREA2)\n1. Ziggart Folder Image Batch & Queue Loader : Renseignez 'folder_path', cliquez sur '🔍 Scan Folder & Count Queues' pour connaître le nombre exact de queues requis, puis cliquez sur '▶️ Queue All Remaining Images (1-by-1)' (ou utilisez 'image_index' en mode 'increment').\n2. GGUF Vision Prompt : Analyse chaque image une par une et génère le prompt descriptif détaillé.\n3. Ziggart Vision Prompt TXT & Wildcard Line Saver : Aplatit automatiquement les prompts multi-lignes en une seule ligne propre ('flatten_to_single_line = True', 'clean_markdown_formatting = True'), ignore les doublons ('skip_duplicate_lines = True'), et ajoute 1 nouvelle ligne par passe dans 'all_prompts_krea2.txt' (sans aucune ligne vide) + optionnellement un fichier '<image_name>.txt' à côté de chaque image."
+      ],
+      "widgets_values_named": {
+        "text": "WORKFLOW 15 : TRAITEMENT D'UN DOSSIER D'IMAGES (1 PAR 1) VERS GGUF VISION PROMPT & SAUVEGARDE TXT MONO-LIGNE (WILDCARD KREA2)\n1. Ziggart Folder Image Batch & Queue Loader : Renseignez 'folder_path', cliquez sur '🔍 Scan Folder & Count Queues' pour connaître le nombre exact de queues requis, puis cliquez sur '▶️ Queue All Remaining Images (1-by-1)' (ou utilisez 'image_index' en mode 'increment').\n2. GGUF Vision Prompt : Analyse chaque image une par une et génère le prompt descriptif détaillé.\n3. Ziggart Vision Prompt TXT & Wildcard Line Saver : Aplatit automatiquement les prompts multi-lignes en une seule ligne propre ('flatten_to_single_line = True', 'clean_markdown_formatting = True'), ignore les doublons ('skip_duplicate_lines = True'), et ajoute 1 nouvelle ligne par passe dans 'all_prompts_krea2.txt' (sans aucune ligne vide) + optionnellement un fichier '<image_name>.txt' à côté de chaque image."
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 2,
+      "type": "ZiggartFolderImageQueueLoader",
+      "pos": [
+        -420.0,
+        20.0
+      ],
+      "size": [
+        460.0,
+        460.0
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            1,
+            5
+          ]
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "filename_stem",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "filename",
+          "type": "STRING",
+          "slot_index": 3,
+          "links": []
+        },
+        {
+          "name": "file_path",
+          "type": "STRING",
+          "slot_index": 4,
+          "links": [
+            4
+          ]
+        },
+        {
+          "name": "directory",
+          "type": "STRING",
+          "slot_index": 5,
+          "links": []
+        },
+        {
+          "name": "current_index",
+          "type": "INT",
+          "slot_index": 6,
+          "links": []
+        },
+        {
+          "name": "total_queues_needed",
+          "type": "INT",
+          "slot_index": 7,
+          "links": []
+        },
+        {
+          "name": "remaining_queues",
+          "type": "INT",
+          "slot_index": 8,
+          "links": []
+        },
+        {
+          "name": "queue_summary",
+          "type": "STRING",
+          "slot_index": 9,
+          "links": []
+        }
+      ],
+      "title": "1. Ziggart Folder Image Batch & Queue Loader",
+      "properties": {
+        "Node name for S&R": "ZiggartFolderImageQueueLoader"
+      },
+      "widgets_values": [
+        "J:/wildVision/images",
+        0,
+        "increment",
+        "natural_alphabetical",
+        false,
+        true,
+        false,
+        "",
+        42,
+        "Enter a folder_path and click '🔍 Scan Folder & Count Queues'."
+      ],
+      "widgets_values_named": {
+        "folder_path": "J:/wildVision/images",
+        "image_index": 0,
+        "control_after_generate": "increment",
+        "sort_method": "natural_alphabetical",
+        "include_subfolders": false,
+        "skip_existing_txt": true,
+        "loop_index": false,
+        "filename_filter": "",
+        "seed": 42,
+        "status_text": "Enter a folder_path and click '🔍 Scan Folder & Count Queues'."
+      },
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 3,
+      "type": "ZiggartGGUFVLMLoader",
+      "pos": [
+        -420.0,
+        540.0
+      ],
+      "size": [
+        460.0,
+        280.0
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "vlm_config",
+          "type": "GGUF_VL_MODEL",
+          "slot_index": 0,
+          "links": [
+            2
+          ]
+        }
+      ],
+      "title": "Shared GGUF VLM Loader (Qwen2.5-VL / Qwen3-VL)",
+      "properties": {
+        "Node name for S&R": "ZiggartGGUFVLMLoader"
+      },
+      "widgets_values": [
+        "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj-Qwen2.5-VL-F16.gguf",
+        8192,
+        -1,
+        14,
+        true,
+        true,
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "model": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj": "mmproj-Qwen2.5-VL-F16.gguf",
+        "context_size": 8192,
+        "gpu_layers": -1,
+        "threads": 14,
+        "flash_attention": true,
+        "mmproj_on_gpu": true,
+        "model_path_override": "",
+        "mmproj_path_override": ""
+      },
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 4,
+      "type": "ZiggartGGUFVisionPrompt",
+      "pos": [
+        100.0,
+        20.0
+      ],
+      "size": [
+        480.0,
+        460.0
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 1
+        },
+        {
+          "name": "detail_crop",
+          "type": "IMAGE",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "reference_image",
+          "type": "IMAGE",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "vlm_config",
+          "type": "GGUF_VL_MODEL",
+          "link": 2,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "answer",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": [
+            3
+          ]
+        },
+        {
+          "name": "composition",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "subject",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "style",
+          "type": "STRING",
+          "slot_index": 3,
+          "links": []
+        }
+      ],
+      "title": "2. GGUF Vision Prompt (Image -> Detailed Prompt)",
+      "properties": {
+        "Node name for S&R": "ZiggartGGUFVisionPrompt"
+      },
+      "widgets_values": [
+        "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj-Qwen2.5-VL-F16.gguf",
+        "You are an expert image prompt writer for Krea 2 and Flux. Describe the image accurately in a single cohesive paragraph without markdown bullet points. Output only the prompt.",
+        "Describe this image in rich visual detail (subject, appearance, outfit, pose, lighting, environment, and art style).",
+        true,
+        false,
+        "2048",
+        false,
+        false,
+        false,
+        1024,
+        0.2,
+        0.9,
+        40,
+        -1,
+        8192,
+        -1,
+        14,
+        true,
+        true,
+        true,
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "model": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "mmproj": "mmproj-Qwen2.5-VL-F16.gguf",
+        "system_prompt": "You are an expert image prompt writer for Krea 2 and Flux. Describe the image accurately in a single cohesive paragraph without markdown bullet points. Output only the prompt.",
+        "prompt": "Describe this image in rich visual detail (subject, appearance, outfit, pose, lighting, environment, and art style).",
+        "free_vram_after": true,
+        "enable_thinking": false,
+        "max_image_dimension": "2048",
+        "analyze_composition": false,
+        "analyze_subject": false,
+        "analyze_style": false,
+        "max_tokens": 1024,
+        "temperature": 0.2,
+        "top_p": 0.9,
+        "top_k": 40,
+        "seed": -1,
+        "context_size": 8192,
+        "gpu_layers": -1,
+        "threads": 14,
+        "flash_attention": true,
+        "mmproj_on_gpu": true,
+        "unload_comfy_models_before": true,
+        "model_path_override": "",
+        "mmproj_path_override": ""
+      },
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 5,
+      "type": "ZiggartVisionPromptTxtSaver",
+      "pos": [
+        640.0,
+        20.0
+      ],
+      "size": [
+        520.0,
+        460.0
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "prompt_text",
+          "type": "STRING",
+          "link": 3
+        },
+        {
+          "name": "source_image_path",
+          "type": "STRING",
+          "link": 4,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "formatted_prompt",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "master_file_path",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "total_lines_in_file",
+          "type": "INT",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "status_report",
+          "type": "STRING",
+          "slot_index": 3,
+          "links": []
+        }
+      ],
+      "title": "3. Ziggart Vision Prompt TXT & Wildcard Line Saver (1 Prompt = 1 Line)",
+      "properties": {
+        "Node name for S&R": "ZiggartVisionPromptTxtSaver"
+      },
+      "widgets_values": [
+        "J:/wildVision",
+        "all_prompts_krea2.txt",
+        "append_new_line",
+        true,
+        true,
+        true,
+        true,
+        "",
+        "",
+        "",
+        "Ready to save Vision prompts line-by-line."
+      ],
+      "widgets_values_named": {
+        "output_folder": "J:/wildVision",
+        "master_filename": "all_prompts_krea2.txt",
+        "write_mode": "append_new_line",
+        "flatten_to_single_line": true,
+        "clean_markdown_formatting": true,
+        "skip_duplicate_lines": true,
+        "save_individual_sidecar_txt": true,
+        "line_prefix": "",
+        "line_suffix": "",
+        "source_image_path": "",
+        "status_text": "Ready to save Vision prompts line-by-line."
+      },
+      "color": "#2b5b3c",
+      "bgcolor": "#1f422b"
+    },
+    {
+      "id": 6,
+      "type": "PreviewImage",
+      "pos": [
+        100.0,
+        540.0
+      ],
+      "size": [
+        340.0,
+        280.0
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 5
+        }
+      ],
+      "outputs": [],
+      "title": "Active Folder Image Preview",
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    }
+  ],
+  "links": [
+    [
+      1,
+      2,
+      0,
+      4,
+      0,
+      "IMAGE"
+    ],
+    [
+      2,
+      3,
+      0,
+      4,
+      3,
+      "GGUF_VL_MODEL"
+    ],
+    [
+      3,
+      4,
+      0,
+      5,
+      0,
+      "STRING"
+    ],
+    [
+      4,
+      2,
+      4,
+      5,
+      1,
+      "STRING"
+    ],
+    [
+      5,
+      2,
+      0,
+      6,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "1. Folder Image Batch & Queue Loader (1-by-1 Increment + Auto Queue All)",
+      "bounding": [
+        -440.0,
+        -40.0,
+        500.0,
+        890.0
+      ],
+      "color": "#223355",
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "2. GGUF Vision Prompt Analysis",
+      "bounding": [
+        80.0,
+        -40.0,
+        520.0,
+        890.0
+      ],
+      "color": "#333355",
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "3. Single-Line Master TXT & Sidecar Saver",
+      "bounding": [
+        620.0,
+        -40.0,
+        560.0,
+        550.0
+      ],
+      "color": "#2b5b3c",
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.75,
+      "offset": [
+        480,
+        260
+      ]
+    },
+    "workflow_title": "15 - Folder Image Batch & Queue Loader to GGUF Vision Prompt & Single-Line TXT Saver"
+  },
+  "version": 0.4
+}
