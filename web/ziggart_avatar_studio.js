@@ -155,8 +155,8 @@ app.registerExtension({
                 }
             });
 
-            // Sync current pose + expressions + snapshot to Python backend
-            const syncToBackend = async () => {
+            // Sync current pose + expressions + snapshot (+ optional recorded take frames) to Python backend
+            const syncToBackend = async (recordedFrames = null) => {
                 const sess = getW("session_id")?.value || "default";
                 let frameUri = "";
                 try {
@@ -170,12 +170,19 @@ app.registerExtension({
                     expressions: studioState.expressions,
                     frame_data_uri: frameUri,
                 };
+                if (Array.isArray(recordedFrames) && recordedFrames.length > 0) {
+                    payload.recorded_frames = recordedFrames;
+                }
                 const jsonW = getW("webcam_pose_json");
                 if (jsonW) {
-                    jsonW.value = JSON.stringify({
+                    const widgetData = {
                         rotations: studioState.rotations,
                         expressions: studioState.expressions,
-                    });
+                    };
+                    if (Array.isArray(recordedFrames) && recordedFrames.length > 0) {
+                        widgetData.recorded_frames = recordedFrames;
+                    }
+                    jsonW.value = JSON.stringify(widgetData);
                 }
                 try {
                     await api.fetchApi("/ziggart/avatar/sync_capture", {
@@ -685,24 +692,28 @@ app.registerExtension({
             };
 
             const recordFlowHMRTake = async () => {
+                if (studioState.recordingTimer) {
+                    return;
+                }
                 if (!studioState.liveWebcamActive || !studioState.videoEl) {
                     await toggleLiveWebcam();
                 }
                 const statusW = getW("studio_mode");
                 if (statusW) statusW.value = "FlowHMR Mocap Animation Drive";
-                
+
                 // Collect 3 seconds of pose / frame snapshots (30 fps = 90 frames)
                 const framesCollected = [];
                 const startTime = Date.now();
                 const sampleInterval = 1000 / 30;
-                
-                const snapInterval = setInterval(() => {
+
+                studioState.recordingTimer = setInterval(() => {
                     const elapsed = (Date.now() - startTime) / 1000;
                     if (elapsed >= 3.0) {
-                        clearInterval(snapInterval);
-                        syncToBackend();
+                        clearInterval(studioState.recordingTimer);
+                        studioState.recordingTimer = null;
                         const offCtx = studioState.offscreenRenderCanvas.getContext("2d");
                         renderAvatarScene(offCtx, 512, 512);
+                        syncToBackend(framesCollected);
                         alert(`✨ FlowHMR Mocap take recorded (3.0s, ${framesCollected.length} frames)! Wired to FlowHMR Animation Drive.`);
                     } else {
                         framesCollected.push(JSON.parse(JSON.stringify(studioState.rotations)));
@@ -837,6 +848,34 @@ app.registerExtension({
             if (typeof this.addCustomWidget === "function") {
                 this.addCustomWidget(viewportWidget);
             }
+
+            const origOnRemoved = this.onRemoved;
+            this.onRemoved = function () {
+                studioState.liveWebcamActive = false;
+                if (studioState.recordingTimer) {
+                    clearInterval(studioState.recordingTimer);
+                    studioState.recordingTimer = null;
+                }
+                if (studioState.animFrameId) {
+                    cancelAnimationFrame(studioState.animFrameId);
+                    studioState.animFrameId = null;
+                }
+                if (studioState.mediaStream) {
+                    studioState.mediaStream.getTracks().forEach((t) => t.stop());
+                    studioState.mediaStream = null;
+                }
+                if (studioState.audioCtx && typeof studioState.audioCtx.close === "function") {
+                    studioState.audioCtx.close().catch(() => {});
+                    studioState.audioCtx = null;
+                }
+                if (studioState.popoutWin && !studioState.popoutWin.closed) {
+                    studioState.popoutWin.close();
+                    studioState.popoutWin = null;
+                }
+                if (origOnRemoved) {
+                    return origOnRemoved.apply(this, arguments);
+                }
+            };
             return r;
         };
     },

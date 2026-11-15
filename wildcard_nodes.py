@@ -2656,6 +2656,11 @@ def _resolve_character_unit(
             extra_dir=extra_dir,
         )
 
+    resolved_char_id = (
+        str(selected_char_obj.get("id", selected_char_obj.get("description", "")))
+        if isinstance(selected_char_obj, dict)
+        else ""
+    )
     slot_data = CharacterSlotData(
         slot_role=slot_role,
         gender=resolved_gender,
@@ -2666,6 +2671,7 @@ def _resolve_character_unit(
         outfit_link_mode=outfit_link_mode,
         occlusion_report=occlusion,
         theme_or_universe=theme_or_univ_name,
+        character_id=resolved_char_id,
     )
     char_block_str = slot_data.format_character_block(encapsulate_subparts=False)
     debug_info = (
@@ -5479,8 +5485,16 @@ if PromptServer is not None and getattr(PromptServer, "instance", None) is not N
                         if isinstance(n_obj, dict):
                             n_id = str(n_obj.get("id", ""))
                             w_vals = n_obj.get("widgets_values")
-                            if n_id in updated_widgets and isinstance(w_vals, list) and len(w_vals) > 1:
-                                w_vals[1] = updated_widgets[n_id]
+                            if n_id in updated_widgets and isinstance(w_vals, list):
+                                n_type = str(n_obj.get("type", ""))
+                                pop_idx = 1
+                                n_cls = NODE_CLASS_MAPPINGS.get(n_type)
+                                if n_cls is not None and hasattr(n_cls, "INPUT_TYPES"):
+                                    req_keys = list(n_cls.INPUT_TYPES().get("required", {}).keys())
+                                    if "populated_text" in req_keys:
+                                        pop_idx = req_keys.index("populated_text")
+                                if 0 <= pop_idx < len(w_vals):
+                                    w_vals[pop_idx] = updated_widgets[n_id]
         except Exception as exc:
             logging.debug(f"[Ziggart Wildcards] on_prompt handler warning: {exc}")
         return json_data

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import fnmatch
 import io
+import json
 import os
 import random
 import re
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image, ImageDraw, ImageOps
 
 try:
     import torch
@@ -1358,7 +1359,7 @@ def _resolve_sidecar_txt_path(
     src_clean = (source_image_path or "").strip().strip('"').strip("'")
     if src_clean:
         src_p = Path(os.path.expandvars(os.path.expanduser(src_clean)))
-        if src_p.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS or src_p.is_Absolute() if hasattr(src_p, "is_Absolute") else src_p.is_absolute():
+        if src_p.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS or src_p.is_absolute():
             if src_p.parent and src_p.parent.is_dir():
                 return (src_p.parent / f"{src_p.stem}.txt").resolve()
         stem = src_p.stem or src_clean
@@ -1370,6 +1371,539 @@ def _resolve_sidecar_txt_path(
         idx += 1
         candidate = dest_dir / f"{master_stem}__{idx:05d}.txt"
     return candidate.resolve()
+
+
+_VLM_BOILERPLATE_PREFIX_RE = re.compile(
+    r"^(?:"
+    r"(?:sure[!,.]?\s*)?(?:here\s+is|this\s+is)\s+(?:a\s+|the\s+)?(?:detailed\s+|concise\s+|visual\s+)?(?:description|caption|prompt|analysis)(?:\s+of\s+the\s+(?:image|picture|photo|scene))?\s*[:\-–—]\s*"
+    r"|(?:in\s+this\s+(?:image|picture|photo|scene|frame|shot)\s*[,:\-–—]?\s*(?:we\s+see\s+|there\s+is\s+)?)"
+    r"|(?:the\s+(?:image|picture|photo|scene|illustration)\s+(?:shows|depicts|features|presents|portrays|captures)\s+)"
+    r"|(?:this\s+(?:image|picture|photo|scene|illustration)\s+(?:shows|depicts|features|presents|portrays|captures)\s+)"
+    r")+",
+    re.IGNORECASE,
+)
+
+
+def _estimate_caption_tokens(text: str) -> int:
+    """Fast token estimator for CLIP / Qwen3VL / T5 captions."""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return 0
+    words = re.findall(r"\w+|[^\w\s]", cleaned)
+    return max(1, int(round(len(words) * 1.12)))
+
+
+def curate_single_caption_text(
+    raw_text: str,
+    *,
+    trigger_word_prefix: str = "",
+    trigger_word_suffix: str = "",
+    strip_vlm_boilerplate: bool = True,
+    clean_markdown: bool = True,
+    find_and_replace_rules: str = "",
+    banned_phrases: str = "",
+    format_mode: str = "keep_original",
+) -> tuple[str, dict[str, Any]]:
+    """
+    Cleans, normalizes, and injects trigger words into a single dataset caption string.
+    Returns (curated_text, metadata_dict).
+    """
+    working = format_vision_prompt_text(
+        raw_text or "",
+        flatten_to_single_line=True,
+        clean_markdown_formatting=bool(clean_markdown),
+    )
+
+    boilerplate_stripped = False
+    if strip_vlm_boilerplate and working:
+        new_working = _VLM_BOILERPLATE_PREFIX_RE.sub("", working).strip()
+        if new_working and new_working != working:
+            boilerplate_stripped = True
+            working = new_working
+
+    replacements_applied = 0
+    if find_and_replace_rules and find_and_replace_rules.strip():
+        for raw_rule in find_and_replace_rules.splitlines():
+            rule = raw_rule.strip()
+            if not rule or rule.startswith("#"):
+                continue
+            sep = "->" if "->" in rule else ("=>" if "=>" in rule else ("=" if "=" in rule else None))
+            if not sep:
+                continue
+            src_pat, dst_val = rule.split(sep, 1)
+            src_pat = src_pat.strip()
+            dst_val = dst_val.strip()
+            if not src_pat:
+                continue
+            pattern = re.compile(re.escape(src_pat), re.IGNORECASE)
+            updated, n_subs = pattern.subn(dst_val, working)
+            if n_subs > 0:
+                replacements_applied += n_subs
+                working = updated
+
+    banned_removed = 0
+    if banned_phrases and banned_phrases.strip():
+        phrases = [
+            p.strip()
+            for line in banned_phrases.splitlines()
+            for p in line.split(",")
+            if p.strip()
+        ]
+        for phrase in phrases:
+            pat = re.compile(r"(?:^|(?<=[\s,;]))" + re.escape(phrase) + r"(?=$|[\s,;.])", re.IGNORECASE)
+            updated, n_rem = pat.subn("", working)
+            if n_rem > 0:
+                banned_removed += n_rem
+                working = updated
+
+    # Collapse repeated punctuation and whitespace left after removals
+    working = re.sub(r"\s*,\s*(?:,\s*)+", ", ", working)
+    working = re.sub(r"\s{2,}", " ", working).strip(" ,;-")
+
+    if format_mode == "normalized_tags" and working:
+        raw_tags = [t.strip(" .") for t in working.split(",") if t.strip(" .")]
+        dedup_tags: list[str] = []
+        seen_t: set[str] = set()
+        for t in raw_tags:
+            low_t = t.lower()
+            if low_t not in seen_t:
+                seen_t.add(low_t)
+                dedup_tags.append(t)
+        working = ", ".join(dedup_tags)
+    elif format_mode == "natural_prose" and working:
+        working = working[0].upper() + working[1:] if len(working) > 1 else working.upper()
+        if not working.endswith((".", "!", "?")):
+            working += "."
+
+    # Idempotent Trigger Word Prefix & Suffix Injection
+    pref = (trigger_word_prefix or "").strip().strip(",")
+    suff = (trigger_word_suffix or "").strip().strip(",")
+    if pref:
+        if not working:
+            working = pref
+        elif not working.lower().startswith(pref.lower()):
+            sep = ", " if not pref.endswith((".", ",", ":")) else " "
+            working = f"{pref}{sep}{working}"
+    if suff:
+        if not working:
+            working = suff
+        elif not working.rstrip(".!? ").lower().endswith(suff.lower()):
+            if format_mode == "natural_prose" and working.endswith("."):
+                working = f"{working[:-1]}, {suff}."
+            else:
+                working = f"{working.rstrip(', ')}, {suff}"
+
+    tok_count = _estimate_caption_tokens(working)
+    clip_chunks = max(1, (tok_count + 74) // 75) if tok_count > 0 else 0
+    return working, {
+        "boilerplate_stripped": boilerplate_stripped,
+        "replacements_applied": replacements_applied,
+        "banned_removed": banned_removed,
+        "estimated_tokens": tok_count,
+        "clip_77_chunks": clip_chunks,
+    }
+
+
+def _render_dataset_curator_contact_sheet(
+    items: list[dict[str, Any]],
+    summary_stats: dict[str, Any],
+    max_token_budget: int,
+    max_tiles: int = 16,
+) -> Any:
+    """
+    Renders a visual QA contact sheet [1, H, W, 3] displaying dataset image thumbnails,
+    token count badges (green=OK, amber=near budget, red=over budget or missing),
+    and a top summary banner.
+    """
+    shown = items[: max(1, min(36, int(max_tiles)))]
+    n = len(shown)
+    cols = max(1, min(4, int(np.ceil(np.sqrt(max(1, n))))))
+    rows = max(1, int(np.ceil(max(1, n) / float(cols))))
+    tile_w, tile_h = 220, 220
+    header_h = 54
+    canvas_w = max(440, cols * tile_w)
+    canvas_h = header_h + rows * tile_h
+
+    sheet = Image.new("RGB", (canvas_w, canvas_h), (18, 20, 28))
+    draw = ImageDraw.Draw(sheet)
+
+    # Top Summary Banner
+    draw.rectangle([0, 0, canvas_w, header_h], fill=(28, 32, 46))
+    title_line = (
+        f"ZIGGART DATASET QA | Images: {summary_stats.get('total_images', 0)} | "
+        f"Captioned: {summary_stats.get('captioned_count', 0)} | "
+        f"Missing: {summary_stats.get('missing_txt_count', 0)}"
+    )
+    sub_line = (
+        f"Avg Tokens: {summary_stats.get('avg_tokens', 0):.1f} (Budget: {max_token_budget}) | "
+        f"Over Budget: {summary_stats.get('over_budget_count', 0)} | "
+        f"Duplicates: {summary_stats.get('duplicate_caption_count', 0)} | "
+        f"Mode: {summary_stats.get('write_mode', 'dry_run')}"
+    )
+    draw.text((12, 8), title_line, fill=(235, 242, 255))
+    draw.text((12, 28), sub_line, fill=(148, 163, 184))
+
+    for idx, rec in enumerate(shown):
+        r = idx // cols
+        c = idx % cols
+        x0 = c * tile_w
+        y0 = header_h + r * tile_h
+        pad = 6
+        box_w = tile_w - pad * 2
+        box_h = tile_h - pad * 2
+
+        try:
+            with Image.open(rec["image_path"]) as im:
+                im_rgb = ImageOps.exif_transpose(im).convert("RGB")
+                im_thumb = ImageOps.fit(im_rgb, (box_w, box_h), method=Image.Resampling.BILINEAR)
+        except Exception:
+            im_thumb = Image.new("RGB", (box_w, box_h), (40, 44, 58))
+
+        sheet.paste(im_thumb, (x0 + pad, y0 + pad))
+
+        toks = int(rec.get("estimated_tokens", 0))
+        missing = bool(rec.get("missing_sidecar", False))
+        if missing or toks == 0:
+            badge_col = (225, 65, 85)
+            status_tag = "MISSING TXT"
+        elif toks > max_token_budget:
+            badge_col = (235, 75, 75)
+            status_tag = f"{toks} tok (OVER)"
+        elif toks > int(max_token_budget * 0.85):
+            badge_col = (235, 175, 50)
+            status_tag = f"{toks} tok (HIGH)"
+        else:
+            badge_col = (45, 195, 115)
+            status_tag = f"{toks} tok (OK)"
+
+        draw.rectangle(
+            [x0 + pad, y0 + pad, x0 + pad + box_w, y0 + pad + box_h],
+            outline=badge_col,
+            width=2,
+        )
+        draw.rectangle(
+            [x0 + pad, y0 + pad, x0 + pad + min(box_w, 130), y0 + pad + 20],
+            fill=badge_col,
+        )
+        draw.text((x0 + pad + 5, y0 + pad + 4), status_tag, fill=(12, 14, 20))
+
+        # Bottom filename & caption snippet strip
+        draw.rectangle(
+            [x0 + pad, y0 + pad + box_h - 36, x0 + pad + box_w, y0 + pad + box_h],
+            fill=(14, 16, 24),
+        )
+        fname_short = Path(rec["image_path"]).name[:26]
+        cap_short = (rec.get("curated_caption") or "[No caption]")[:30]
+        draw.text((x0 + pad + 5, y0 + pad + box_h - 33), fname_short, fill=(226, 232, 240))
+        draw.text((x0 + pad + 5, y0 + pad + box_h - 17), cap_short, fill=(148, 163, 184))
+
+    arr = np.asarray(sheet, dtype=np.float32) / 255.0
+    batch = arr[None, ...]
+    if torch is not None:
+        return torch.from_numpy(batch)
+    return batch
+
+
+class ZiggartDatasetCaptionCuratorAndTriggerInjector:
+    """
+    Dataset Caption Curator, Trigger Word Injector & Token QA Inspector for LoRA / Finetuning datasets.
+    Scans a folder of images + .txt sidecars, strips VLM boilerplate phrases, applies search/replace
+    and banned-phrase rules, injects trigger words idempotently, audits CLIP/Qwen3VL token budgets,
+    and outputs a visual QA Contact Sheet + JSON report.
+    """
+
+    DESCRIPTION = (
+        "Batch Dataset Caption Curator & Trigger Injector for LoRA / Model training folders. "
+        "Scans images + .txt sidecars, strips VLM boilerplate ('In this image...'), injects trigger words "
+        "without duplication, enforces token budgets, flags missing/duplicate captions, and renders a QA contact sheet."
+    )
+    CATEGORY = "Ziggart/LLM"
+    FUNCTION = "curate_dataset"
+    OUTPUT_NODE = True
+    RETURN_TYPES = ("IMAGE", "STRING", "STRING", "INT")
+    RETURN_NAMES = (
+        "qa_contact_sheet",
+        "curated_captions_joined",
+        "qa_report_json",
+        "processed_count",
+    )
+    OUTPUT_TOOLTIPS = (
+        "Visual QA Contact Sheet showing dataset thumbnails with color-coded token budget & sidecar status badges.",
+        "All curated captions joined one-per-line (ready for wildcard files or master prompt lists).",
+        "Structured JSON QA report detailing token stats, missing sidecars, duplicates, and over-budget files.",
+        "Total number of dataset captions processed.",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, Any]:
+        return {
+            "required": {
+                "folder_path": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": False,
+                        "tooltip": "Path to dataset folder containing images and .txt sidecar captions.",
+                    },
+                ),
+                "write_mode": (
+                    [
+                        "dry_run_preview_only",
+                        "write_in_place_atomic",
+                        "export_to_output_folder",
+                    ],
+                    {
+                        "default": "dry_run_preview_only",
+                        "tooltip": "dry_run_preview_only: inspects without modifying files. write_in_place_atomic: atomically updates .txt sidecars beside images. export_to_output_folder: writes curated .txt files to output_folder_override.",
+                    },
+                ),
+                "trigger_word_prefix": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": False,
+                        "tooltip": "Optional LoRA trigger word or style tag prepended to every caption (idempotent: never duplicated if already present).",
+                    },
+                ),
+                "trigger_word_suffix": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": False,
+                        "tooltip": "Optional trigger word or quality suffix appended to every caption.",
+                    },
+                ),
+                "strip_vlm_boilerplate": (
+                    "BOOLEAN",
+                    {
+                        "default": True,
+                        "tooltip": "Removes meta VLM openings like 'In this image, we see...', 'The image shows...', 'Here is a description:'.",
+                    },
+                ),
+                "clean_markdown": (
+                    "BOOLEAN",
+                    {
+                        "default": True,
+                        "tooltip": "Strips Markdown headers, bold markers, and bullet formatting.",
+                    },
+                ),
+                "format_mode": (
+                    ["keep_original", "natural_prose", "normalized_tags"],
+                    {
+                        "default": "keep_original",
+                        "tooltip": "keep_original: preserves prose/tags. natural_prose: capitalizes & adds period. normalized_tags: deduplicates comma-separated tags.",
+                    },
+                ),
+                "max_token_budget": (
+                    "INT",
+                    {
+                        "default": 225,
+                        "min": 30,
+                        "max": 2048,
+                        "step": 5,
+                        "tooltip": "Token budget threshold used to flag over-length captions in the QA report and contact sheet.",
+                    },
+                ),
+                "include_subfolders": ("BOOLEAN", {"default": False}),
+            },
+            "optional": {
+                "find_and_replace_rules": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "tooltip": "One rule per line using 'old -> new' or 'old = new' syntax.",
+                    },
+                ),
+                "banned_phrases": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "tooltip": "Comma- or newline-separated phrases to strip from all captions.",
+                    },
+                ),
+                "default_caption_if_missing": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": False,
+                        "tooltip": "Optional fallback caption used when an image has no .txt sidecar file.",
+                    },
+                ),
+                "output_folder_override": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": False,
+                        "tooltip": "Target directory when write_mode is 'export_to_output_folder'.",
+                    },
+                ),
+                "max_preview_tiles": (
+                    "INT",
+                    {"default": 16, "min": 4, "max": 36, "step": 4},
+                ),
+            },
+        }
+
+    def curate_dataset(
+        self,
+        folder_path: str,
+        write_mode: str = "dry_run_preview_only",
+        trigger_word_prefix: str = "",
+        trigger_word_suffix: str = "",
+        strip_vlm_boilerplate: bool = True,
+        clean_markdown: bool = True,
+        format_mode: str = "keep_original",
+        max_token_budget: int = 225,
+        include_subfolders: bool = False,
+        find_and_replace_rules: str = "",
+        banned_phrases: str = "",
+        default_caption_if_missing: str = "",
+        output_folder_override: str = "",
+        max_preview_tiles: int = 16,
+    ) -> tuple[Any, str, str, int]:
+        scan = scan_image_folder(
+            folder_path=folder_path,
+            include_subfolders=include_subfolders,
+            skip_existing_txt=False,
+            sort_method="natural_alphabetical",
+        )
+        image_files: list[Path] = scan["files"]
+
+        export_dir: Path | None = None
+        if write_mode == "export_to_output_folder":
+            if output_folder_override and output_folder_override.strip():
+                export_dir = Path(os.path.expandvars(os.path.expanduser(output_folder_override.strip()))).resolve()
+            elif folder_paths is not None and hasattr(folder_paths, "get_output_directory"):
+                export_dir = (Path(folder_paths.get_output_directory()) / "ziggart_curated_dataset").resolve()
+            else:
+                export_dir = (scan["resolved_folder"] / "curated_captions").resolve()
+            export_dir.mkdir(parents=True, exist_ok=True)
+
+        records: list[dict[str, Any]] = []
+        curated_lines: list[str] = []
+        caption_counts: dict[str, int] = {}
+        token_lengths: list[int] = []
+        missing_files: list[str] = []
+        over_budget_files: list[dict[str, Any]] = []
+        files_written = 0
+
+        for img_p in image_files:
+            sidecar_p = img_p.with_suffix(".txt")
+            has_sidecar = sidecar_p.is_file()
+            raw_caption = ""
+            if has_sidecar:
+                try:
+                    raw_caption = sidecar_p.read_text(encoding="utf-8", errors="replace").strip()
+                except OSError:
+                    raw_caption = ""
+
+            missing_sidecar = not has_sidecar or not raw_caption
+            if missing_sidecar and default_caption_if_missing.strip():
+                raw_caption = default_caption_if_missing.strip()
+                missing_sidecar = False
+
+            if missing_sidecar:
+                missing_files.append(img_p.name)
+                records.append(
+                    {
+                        "image_path": str(img_p),
+                        "sidecar_path": str(sidecar_p),
+                        "missing_sidecar": True,
+                        "curated_caption": "",
+                        "estimated_tokens": 0,
+                        "clip_77_chunks": 0,
+                    }
+                )
+                continue
+
+            curated_text, meta = curate_single_caption_text(
+                raw_caption,
+                trigger_word_prefix=trigger_word_prefix,
+                trigger_word_suffix=trigger_word_suffix,
+                strip_vlm_boilerplate=strip_vlm_boilerplate,
+                clean_markdown=clean_markdown,
+                find_and_replace_rules=find_and_replace_rules,
+                banned_phrases=banned_phrases,
+                format_mode=format_mode,
+            )
+
+            toks = int(meta["estimated_tokens"])
+            token_lengths.append(toks)
+            if curated_text:
+                curated_lines.append(curated_text)
+                norm_cap = curated_text.lower()
+                caption_counts[norm_cap] = caption_counts.get(norm_cap, 0) + 1
+
+            if toks > int(max_token_budget):
+                over_budget_files.append(
+                    {
+                        "file": img_p.name,
+                        "estimated_tokens": toks,
+                        "clip_77_chunks": meta["clip_77_chunks"],
+                    }
+                )
+
+            target_write_path: Path | None = None
+            if write_mode == "write_in_place_atomic":
+                target_write_path = sidecar_p
+            elif write_mode == "export_to_output_folder" and export_dir is not None:
+                target_write_path = export_dir / f"{img_p.stem}.txt"
+
+            if target_write_path is not None and curated_text:
+                tmp_path = target_write_path.with_suffix(".txt.tmp")
+                tmp_path.write_text(curated_text + "\n", encoding="utf-8")
+                os.replace(tmp_path, target_write_path)
+                files_written += 1
+
+            records.append(
+                {
+                    "image_path": str(img_p),
+                    "sidecar_path": str(target_write_path or sidecar_p),
+                    "missing_sidecar": False,
+                    "curated_caption": curated_text,
+                    "estimated_tokens": toks,
+                    "clip_77_chunks": meta["clip_77_chunks"],
+                    "boilerplate_stripped": meta["boilerplate_stripped"],
+                    "replacements_applied": meta["replacements_applied"],
+                }
+            )
+
+        duplicate_captions = [cap for cap, cnt in caption_counts.items() if cnt > 1]
+        avg_tokens = round(float(np.mean(token_lengths)), 2) if token_lengths else 0.0
+        min_tokens = int(min(token_lengths)) if token_lengths else 0
+        max_tokens = int(max(token_lengths)) if token_lengths else 0
+
+        summary_stats = {
+            "folder": str(scan["resolved_folder"]),
+            "write_mode": write_mode,
+            "total_images": len(image_files),
+            "captioned_count": len(token_lengths),
+            "missing_txt_count": len(missing_files),
+            "files_written": files_written,
+            "avg_tokens": avg_tokens,
+            "min_tokens": min_tokens,
+            "max_tokens": max_tokens,
+            "max_token_budget": int(max_token_budget),
+            "over_budget_count": len(over_budget_files),
+            "duplicate_caption_count": len(duplicate_captions),
+            "missing_files": missing_files,
+            "over_budget_files": over_budget_files,
+        }
+
+        contact_sheet = _render_dataset_curator_contact_sheet(
+            records,
+            summary_stats=summary_stats,
+            max_token_budget=int(max_token_budget),
+            max_tiles=int(max_preview_tiles),
+        )
+        return (
+            contact_sheet,
+            "\n".join(curated_lines),
+            json.dumps(summary_stats, indent=2, ensure_ascii=False),
+            len(token_lengths),
+        )
 
 
 if (
@@ -1439,10 +1973,12 @@ NODE_CLASS_MAPPINGS = {
     "ZiggartGGUFVLMLoader": ZiggartGGUFVLMLoader,
     "ZiggartFolderImageQueueLoader": ZiggartFolderImageQueueLoader,
     "ZiggartVisionPromptTxtSaver": ZiggartVisionPromptTxtSaver,
+    "ZiggartDatasetCaptionCuratorAndTriggerInjector": ZiggartDatasetCaptionCuratorAndTriggerInjector,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "ZiggartGGUFVisionPrompt": "GGUF Vision Prompt",
     "ZiggartGGUFVLMLoader": "GGUF VLM Loader",
     "ZiggartFolderImageQueueLoader": "Ziggart Folder Image Batch & Queue Loader",
     "ZiggartVisionPromptTxtSaver": "Ziggart Vision Prompt TXT & Wildcard Line Saver",
+    "ZiggartDatasetCaptionCuratorAndTriggerInjector": "Ziggart Dataset Caption Curator & Trigger Injector (QA)",
 }

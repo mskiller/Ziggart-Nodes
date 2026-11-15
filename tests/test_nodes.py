@@ -130,6 +130,62 @@ class EmbeddedManagerTests(unittest.TestCase):
         )
         self.assertEqual(answer, "Clean final prompt")
 
+    def test_is_compatible_loaded_config_ignores_thread_differences_and_chat_batch(self):
+        cfg_a = embedded_model.ModelConfig(
+            model_path="model.gguf",
+            mmproj_path="mmproj.gguf",
+            context_size=8192,
+            gpu_layers=-1,
+            threads=14,
+            flash_attention=True,
+            mmproj_on_gpu=True,
+        )
+        cfg_b_threads_diff = embedded_model.ModelConfig(
+            model_path="model.gguf",
+            mmproj_path="mmproj.gguf",
+            context_size=8192,
+            gpu_layers=-1,
+            threads=8,
+            flash_attention=True,
+            mmproj_on_gpu=True,
+        )
+        cfg_c_ctx_diff = embedded_model.ModelConfig(
+            model_path="model.gguf",
+            mmproj_path="mmproj.gguf",
+            context_size=4096,
+            gpu_layers=-1,
+            threads=14,
+            flash_attention=True,
+            mmproj_on_gpu=True,
+        )
+        manager = embedded_model.EmbeddedModelManager()
+        manager._model = object()
+        manager._config = cfg_a
+        self.assertTrue(manager._is_compatible_loaded_config(cfg_b_threads_diff))
+        self.assertFalse(manager._is_compatible_loaded_config(cfg_c_ctx_diff))
+
+        seen_seeds = []
+
+        def batch_handler(**kwargs):
+            seen_seeds.append(kwargs.get("seed"))
+            return {"choices": [{"message": {"content": f"<think>x</think>item-{len(seen_seeds)}"}}]}
+
+        manager._handler = batch_handler
+        outputs = manager.chat_batch(
+            [
+                [{"role": "user", "content": "crop 1"}],
+                [{"role": "user", "content": "crop 2"}],
+            ],
+            max_tokens=32,
+            temperature=0.2,
+            top_p=0.9,
+            top_k=30,
+            seeds=[101, 202],
+            enable_thinking=False,
+        )
+        self.assertEqual(outputs, ["item-1", "item-2"])
+        self.assertEqual(seen_seeds, [101, 202])
+
 
 class NodeExecutionTests(unittest.TestCase):
     def test_optional_images_and_specialist_pass_feed_final_synthesis(self):

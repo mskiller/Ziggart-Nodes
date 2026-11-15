@@ -182,6 +182,113 @@ class VisionPromptTxtSaverTests(unittest.TestCase):
             )["result"]
             self.assertEqual(res_dup[2], 2)
 
+    def test_resolve_sidecar_txt_path_supports_relative_image_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dest_dir = Path(tmp)
+            rel_img = dest_dir / "subfolder" / "sample_01.webp"
+            rel_img.parent.mkdir(parents=True, exist_ok=True)
+            rel_img.write_bytes(b"RIFF")
+            rel_sidecar = nodes._resolve_sidecar_txt_path(
+                dest_dir=dest_dir,
+                source_image_path=str(rel_img),
+                master_stem="all_prompts",
+                line_number=1,
+            )
+            self.assertEqual(rel_sidecar.name, "sample_01.txt")
+            self.assertEqual(rel_sidecar.parent, rel_img.parent.resolve())
+
+
+class DatasetCaptionCuratorTests(unittest.TestCase):
+    def _save_image(self, path: Path, color=(40, 120, 200), size=(24, 24)):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", size, color=color).save(path)
+
+    def test_curate_single_caption_strips_boilerplate_and_injects_triggers_idempotently(self):
+        raw = "In this image, a silver-haired elf warrior stands in a forest, wearing emerald armor."
+        curated, meta = nodes.curate_single_caption_text(
+            raw,
+            trigger_word_prefix="ziggart_style",
+            trigger_word_suffix="masterpiece 8k",
+            format_mode="natural_prose_single_line",
+            strip_vlm_boilerplate=True,
+            clean_markdown=True,
+            find_and_replace_rules="emerald armor -> mithril plate",
+            banned_phrases="in a forest",
+        )
+        self.assertTrue(curated.startswith("ziggart_style, "))
+        self.assertTrue(curated.endswith("masterpiece 8k"))
+        self.assertIn("mithril plate", curated)
+        self.assertNotIn("in this image", curated.lower())
+        self.assertNotIn("in a forest", curated.lower())
+        self.assertTrue(meta["boilerplate_stripped"])
+
+        # Running a second time must be idempotent (no duplicate trigger prefix/suffix)
+        curated_twice, _ = nodes.curate_single_caption_text(
+            curated,
+            trigger_word_prefix="ziggart_style",
+            trigger_word_suffix="masterpiece 8k",
+            format_mode="natural_prose_single_line",
+            strip_vlm_boilerplate=True,
+            clean_markdown=True,
+        )
+        self.assertEqual(curated_twice.lower().count("ziggart_style"), 1)
+        self.assertEqual(curated_twice.lower().count("masterpiece 8k"), 1)
+
+    def test_curator_node_audits_dataset_and_writes_in_place(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._save_image(root / "01.png")
+            (root / "01.txt").write_text(
+                "Here is a detailed prompt: A cinematic portrait of a cyberpunk hacker.",
+                encoding="utf-8",
+            )
+            self._save_image(root / "02.png")
+            # 02.txt intentionally missing to test missing_sidecar detection & fallback
+
+            curator = nodes.ZiggartDatasetCaptionCuratorAndTriggerInjector()
+            res_dry = curator.curate_dataset(
+                folder_path=str(root),
+                write_mode="dry_run_preview_only",
+                trigger_word_prefix="ohwx_char",
+                trigger_word_suffix="lora_v1",
+                format_mode="natural_prose_single_line",
+                strip_vlm_boilerplate=True,
+                clean_markdown=True,
+                find_and_replace_rules="cyberpunk hacker -> neon netrunner",
+                banned_phrases="",
+                max_token_budget=128,
+                include_subfolders=False,
+                default_caption_if_missing="",
+                max_preview_tiles=8,
+            )
+
+            sheet, joined, report_json, count = res_dry
+            self.assertEqual(count, 1)
+            self.assertEqual(len(sheet.shape), 4)
+            self.assertEqual(sheet.shape[0], 1)
+            self.assertEqual(sheet.shape[3], 3)
+            self.assertIn("ohwx_char, A cinematic portrait of a neon netrunner", joined)
+            # Dry run must not have created 02.txt on disk yet
+            self.assertFalse((root / "02.txt").exists())
+
+            report = json.loads(report_json)
+            self.assertEqual(report["total_images"], 2)
+            self.assertEqual(report["missing_txt_count"], 1)
+
+            # Now run in write_in_place_atomic mode
+            curator.curate_dataset(
+                folder_path=str(root),
+                write_mode="write_in_place_atomic",
+                trigger_word_prefix="ohwx_char",
+                trigger_word_suffix="lora_v1",
+                default_caption_if_missing="standing in a neon alley",
+            )
+            self.assertTrue((root / "02.txt").is_file())
+            self.assertIn("ohwx_char", (root / "01.txt").read_text(encoding="utf-8"))
+            self.assertIn("ohwx_char", (root / "02.txt").read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

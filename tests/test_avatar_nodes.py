@@ -285,6 +285,38 @@ class AvatarPipelineEndToEndTests(unittest.TestCase):
                 self.assertEqual(tuple(mask2.shape), (1, 128, 128))
                 self.assertEqual(out_vrm2, vrm_path_str)
 
+    def test_avatar_model_path_allowlist_and_root_translation(self):
+        # 1. Verify _is_allowed_avatar_model_path blocks arbitrary host paths and non-model extensions
+        inside_glb = (ROOT / "dummy_avatar.glb").resolve()
+        inside_py = (ROOT / "avatar_nodes.py").resolve()
+        self.assertTrue(avatar_nodes._is_allowed_avatar_model_path(inside_glb))
+        self.assertFalse(avatar_nodes._is_allowed_avatar_model_path(inside_py))
+        with tempfile.TemporaryDirectory() as tmp:
+            outside_file = Path(tmp).resolve() / "secret.glb"
+            outside_file.write_bytes(b"glb")
+            self.assertFalse(avatar_nodes._is_allowed_avatar_model_path(outside_file))
+
+        # 2. Verify evaluate_avatar_pose_and_physics applies root_translation
+        mesh_data = _make_humanoid_dummy_mesh()
+        rigged = avatar_nodes.auto_rig_humanoid_mesh(mesh_data)
+        state_zero = avatar_nodes.evaluate_avatar_pose_and_physics(
+            rigged, root_translation=(0.0, 0.0, 0.0)
+        )
+        state_shifted = avatar_nodes.evaluate_avatar_pose_and_physics(
+            rigged, root_translation=(1.25, -0.5, 2.0)
+        )
+        expected_delta = np.array([1.25, -0.5, 2.0], dtype=np.float32)
+        np.testing.assert_allclose(
+            state_shifted["vertices"] - state_zero["vertices"],
+            np.broadcast_to(expected_delta, state_zero["vertices"].shape),
+            atol=1e-4,
+        )
+        np.testing.assert_allclose(
+            state_shifted["world_bone_positions"] - state_zero["world_bone_positions"],
+            np.broadcast_to(expected_delta, state_zero["world_bone_positions"].shape),
+            atol=1e-4,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,19 +1,19 @@
-# Ziggart Nodes for ComfyUI (`v1.8.0`)
+# Ziggart Nodes for ComfyUI (`v1.9.0`)
 
-A complete collection of **58 local, in-process ComfyUI nodes** combining:
+A complete collection of **59 local, in-process ComfyUI nodes** combining:
 - **Zero-Freeze 700+ MB Wildcard & Canonical Theme Engines** (Way A + Way C architectures + **`🎲 Pre-Generate Prompt (Test Without Queue)`** UI button + Token Inspector/Compressor)
 - **Krea2 (`Qwen3VL-4B` CLIP) Prompt Director & Regional Conditioning Suite** (Modular & All-in-One Theme/Universe context, Trio/Ensemble Director, Interactive 2D Spatial Layout BBox Designer, Regional Conditioning Composer, Head-to-Toe 28-Section Anatomy Character Creator with per-section `[None]` & View Presets, 1:1 Character-Outfit linking, and automatic 9-zone Outfit $\rightarrow$ Anatomy occlusion filtering)
-- **GGUF Vision-Language Models (VLMs)** via `llama-cpp-python`, **Folder Image Batch & Queue Loader** (1-click `"▶️ Queue All Remaining Images (1-by-1)"`), and **Vision Single-Line TXT & Wildcard Saver** (`1 prompt = 1 line`, `0 empty lines`)
+- **GGUF Vision-Language Models (VLMs)** via `llama-cpp-python` with **Prefix KV-Cached Batch Vision (`LlamaRAMCache` & `chat_batch`)**, **Folder Image Batch & Queue Loader** (1-click `"▶️ Queue All Remaining Images (1-by-1)"`), **Vision Single-Line TXT & Wildcard Saver** (`1 prompt = 1 line`, `0 empty lines`), and **Dataset Caption Curator & Trigger Injector** (LoRA trigger injection, VLM boilerplate stripping, token budget QA & visual contact sheet)
 - **WeVisOne-VL Open-Vocabulary Visual Grounding & Contour Silhouette Matting**
 - **Krea 2 Turbo** High-Resolution Detailing, **Autonomous Closed-Loop Self-Healing Detailer**, **Reinhard Color & Frequency Matcher**, and **Tiled Upscaling**
 - **RTX 3070 Ti (8GB–16GB VRAM) 3D Generation Suite**: **`speridlabs/idol` Image-to-Gaussian Splat (`.ply`)**, **Gaussian-to-Mesh (`.glb`/`.obj`)**, **SPAR3D**, **Hunyuan3D-2mini**, and **360° Turntable Rendering**
 - **3D VRM Avatar, HairDeck & Live Webcam Mocap ("Replace Me!") Suite (`Ziggart/3D/Avatar`)**: One-time automatic model downloader & permanent disk cache (`ComfyUI/models/3d/ziggart_avatars/`), 2D Canonical T-Pose & Hair Splitter, **HairDeck** 3D Hair Cards & Spring-Bone physics generator, 25-Bone VRM Humanoid Auto-Rigger, 20-Morph Facial BlendShape & Viseme Builder, VRM 1.0 / 0.x Assembler, Fun Physics/Props/Emote Configurator, and **Interactive 3D VRM Pose Editor & 60 FPS Live Webcam Mocap Studio**
-- **FlowHMR 3D Video & Webcam Mocap Pipeline (`Ziggart/3D/Mocap`)**: Recover physically plausible 3D motion from loaded video or live webcams via **FlowHMR** (0.46B generative flow matching with GRPO physics reinforcement learning), featuring 52 SMPL-H joint to 25-bone VRM Humanoid retargeting, ground contact locking ($Y \ge 0$), temporal EMA smoothing, synchronized multi-pass video generation (`RGB`, `MASK`, `DEPTH`, `NORMAL`, `OPENPOSE`), and `.bvh`, `.npz`, and `.json` export
+- **FlowHMR 3D Video & Webcam Mocap Pipeline (`Ziggart/3D/Mocap`)**: Recover physically plausible 3D motion from loaded video or live webcams via **FlowHMR** (0.46B generative flow matching with GRPO physics reinforcement learning), featuring 52 SMPL-H joint to 25-bone VRM Humanoid retargeting, ground contact locking ($Y \ge 0$), temporal EMA smoothing, synchronized multi-pass video generation (`RGB`, `MASK`, `DEPTH`, `NORMAL`, `OPENPOSE`), and full 17-joint `.bvh` (54 channels/frame), `.npz`, and `.json` export
 - **Dynamic System Attention Selector (`Ziggart/Model`)**: Startup detection and per-model/global switching across **SageAttention**, **FlashAttention (v2/v3)**, **xFormers**, **PyTorch SDPA** (`flash`, `mem_efficient`, `cudnn`, `math`), **Sub-Quad**, **Split**, and **Basic** attention
 
 ---
 
-## Included Nodes (58 Nodes)
+## Included Nodes (59 Nodes)
 
 | Display Name | Internal Class | Category | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -44,6 +44,7 @@ A complete collection of **58 local, in-process ComfyUI nodes** combining:
 | **GGUF VLM Loader** | `ZiggartGGUFVLMLoader` | `Ziggart/LLM` | Reusable `GGUF_VL_MODEL` configuration node shared across all Ziggart VLM & Detailer nodes. |
 | **Ziggart Folder Image Batch & Queue Loader** | `ZiggartFolderImageQueueLoader` | `Ziggart/LLM` | Scans a folder of images (`.jpg`, `.png`, `.webp`, etc.), reports how many queues are needed (`🔍 Scan Folder & Count Queues`), increments `image_index` one-by-one, and includes a 1-click **`▶️ Queue All Remaining Images (1-by-1)`** button. |
 | **Ziggart Vision Prompt TXT & Wildcard Line Saver** | `ZiggartVisionPromptTxtSaver` | `Ziggart/LLM` | Receives Vision prompt outputs, optionally flattens multi-line/Markdown descriptions into a single clean line (`flatten_to_single_line`, `clean_markdown_formatting`), skips duplicates, and appends 1 line per pass into a master `.txt` file (`0 empty lines`) + optional `<image_name>.txt` sidecars. |
+| **Ziggart Dataset Caption Curator & Trigger Injector (LoRA / Krea2)** | `ZiggartDatasetCaptionCuratorAndTriggerInjector` | `Ziggart/LLM` | Batch Dataset Caption Curator, LoRA Trigger Word Injector & Token Budget QA Inspector: strips VLM boilerplate (`"In this image..."`), injects prefix/suffix trigger words idempotently, applies find/replace & banned-phrase rules, audits CLIP/Qwen3VL token budgets, and renders a color-coded visual QA Contact Sheet (`IMAGE`) + JSON report. |
 | **GGUF Quality & Anatomy Critic** | `ZiggartVLMImageCritic` | `Ziggart/LLM` | Scans generated images for defects (hands, eyes, anatomy, text, artifacts), outputting defect boxes, masks, repair prompts, and a pass/fail boolean gate. |
 | **GGUF Mask-Aware Inpaint Prompter** | `ZiggartVLMInpaintPrompter` | `Ziggart/LLM` | Highlights a user `MASK` on the scene and uses the VLM to generate a lighting- and style-harmonized inpaint prompt + crop coordinates. |
 | **WeVisOne-VL Detector** | `ZiggartWeVisOneDetector` | `Ziggart/Detector` | Standalone open-vocabulary grounding node outputting bounding-box previews, masks, cropped patches, and `bboxes_json`. |
@@ -107,6 +108,7 @@ A complete collection of **58 local, in-process ComfyUI nodes** combining:
    - [19. GGUF Vision Prompt & GGUF VLM Loader](#19-gguf-vision-prompt--gguf-vlm-loader)
    - [19A. Ziggart Folder Image Batch & Queue Loader](#19a-ziggart-folder-image-batch--queue-loader)
    - [19B. Ziggart Vision Prompt TXT & Wildcard Line Saver](#19b-ziggart-vision-prompt-txt--wildcard-line-saver)
+   - [19C. Ziggart Dataset Caption Curator & Trigger Injector (LoRA / Krea2)](#19c-ziggart-dataset-caption-curator--trigger-injector-lora--krea2)
    - [20. GGUF Quality & Anatomy Critic](#20-gguf-quality--anatomy-critic)
    - [21. GGUF Mask-Aware Inpaint Prompter](#21-gguf-mask-aware-inpaint-prompter)
 6. [3D Generation Suite (`Ziggart/3D` — RTX 3070 Ti 8GB–16GB VRAM Optimized)](#3d-generation-suite-ziggart3d--rtx-3070-ti-8gb16gb-vram-optimized)
@@ -767,6 +769,34 @@ Receives the prompt text output from **GGUF Vision Prompt**, optionally converts
 
 ---
 
+### 19C. Ziggart Dataset Caption Curator & Trigger Injector (LoRA / Krea2)
+
+*Class: `ZiggartDatasetCaptionCuratorAndTriggerInjector` | Category: `Ziggart/LLM` (`OUTPUT_NODE = True`)*
+
+Batch Dataset Caption Curator, Trigger Word Injector, and Token Budget QA Inspector designed for **Krea 2 / Flux / SDXL LoRA & Fine-Tuning datasets** as well as master wildcard files. Scans a folder of images and `.txt` sidecar captions, cleans VLM artifacts, enforces token budgets, and renders a color-coded visual QA Contact Sheet.
+
+- **Inputs**:
+  - `folder_path` (`STRING`): Path to the dataset folder containing images and `.txt` sidecar captions.
+  - `write_mode` (`COMBO`):
+    - `dry_run_preview_only`: Audits and previews curated captions and token badges without modifying files on disk.
+    - `write_in_place_atomic`: Atomically updates `.txt` sidecar files next to each image via temporary file replacement.
+    - `export_to_output_folder`: Writes curated `.txt` sidecar files into `output_folder_override`.
+  - `trigger_word_prefix` & `trigger_word_suffix` (`STRING`): LoRA / concept trigger tokens injected idempotently at the start or end of each caption (never duplicated if already present).
+  - `format_mode` (`COMBO`): `natural_prose_single_line`, `booru_tag_normalized`, or `keep_original`.
+  - `strip_vlm_boilerplate` (`BOOLEAN`, default `True`): Automatically removes VLM conversational prefixes (`"In this image, we see..."`, `"Here is a detailed description:"`, `"The image shows..."`).
+  - `clean_markdown` (`BOOLEAN`, default `True`): Strips Markdown headers, bold/italic markers, and bullet lists into clean single-line prose.
+  - `find_and_replace_rules` (`STRING`): Multi-line `old_phrase -> new_phrase` replacement rules (`->`, `=>`, or `=`).
+  - `banned_phrases` (`STRING`): Comma- or newline-separated phrases to strip from every caption.
+  - `max_token_budget` (`INT`, default `512`): Target CLIP / Qwen3VL / T5 token ceiling used to flag over-budget captions in the QA report and contact sheet.
+  - `include_subfolders`, `output_folder_override`, `default_caption_if_missing`, `max_preview_tiles`.
+- **Outputs**:
+  - `qa_contact_sheet` (`IMAGE`): Visual contact sheet of dataset thumbnails with color-coded status badges (`OK` green, `HIGH` amber, `OVER` red, `MISSING TXT` crimson) and caption snippets.
+  - `curated_captions_joined` (`STRING`): All curated captions joined one-per-line (ready for wildcard files or master prompt lists).
+  - `qa_report_json` (`STRING`): Structured JSON audit report with `total_images`, `captioned_count`, `missing_txt_count`, `avg_tokens`, `min_tokens`, `max_tokens`, `over_budget_count`, and `duplicate_caption_count`.
+  - `processed_count` (`INT`): Total number of captioned items processed.
+
+---
+
 ### 20. GGUF Quality & Anatomy Critic
 
 *Class: `ZiggartVLMImageCritic` | Category: `Ziggart/LLM`*
@@ -969,7 +999,7 @@ A complete monocular video-to-mocap and live webcam animation pipeline built on 
 
 ### Ready-to-Load Example Workflows (`example_workflows/`)
 
-All **58 Ziggart nodes** and their distinct operating modes are provided as **15 ready-to-load ComfyUI workflow JSON files** inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
+All **59 Ziggart nodes** and their distinct operating modes are provided as **15 ready-to-load ComfyUI workflow JSON files** inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
 
 | Workflow File | Featured Ziggart Nodes | Covered Usage Modes |
 | :--- | :--- | :--- |
@@ -987,7 +1017,7 @@ All **58 Ziggart nodes** and their distinct operating modes are provided as **15
 | [`12_Self_Healing_Detailer_Contour_Matting_and_Color_Lock.json`](./example_workflows/12_Self_Healing_Detailer_Contour_Matting_and_Color_Lock.json) | `ZiggartContourMaskRefiner`, `ZiggartClosedLoopSelfHealingDetailer`, `ZiggartColorAndFrequencyMatcher`, `ZiggartWeVisOneDetector` | Contour silhouette mask extraction from rectangular detections, autonomous `1..N` iterative self-healing detailer loop, and Reinhard perceptual color + frequency-separated detail matching. |
 | [`13_3D_Avatar_HairDeck_VRM_and_Live_Webcam_Mocap.json`](./example_workflows/13_3D_Avatar_HairDeck_VRM_and_Live_Webcam_Mocap.json) | `ZiggartAvatarModelDownloader`, `ZiggartAvatarCanonicalPrep`, `ZiggartHairDeckGenerator`, `ZiggartAutoRigger`, `ZiggartFacialBlendshapeBuilder`, `ZiggartVRMAssembler`, `ZiggartAvatarFunFX`, `ZiggartVRMPoseAndMocapStudio` | Complete 2D-to-3D `.vrm` Avatar creation pipeline with automatic first-run model caching, HairDeck 3D hair cards & spring-bones, 25-bone humanoid rigging, 20 facial BlendShapes, fun physics/accessories, and **Interactive 3D VRM Pose Editor + 60 FPS Live Webcam Mocap ("Replace Me!")**. |
 | [`14_3D_FlowHMR_Video_and_Webcam_Mocap_to_VRM_Avatar.json`](./example_workflows/14_3D_FlowHMR_Video_and_Webcam_Mocap_to_VRM_Avatar.json) | `ZiggartFlowHMRModelLoader`, `ZiggartFlowHMRWebcamCapture`, `ZiggartFlowHMRVideoExtractor`, `ZiggartMocapRetargetVRM`, `ZiggartAvatarMocapDrive`, `ZiggartMocapExporter`, `ZiggartVRMPoseAndMocapStudio` | End-to-end FlowHMR video/webcam motion capture to VRM 3D Avatar pipeline with SMPL-H ➔ VRM 25-bone retargeting, ground contact locking, multi-pass video conditioning generation (`RGB`, `MASK`, `DEPTH`, `NORMAL`, `OPENPOSE`), and `.bvh` / `.npz` / `.json` export. |
-| [`15_Folder_Image_Batch_Queue_to_Vision_and_SingleLine_TXT_Saver.json`](./example_workflows/15_Folder_Image_Batch_Queue_to_Vision_and_SingleLine_TXT_Saver.json) | `ZiggartFolderImageQueueLoader`, `ZiggartGGUFVLMLoader`, `ZiggartGGUFVisionPrompt`, `ZiggartVisionPromptTxtSaver` | Automated 1-by-1 folder image scanning & queueing (`🔍 Scan Folder & Count Queues` + `▶️ Queue All Remaining Images (1-by-1)` + `skip_existing_txt`) into **GGUF Vision Prompt** and single-line consolidation (`flatten_to_single_line = True`, `clean_markdown_formatting = True`, `0 empty lines`) into `all_prompts_krea2.txt` + per-image `.txt` sidecars. |
+| [`15_Folder_Image_Batch_Queue_to_Vision_and_SingleLine_TXT_Saver.json`](./example_workflows/15_Folder_Image_Batch_Queue_to_Vision_and_SingleLine_TXT_Saver.json) | `ZiggartFolderImageQueueLoader`, `ZiggartGGUFVLMLoader`, `ZiggartGGUFVisionPrompt`, `ZiggartVisionPromptTxtSaver`, `ZiggartDatasetCaptionCuratorAndTriggerInjector` | Automated 1-by-1 folder image scanning & queueing (`🔍 Scan Folder & Count Queues` + `▶️ Queue All Remaining Images (1-by-1)` + `skip_existing_txt`) into **GGUF Vision Prompt**, single-line consolidation (`flatten_to_single_line = True`, `clean_markdown_formatting = True`, `0 empty lines`) into `all_prompts_krea2.txt` + per-image `.txt` sidecars, and batch dataset curation / LoRA trigger injection + visual QA Contact Sheet inspection. |
 
 ### Workflow A: Krea2 (`Qwen3VL-4B`) Modular Prompt Director + Multi-Character Detailing
 

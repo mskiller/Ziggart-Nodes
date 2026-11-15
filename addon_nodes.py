@@ -25,6 +25,7 @@ from .embedded_model import (
     MODEL_MANAGER,
     EmbeddedLlamaError,
     ModelConfig,
+    default_vlm_threads,
     release_comfy_vram,
     strip_thinking_tags,
 )
@@ -56,7 +57,7 @@ def _build_vlm_config(
         mmproj_path=mmproj_path,
         context_size=int(context_size),
         gpu_layers=int(gpu_layers),
-        threads=max(1, (os.cpu_count() or 4) // 2),
+        threads=default_vlm_threads(),
         flash_attention=True,
         mmproj_on_gpu=True,
     )
@@ -68,33 +69,66 @@ def _describe_crop_with_vlm(
     max_tokens: int = 160,
     seed: int = 42,
 ) -> str:
-    data_uri = image_to_data_uri(crop_tensor_3d, max_dimension=768)
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are an expert visual prompt engineer for diffusion detail refinement. "
-                "Describe only what is visible in the region concisely and accurately. "
-                "Output only the descriptive prompt text without markdown or preamble."
-            ),
-        },
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": instruction},
-                {"type": "image_url", "image_url": {"url": data_uri}},
-            ],
-        },
-    ]
-    return MODEL_MANAGER.chat(
-        messages,
-        max_tokens=max_tokens,
-        temperature=0.2,
-        top_p=0.9,
-        top_k=30,
-        seed=seed,
-        enable_thinking=False,
+    return _describe_crops_batch_with_vlm([crop_tensor_3d], instruction=instruction, max_tokens=max_tokens, seeds=[seed])[0]
+
+
+def _describe_crops_batch_with_vlm(
+    crop_tensors_3d: list[torch.Tensor],
+    instruction: str,
+    max_tokens: int = 160,
+    seeds: list[int] | int = 42,
+) -> list[str]:
+    """
+    Describes multiple image crops in a single loaded VLM session using MODEL_MANAGER.chat_batch(),
+    reusing the prefix KV cache for the shared system and instruction prompt across all crops.
+    """
+    if not crop_tensors_3d:
+        return []
+    sys_content = (
+        "You are an expert visual prompt engineer for diffusion detail refinement. "
+        "Describe only what is visible in the region concisely and accurately. "
+        "Output only the descriptive prompt text without markdown or preamble."
     )
+    messages_batch: list[list[dict[str, Any]]] = []
+    for crop_3d in crop_tensors_3d:
+        data_uri = image_to_data_uri(crop_3d, max_dimension=768)
+        messages_batch.append(
+            [
+                {"role": "system", "content": sys_content},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": instruction},
+                        {"type": "image_url", "image_url": {"url": data_uri}},
+                    ],
+                },
+            ]
+        )
+    if hasattr(MODEL_MANAGER, "chat_batch"):
+        return MODEL_MANAGER.chat_batch(
+            messages_batch,
+            max_tokens=max_tokens,
+            temperature=0.2,
+            top_p=0.9,
+            top_k=30,
+            seeds=seeds,
+            enable_thinking=False,
+        )
+    results: list[str] = []
+    for idx, messages in enumerate(messages_batch):
+        item_seed = seeds[idx % len(seeds)] if isinstance(seeds, list) and seeds else (int(seeds) if not isinstance(seeds, list) else 42)
+        results.append(
+            MODEL_MANAGER.chat(
+                messages,
+                max_tokens=max_tokens,
+                temperature=0.2,
+                top_p=0.9,
+                top_k=30,
+                seed=item_seed,
+                enable_thinking=False,
+            )
+        )
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +308,7 @@ class ZiggartAutoPromptDetailer(ZiggartDetailerKrea2):
                     gpu_layers=config.gpu_layers,
                     context_size=config.context_size,
                     unload_detector_before_sampling=False,
+                    vlm_config=config,
                 )
                 batch_boxes.append(boxes)
                 detection_previews.append(draw_boxes_on_image(frame_3d, boxes, label=detection_prompt))
@@ -281,15 +316,22 @@ class ZiggartAutoPromptDetailer(ZiggartDetailerKrea2):
                 frame_prompts: list[str] = []
                 if boxes:
                     MODEL_MANAGER.load(config, unload_comfy_models=True)
+                    crop_tensors: list[torch.Tensor] = []
+                    crop_coords: list[tuple[int, int, int, int]] = []
+                    crop_seeds: list[int] = []
                     for idx, box in enumerate(boxes):
                         cx0, cy0, cx1, cy1 = crop_with_padding(box, img_w, img_h, crop_factor=crop_factor)
-                        crop_3d = frame_3d[cy0:cy1, cx0:cx1, :]
-                        vlm_desc = _describe_crop_with_vlm(
-                            crop_3d,
-                            instruction=prompt_instruction,
-                            seed=int((seed + b * 97 + idx * 13) & 0x7FFFFFFF),
-                        )
-                        suffix = base_positive_suffix.strip()
+                        crop_coords.append((cx0, cy0, cx1, cy1))
+                        crop_tensors.append(frame_3d[cy0:cy1, cx0:cx1, :])
+                        crop_seeds.append(int((seed + b * 97 + idx * 13) & 0x7FFFFFFF))
+
+                    vlm_descs = _describe_crops_batch_with_vlm(
+                        crop_tensors,
+                        instruction=prompt_instruction,
+                        seeds=crop_seeds,
+                    )
+                    suffix = base_positive_suffix.strip()
+                    for idx, (box, (cx0, cy0, cx1, cy1), vlm_desc) in enumerate(zip(boxes, crop_coords, vlm_descs)):
                         full_pos = f"{vlm_desc}, {suffix}" if (vlm_desc and suffix) else (vlm_desc or suffix)
                         frame_prompts.append(full_pos)
                         generated_prompts_log.append(
@@ -1633,6 +1675,7 @@ class ZiggartMultiSubjectDetailer(ZiggartDetailerKrea2):
                         gpu_layers=config.gpu_layers,
                         context_size=config.context_size,
                         unload_detector_before_sampling=False,
+                        vlm_config=config,
                     )
                     if boxes:
                         box = boxes[0]
@@ -2410,169 +2453,178 @@ class ZiggartClosedLoopSelfHealingDetailer(ZiggartDetailerKrea2):
         region_scores: list[float] = []
         audit_regions: list[dict[str, Any]] = []
 
-        for r_idx, rec in enumerate(records):
-            f_idx = min(max(0, int(rec["frame_index"])), batch_size - 1)
-            cx0, cy0, cx1, cy1 = rec["padded_crop"]
-            ch, cw = cy1 - cy0, cx1 - cx0
-            if ch <= 0 or cw <= 0:
-                continue
+        try:
+            for r_idx, rec in enumerate(records):
+                f_idx = min(max(0, int(rec["frame_index"])), batch_size - 1)
+                cx0, cy0, cx1, cy1 = rec["padded_crop"]
+                ch, cw = cy1 - cy0, cx1 - cx0
+                if ch <= 0 or cw <= 0:
+                    continue
 
-            crop_orig = out_image[f_idx : f_idx + 1, cy0:cy1, cx0:cx1, :3].clone()
-            initial_score, init_note = _score_crop_with_vlm_or_signal(
-                crop_orig, vlm_config, detail_positive_prompt
-            )
+                crop_orig = out_image[f_idx : f_idx + 1, cy0:cy1, cx0:cx1, :3].clone()
+                initial_score, init_note = _score_crop_with_vlm_or_signal(
+                    crop_orig, vlm_config, detail_positive_prompt
+                )
 
-            if initial_score >= float(target_score):
-                region_scores.append(initial_score)
+                if initial_score >= float(target_score):
+                    region_scores.append(initial_score)
+                    audit_regions.append(
+                        {
+                            "region_index": r_idx,
+                            "frame_index": f_idx,
+                            "padded_crop": [cx0, cy0, cx1, cy1],
+                            "initial_score": initial_score,
+                            "final_score": initial_score,
+                            "iterations_executed": 0,
+                            "status": "skipped_already_above_target",
+                        }
+                    )
+                    continue
+
+                max_side = max(ch, cw)
+                scale = float(target_detail_resolution) / float(max(1, max_side))
+                target_w = max(64, int(round(cw * scale / 8.0)) * 8)
+                target_h = max(64, int(round(ch * scale / 8.0)) * 8)
+
+                if target_h == ch and target_w == cw:
+                    crop_high = crop_orig.clone()
+                else:
+                    crop_high = F.interpolate(
+                        crop_orig.permute(0, 3, 1, 2),
+                        size=(target_h, target_w),
+                        mode="bicubic",
+                        align_corners=False,
+                    ).permute(0, 2, 3, 1).clamp(0.0, 1.0)
+
+                best_crop_orig = crop_orig.clone()
+                best_score = initial_score if never_degrade else -1.0
+                best_iter = 0
+                iter_history: list[dict[str, Any]] = []
+
+                scaled_feather = max(1, int(round(feather_mask * (target_w / float(max(1, cw))))))
+                latent_noise_mask = (
+                    create_feathered_mask(target_w, target_h, feather_radius=scaled_feather).unsqueeze(0)
+                    if feather_mask > 0
+                    else None
+                )
+
+                for it in range(1, max(1, int(max_iterations)) + 1):
+                    total_iterations_run += 1
+                    cur_denoise = float(max(0.05, min(0.92, base_denoise + (it - 1) * step_denoise_boost)))
+                    cur_seed = (int(seed) + r_idx * 313 + it * 101) & 0xFFFFFFFFFFFFFFFF
+
+                    # Evict VLM before diffusion sampling to prevent dual-model VRAM contention
+                    if MODEL_MANAGER._model is not None:
+                        MODEL_MANAGER.unload()
+
+                    cand_high = self._execute_sampling(
+                        model=model,
+                        clip=clip,
+                        vae=vae,
+                        crop_tensor=crop_high,
+                        positive_prompt=detail_positive_prompt,
+                        negative_prompt=detail_negative_prompt,
+                        steps=steps,
+                        cfg=cfg,
+                        sampler_name=sampler_name,
+                        scheduler=scheduler,
+                        denoise=cur_denoise,
+                        seed=cur_seed,
+                        pos_cond=pos_cond,
+                        neg_cond=neg_cond,
+                        noise_mask=latent_noise_mask,
+                    )
+
+                    if cand_high.shape[1] == ch and cand_high.shape[2] == cw:
+                        cand_orig = cand_high[:, :, :, :3].clamp(0.0, 1.0)
+                    else:
+                        cand_orig = F.interpolate(
+                            cand_high[:, :, :, :3].permute(0, 3, 1, 2),
+                            size=(ch, cw),
+                            mode="bicubic",
+                            align_corners=False,
+                        ).permute(0, 2, 3, 1).clamp(0.0, 1.0)
+
+                    cand_orig = cand_orig.to(device=crop_orig.device, dtype=crop_orig.dtype)
+                    if lock_color_and_lighting:
+                        cand_orig = match_color_and_frequency_tensor(
+                            original_rgb=crop_orig,
+                            refined_rgb=cand_orig,
+                            color_match_mode="lab_reinhard_transfer",
+                            color_match_strength=0.80,
+                            high_freq_detail_preserve=1.0,
+                            low_freq_blur_radius=7,
+                        )
+
+                    cand_score, cand_note = _score_crop_with_vlm_or_signal(
+                        cand_orig, vlm_config, detail_positive_prompt
+                    )
+                    iter_history.append(
+                        {
+                            "iteration": it,
+                            "denoise": round(cur_denoise, 3),
+                            "seed": cur_seed,
+                            "score": cand_score,
+                            "note": cand_note,
+                        }
+                    )
+
+                    if cand_score >= best_score:
+                        best_score = cand_score
+                        best_crop_orig = cand_orig.clone()
+                        best_iter = it
+
+                    if cand_score >= float(target_score):
+                        break
+
+                # Blend best candidate crop back into out_image using contour or feathered mask
+                if isinstance(rec.get("contour_mask"), torch.Tensor):
+                    cm_ten = rec["contour_mask"].squeeze()
+                    if cm_ten.ndim == 2 and (cm_ten.shape[0] != ch or cm_ten.shape[1] != cw):
+                        cm_ten = F.interpolate(
+                            cm_ten.unsqueeze(0).unsqueeze(0).float(),
+                            size=(ch, cw),
+                            mode="bilinear",
+                            align_corners=False,
+                        ).squeeze(0).squeeze(0)
+                    blend_m = cm_ten.clamp(0.0, 1.0).to(device=out_image.device, dtype=out_image.dtype)
+                elif use_contour_mask:
+                    blend_m = _extract_subject_contour_mask(
+                        crop_orig,
+                        mode="edge_and_chroma_guided",
+                        expand_px=6,
+                        feather_px=max(4, int(feather_mask)),
+                    ).to(device=out_image.device, dtype=out_image.dtype)
+                else:
+                    blend_m = create_feathered_mask(cw, ch, feather_radius=feather_mask).to(
+                        device=out_image.device, dtype=out_image.dtype
+                    )
+
+                blend_4d = blend_m.unsqueeze(0).unsqueeze(-1)
+                out_image[f_idx : f_idx + 1, cy0:cy1, cx0:cx1, :3] = (
+                    best_crop_orig * blend_4d + crop_orig * (1.0 - blend_4d)
+                )
+                healed_masks[f_idx, cy0:cy1, cx0:cx1] = torch.maximum(
+                    healed_masks[f_idx, cy0:cy1, cx0:cx1], blend_m.detach().cpu().float()
+                )
+                region_scores.append(best_score)
                 audit_regions.append(
                     {
                         "region_index": r_idx,
                         "frame_index": f_idx,
                         "padded_crop": [cx0, cy0, cx1, cy1],
                         "initial_score": initial_score,
-                        "final_score": initial_score,
-                        "iterations_executed": 0,
-                        "status": "skipped_already_above_target",
+                        "final_score": best_score,
+                        "best_iteration": best_iter,
+                        "iterations_executed": len(iter_history),
+                        "history": iter_history,
+                        "status": "healed_to_target" if best_score >= float(target_score) else "best_effort_retained",
                     }
                 )
-                continue
-
-            max_side = max(ch, cw)
-            scale = float(target_detail_resolution) / float(max(1, max_side))
-            target_w = max(64, int(round(cw * scale / 8.0)) * 8)
-            target_h = max(64, int(round(ch * scale / 8.0)) * 8)
-
-            if target_h == ch and target_w == cw:
-                crop_high = crop_orig.clone()
-            else:
-                crop_high = F.interpolate(
-                    crop_orig.permute(0, 3, 1, 2),
-                    size=(target_h, target_w),
-                    mode="bicubic",
-                    align_corners=False,
-                ).permute(0, 2, 3, 1).clamp(0.0, 1.0)
-
-            best_crop_orig = crop_orig.clone()
-            best_score = initial_score if never_degrade else -1.0
-            best_iter = 0
-            iter_history: list[dict[str, Any]] = []
-
-            scaled_feather = max(1, int(round(feather_mask * (target_w / float(max(1, cw))))))
-            latent_noise_mask = (
-                create_feathered_mask(target_w, target_h, feather_radius=scaled_feather).unsqueeze(0)
-                if feather_mask > 0
-                else None
-            )
-
-            for it in range(1, max(1, int(max_iterations)) + 1):
-                total_iterations_run += 1
-                cur_denoise = float(max(0.05, min(0.92, base_denoise + (it - 1) * step_denoise_boost)))
-                cur_seed = (int(seed) + r_idx * 313 + it * 101) & 0xFFFFFFFFFFFFFFFF
-
-                cand_high = self._execute_sampling(
-                    model=model,
-                    clip=clip,
-                    vae=vae,
-                    crop_tensor=crop_high,
-                    positive_prompt=detail_positive_prompt,
-                    negative_prompt=detail_negative_prompt,
-                    steps=steps,
-                    cfg=cfg,
-                    sampler_name=sampler_name,
-                    scheduler=scheduler,
-                    denoise=cur_denoise,
-                    seed=cur_seed,
-                    pos_cond=pos_cond,
-                    neg_cond=neg_cond,
-                    noise_mask=latent_noise_mask,
-                )
-
-                if cand_high.shape[1] == ch and cand_high.shape[2] == cw:
-                    cand_orig = cand_high[:, :, :, :3].clamp(0.0, 1.0)
-                else:
-                    cand_orig = F.interpolate(
-                        cand_high[:, :, :, :3].permute(0, 3, 1, 2),
-                        size=(ch, cw),
-                        mode="bicubic",
-                        align_corners=False,
-                    ).permute(0, 2, 3, 1).clamp(0.0, 1.0)
-
-                cand_orig = cand_orig.to(device=crop_orig.device, dtype=crop_orig.dtype)
-                if lock_color_and_lighting:
-                    cand_orig = match_color_and_frequency_tensor(
-                        original_rgb=crop_orig,
-                        refined_rgb=cand_orig,
-                        color_match_mode="lab_reinhard_transfer",
-                        color_match_strength=0.80,
-                        high_freq_detail_preserve=1.0,
-                        low_freq_blur_radius=7,
-                    )
-
-                cand_score, cand_note = _score_crop_with_vlm_or_signal(
-                    cand_orig, vlm_config, detail_positive_prompt
-                )
-                iter_history.append(
-                    {
-                        "iteration": it,
-                        "denoise": round(cur_denoise, 3),
-                        "seed": cur_seed,
-                        "score": cand_score,
-                        "note": cand_note,
-                    }
-                )
-
-                if cand_score >= best_score:
-                    best_score = cand_score
-                    best_crop_orig = cand_orig.clone()
-                    best_iter = it
-
-                if cand_score >= float(target_score):
-                    break
-
-            # Blend best candidate crop back into out_image using contour or feathered mask
-            if isinstance(rec.get("contour_mask"), torch.Tensor):
-                cm_ten = rec["contour_mask"].squeeze()
-                if cm_ten.ndim == 2 and (cm_ten.shape[0] != ch or cm_ten.shape[1] != cw):
-                    cm_ten = F.interpolate(
-                        cm_ten.unsqueeze(0).unsqueeze(0).float(),
-                        size=(ch, cw),
-                        mode="bilinear",
-                        align_corners=False,
-                    ).squeeze(0).squeeze(0)
-                blend_m = cm_ten.clamp(0.0, 1.0).to(device=out_image.device, dtype=out_image.dtype)
-            elif use_contour_mask:
-                blend_m = _extract_subject_contour_mask(
-                    crop_orig,
-                    mode="edge_and_chroma_guided",
-                    expand_px=6,
-                    feather_px=max(4, int(feather_mask)),
-                ).to(device=out_image.device, dtype=out_image.dtype)
-            else:
-                blend_m = create_feathered_mask(cw, ch, feather_radius=feather_mask).to(
-                    device=out_image.device, dtype=out_image.dtype
-                )
-
-            blend_4d = blend_m.unsqueeze(0).unsqueeze(-1)
-            out_image[f_idx : f_idx + 1, cy0:cy1, cx0:cx1, :3] = (
-                best_crop_orig * blend_4d + crop_orig * (1.0 - blend_4d)
-            )
-            healed_masks[f_idx, cy0:cy1, cx0:cx1] = torch.maximum(
-                healed_masks[f_idx, cy0:cy1, cx0:cx1], blend_m.detach().cpu().float()
-            )
-            region_scores.append(best_score)
-            audit_regions.append(
-                {
-                    "region_index": r_idx,
-                    "frame_index": f_idx,
-                    "padded_crop": [cx0, cy0, cx1, cy1],
-                    "initial_score": initial_score,
-                    "final_score": best_score,
-                    "best_iteration": best_iter,
-                    "iterations_executed": len(iter_history),
-                    "history": iter_history,
-                    "status": "healed_to_target" if best_score >= float(target_score) else "best_effort_retained",
-                }
-            )
+        finally:
+            if MODEL_MANAGER._model is not None:
+                MODEL_MANAGER.unload()
+                release_comfy_vram()
 
         final_avg_score = round(sum(region_scores) / max(1, len(region_scores)), 2) if region_scores else 0.0
         audit_payload = {

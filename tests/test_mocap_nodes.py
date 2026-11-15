@@ -203,10 +203,17 @@ def test_mocap_nodes_end_to_end_drive(tmp_path: Path):
     else:
         assert len(rgb_b) == 3
 
-    # 6. Exporter
+    # 6. Exporter (verify full 17-joint BVH hierarchy including arms and legs)
     exporter = ZiggartMocapExporter()
     exported_bvh = exporter.export_mocap(retargeted, format="BVH", filename_prefix="test_exp_mocap")
-    assert Path(exported_bvh[0]).is_file()
+    bvh_file = Path(exported_bvh[0])
+    assert bvh_file.is_file()
+    bvh_text = bvh_file.read_text(encoding="utf-8")
+    assert "JOINT LeftUpperArm" in bvh_text
+    assert "JOINT RightLowerArm" in bvh_text
+    assert "JOINT LeftUpperLeg" in bvh_text
+    assert "JOINT RightFoot" in bvh_text
+    assert len(bvh_text.strip().splitlines()[-1].split()) == 54
 
     # 7. VRM Studio with Mocap Support
     studio = ZiggartVRMPoseAndMocapStudio()

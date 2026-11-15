@@ -67,6 +67,7 @@ from .embedded_model import (
     MODEL_MANAGER,
     EmbeddedLlamaError,
     ModelConfig,
+    default_vlm_threads,
     release_comfy_vram,
     strip_thinking_tags,
 )
@@ -340,18 +341,23 @@ def detect_objects_with_vlm(
     gpu_layers: int,
     context_size: int,
     unload_detector_before_sampling: bool,
+    vlm_config: ModelConfig | None = None,
 ) -> tuple[list[tuple[int, int, int, int]], str]:
     """
     Runs WeVisOne-VL GGUF in-process to detect objects specified by detection_prompt.
     """
-    config = ModelConfig(
-        model_path=model_path,
-        mmproj_path=mmproj_path,
-        context_size=context_size,
-        gpu_layers=gpu_layers,
-        threads=os.cpu_count() or 4,
-        flash_attention=True,
-        mmproj_on_gpu=True,
+    config = (
+        vlm_config
+        if isinstance(vlm_config, ModelConfig)
+        else ModelConfig(
+            model_path=model_path,
+            mmproj_path=mmproj_path,
+            context_size=context_size,
+            gpu_layers=gpu_layers,
+            threads=default_vlm_threads(),
+            flash_attention=True,
+            mmproj_on_gpu=True,
+        )
     )
     MODEL_MANAGER.load(config, unload_comfy_models=True)
 
@@ -757,6 +763,7 @@ class ZiggartDetailerKrea2:
                     gpu_layers=gpu_layers,
                     context_size=context_size,
                     unload_detector_before_sampling=unload_now,
+                    vlm_config=vlm_config,
                 )
                 batch_boxes.append(boxes)
                 detection_previews.append(draw_boxes_on_image(frame_3d, boxes, label=detection_prompt))
@@ -1047,6 +1054,7 @@ class ZiggartWeVisOneDetector:
                     gpu_layers=gpu_layers,
                     context_size=context_size,
                     unload_detector_before_sampling=unload_now,
+                    vlm_config=vlm_config,
                 )
 
                 preview = draw_boxes_on_image(frame, boxes, label=detection_prompt)

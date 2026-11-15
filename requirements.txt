@@ -1,2 +1,5 @@
 # Use a CUDA/ROCm/Vulkan wheel matching the ComfyUI installation when available.
 llama-cpp-python>=0.3.35
+numpy>=1.24.0
+Pillow>=10.0.0
+huggingface_hub>=0.20.0

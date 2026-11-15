@@ -504,6 +504,7 @@ def export_mocap_to_bvh(
     """
     Exports ZIGGART_MOCAP data to standard BioVision Hierarchy (.bvh) format,
     readable by Blender, Maya, Unity, Unreal Engine, and 3D avatar suites.
+    Includes the full 17-joint humanoid skeleton (Torso, Head, Left/Right Arms, Left/Right Legs).
     """
     out_p = Path(output_path).resolve()
     out_p.parent.mkdir(parents=True, exist_ok=True)
@@ -514,7 +515,7 @@ def export_mocap_to_bvh(
     frame_count = len(rotations_list)
     frame_time = 1.0 / max(fps, 1.0)
 
-    # Simplified Humanoid BVH Skeleton Template
+    # Full 17-joint Humanoid BVH Skeleton Template (depth-first channel order)
     bvh_header = (
         "HIERARCHY\n"
         "ROOT Hips\n"
@@ -543,6 +544,82 @@ def export_mocap_to_bvh(
         "\t\t\t\t\t}\n"
         "\t\t\t\t}\n"
         "\t\t\t}\n"
+        "\t\t\tJOINT LeftUpperArm\n"
+        "\t\t\t{\n"
+        "\t\t\t\tOFFSET 0.16 0.10 0.00\n"
+        "\t\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\t\tJOINT LeftLowerArm\n"
+        "\t\t\t\t{\n"
+        "\t\t\t\t\tOFFSET 0.17 0.00 0.00\n"
+        "\t\t\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\t\t\tJOINT LeftHand\n"
+        "\t\t\t\t\t{\n"
+        "\t\t\t\t\t\tOFFSET 0.15 0.00 0.00\n"
+        "\t\t\t\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\t\t\t\tEnd Site\n"
+        "\t\t\t\t\t\t{\n"
+        "\t\t\t\t\t\t\tOFFSET 0.08 0.00 0.00\n"
+        "\t\t\t\t\t\t}\n"
+        "\t\t\t\t\t}\n"
+        "\t\t\t\t}\n"
+        "\t\t\t}\n"
+        "\t\t\tJOINT RightUpperArm\n"
+        "\t\t\t{\n"
+        "\t\t\t\tOFFSET -0.16 0.10 0.00\n"
+        "\t\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\t\tJOINT RightLowerArm\n"
+        "\t\t\t\t{\n"
+        "\t\t\t\t\tOFFSET -0.17 0.00 0.00\n"
+        "\t\t\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\t\t\tJOINT RightHand\n"
+        "\t\t\t\t\t{\n"
+        "\t\t\t\t\t\tOFFSET -0.15 0.00 0.00\n"
+        "\t\t\t\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\t\t\t\tEnd Site\n"
+        "\t\t\t\t\t\t{\n"
+        "\t\t\t\t\t\t\tOFFSET -0.08 0.00 0.00\n"
+        "\t\t\t\t\t\t}\n"
+        "\t\t\t\t\t}\n"
+        "\t\t\t\t}\n"
+        "\t\t\t}\n"
+        "\t\t}\n"
+        "\t}\n"
+        "\tJOINT LeftUpperLeg\n"
+        "\t{\n"
+        "\t\tOFFSET 0.09 -0.04 0.00\n"
+        "\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\tJOINT LeftLowerLeg\n"
+        "\t\t{\n"
+        "\t\t\tOFFSET 0.00 -0.32 0.00\n"
+        "\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\tJOINT LeftFoot\n"
+        "\t\t\t{\n"
+        "\t\t\t\tOFFSET 0.00 -0.30 0.03\n"
+        "\t\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\t\tEnd Site\n"
+        "\t\t\t\t{\n"
+        "\t\t\t\t\tOFFSET 0.00 -0.04 0.08\n"
+        "\t\t\t\t}\n"
+        "\t\t\t}\n"
+        "\t\t}\n"
+        "\t}\n"
+        "\tJOINT RightUpperLeg\n"
+        "\t{\n"
+        "\t\tOFFSET -0.09 -0.04 0.00\n"
+        "\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\tJOINT RightLowerLeg\n"
+        "\t\t{\n"
+        "\t\t\tOFFSET 0.00 -0.32 0.00\n"
+        "\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\tJOINT RightFoot\n"
+        "\t\t\t{\n"
+        "\t\t\t\tOFFSET 0.00 -0.30 0.03\n"
+        "\t\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\t\tEnd Site\n"
+        "\t\t\t\t{\n"
+        "\t\t\t\t\tOFFSET 0.00 -0.04 0.08\n"
+        "\t\t\t\t}\n"
+        "\t\t\t}\n"
         "\t\t}\n"
         "\t}\n"
         "}\n"
@@ -551,24 +628,34 @@ def export_mocap_to_bvh(
         f"Frame Time: {frame_time:.6f}\n"
     )
 
+    joint_order = (
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "leftUpperArm",
+        "leftLowerArm",
+        "leftHand",
+        "rightUpperArm",
+        "rightLowerArm",
+        "rightHand",
+        "leftUpperLeg",
+        "leftLowerLeg",
+        "leftFoot",
+        "rightUpperLeg",
+        "rightLowerLeg",
+        "rightFoot",
+    )
+
     lines = [bvh_header]
     for idx in range(frame_count):
         t = trans_list[idx] if idx < len(trans_list) else [0.0, 0.0, 0.0]
         r = rotations_list[idx] if idx < len(rotations_list) else {}
-        hips_rot = r.get("hips", [0.0, 0.0, 0.0])
-        spine_rot = r.get("spine", [0.0, 0.0, 0.0])
-        chest_rot = r.get("chest", [0.0, 0.0, 0.0])
-        neck_rot = r.get("neck", [0.0, 0.0, 0.0])
-        head_rot = r.get("head", [0.0, 0.0, 0.0])
-
-        # Format: Xpos Ypos Zpos Zrot Xrot Yrot for each joint
-        frame_vals = [
-            t[0] * 100.0, t[1] * 100.0, t[2] * 100.0, hips_rot[2], hips_rot[0], hips_rot[1],
-            spine_rot[2], spine_rot[0], spine_rot[1],
-            chest_rot[2], chest_rot[0], chest_rot[1],
-            neck_rot[2], neck_rot[0], neck_rot[1],
-            head_rot[2], head_rot[0], head_rot[1],
-        ]
+        frame_vals: list[float] = [float(t[0]) * 100.0, float(t[1]) * 100.0, float(t[2]) * 100.0]
+        for j_name in joint_order:
+            j_rot = r.get(j_name, [0.0, 0.0, 0.0])
+            frame_vals.extend([float(j_rot[2]), float(j_rot[0]), float(j_rot[1])])
         lines.append(" ".join(f"{v:.4f}" for v in frame_vals) + "\n")
 
     out_p.write_text("".join(lines), encoding="utf-8")
@@ -911,24 +998,30 @@ class ZiggartAvatarMocapDrive:
         filename_prefix: str = "ziggart_avatar_mocap",
     ) -> tuple[Any, Any, Any, Any, Any, str]:
         rotations_list = mocap_data.get("bone_rotations_deg", [])
+        trans_list = mocap_data.get("root_translations", [])
+        fps_val = max(1.0, float(mocap_data.get("fps", 30.0)))
         num_frames = max(1, len(rotations_list))
         res = int(np.clip(resolution, 128, 1536))
 
         rgb_list, mask_list, depth_list, norm_list, pose_list = [], [], [], [], []
+        last_posed: dict[str, Any] | None = None
 
         fx_cfg = avatar_data.get("fun_fx_config") or {}
         physics_preset = str(fx_cfg.get("physics_preset", "Bouncy Anime"))
 
         for f_idx in range(num_frames):
-            t_sec = f_idx / 30.0
+            t_sec = f_idx / fps_val
             frame_rots = rotations_list[f_idx] if f_idx < len(rotations_list) else {}
+            frame_trans = trans_list[f_idx] if f_idx < len(trans_list) else None
 
             posed = evaluate_avatar_pose_and_physics(
                 avatar_data,
                 bone_rotations_deg=frame_rots,
+                root_translation=frame_trans,
                 physics_preset=physics_preset,
                 time_sec=t_sec,
             )
+            last_posed = posed
 
             passes = render_avatar_multipass(
                 posed,
@@ -950,7 +1043,11 @@ class ZiggartAvatarMocapDrive:
         out_path = ""
         if export_animated_glb:
             out_glb = _next_output_path(filename_prefix or "ziggart_animated_mocap", "glb")
-            export_vrm_avatar_file(out_glb, avatar_data, avatar_title="Ziggart Mocap Driven Avatar")
+            export_payload = dict(avatar_data)
+            if last_posed is not None:
+                export_payload["vertices"] = last_posed["vertices"]
+                export_payload["normals"] = last_posed["normals"]
+            export_vrm_avatar_file(out_glb, export_payload, avatar_title="Ziggart Mocap Driven Avatar")
             out_path = str(out_glb)
 
         return (

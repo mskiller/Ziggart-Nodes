@@ -1698,6 +1698,7 @@ def evaluate_avatar_pose_and_physics(
     avatar_data: dict[str, Any],
     *,
     bone_rotations_deg: dict[str, list[float] | tuple[float, float, float]] | None = None,
+    root_translation: list[float] | tuple[float, float, float] | np.ndarray | None = None,
     expression_weights: dict[str, float] | None = None,
     physics_preset: str = "Normal",
     time_sec: float = 0.0,
@@ -1728,6 +1729,11 @@ def evaluate_avatar_pose_and_physics(
     # 2. Forward Kinematics across humanoid bone hierarchy
     num_bones = len(bone_names)
     rot_map = bone_rotations_deg or {}
+    root_offset = (
+        np.asarray(root_translation, dtype=np.float32).reshape(3)
+        if root_translation is not None and len(root_translation) >= 3
+        else np.zeros(3, dtype=np.float32)
+    )
     world_rot = [np.eye(3, dtype=np.float32) for _ in range(num_bones)]
     world_pos = np.zeros((num_bones, 3), dtype=np.float32)
 
@@ -1740,7 +1746,7 @@ def evaluate_avatar_pose_and_physics(
             world_pos[b_idx] = world_pos[p_idx] + (world_rot[p_idx] @ local_translations[b_idx])
         else:
             world_rot[b_idx] = local_r
-            world_pos[b_idx] = local_translations[b_idx]
+            world_pos[b_idx] = local_translations[b_idx] + root_offset
 
     # 3. Linear Blend Skinning (LBS)
     # v' = sum_k w_k * (R_k * (v - rest_pos_k) + world_pos_k)
@@ -1960,6 +1966,36 @@ def _decode_data_uri_to_rgb(data_uri: str, target_res: int = 512) -> tuple[np.nd
         return None
 
 
+def _is_allowed_avatar_model_path(resolved: Path) -> bool:
+    """Verifies that a 3D model path resides inside an allowed ComfyUI or Ziggart directory."""
+    if resolved.suffix.lower() not in (".vrm", ".glb", ".ply", ".obj"):
+        return False
+    allowed_roots: list[Path] = [Path(__file__).resolve().parent]
+    if folder_paths is not None:
+        for getter in ("get_output_directory", "get_input_directory", "get_temp_directory"):
+            fn = getattr(folder_paths, getter, None)
+            if callable(fn):
+                try:
+                    p_str = fn()
+                    if p_str:
+                        allowed_roots.append(Path(p_str).resolve())
+                except Exception:
+                    pass
+        models_dir = getattr(folder_paths, "models_dir", None)
+        if models_dir:
+            try:
+                allowed_roots.append(Path(models_dir).resolve())
+            except Exception:
+                pass
+    for root in allowed_roots:
+        try:
+            if resolved.is_relative_to(root):
+                return True
+        except Exception:
+            continue
+    return False
+
+
 if PromptServer is not None and web is not None and getattr(PromptServer, "instance", None) is not None:
     routes = PromptServer.instance.routes
 
@@ -1978,8 +2014,13 @@ if PromptServer is not None and web is not None and getattr(PromptServer, "insta
         file_path = request.rel_url.query.get("path", "")
         if not file_path:
             return web.Response(status=404, text="Missing path parameter")
-        resolved = Path(file_path).resolve()
-        if not resolved.is_file() or resolved.suffix.lower() not in (".vrm", ".glb", ".ply", ".obj"):
+        try:
+            resolved = Path(file_path).resolve()
+        except Exception:
+            return web.Response(status=400, text="Invalid path")
+        if not _is_allowed_avatar_model_path(resolved):
+            return web.Response(status=403, text="Access denied: path outside allowed directories")
+        if not resolved.is_file():
             return web.Response(status=404, text="3D model file not found")
         return web.FileResponse(path=str(resolved))
 

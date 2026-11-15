@@ -1175,6 +1175,7 @@ class CharacterSlotData:
     outfit_link_mode: str = "Canonical (1:1 Strict)"
     occlusion_report: OutfitOcclusionReport | None = None
     theme_or_universe: str = ""
+    character_id: str = ""
 
     def format_character_block(self, encapsulate_subparts: bool = False) -> str:
         """Formats the character + filtered anatomy + outfit for Krea2."""

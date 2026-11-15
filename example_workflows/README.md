@@ -1,6 +1,6 @@
 # Ziggart Nodes — Workflows Exemples (`example_workflows/`)
 
-Ce dossier contient **15 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 58 nœuds Ziggart** dans tous leurs modes et cas d'usage.
+Ce dossier contient **15 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 59 nœuds Ziggart** dans tous leurs modes et cas d'usage.
 
 ---
 
@@ -191,5 +191,7 @@ Pipeline complet **Traitement de Dossier d'Images (1 par 1) vers `GGUF Vision Pr
 - **`ZiggartVisionPromptTxtSaver` (Ziggart Vision Prompt TXT & Wildcard Line Saver)** :
   - Reçoit la sortie `answer` du Vision Prompt et la sauvegarde dans un fichier `.txt` maître (ex. `all_prompts_krea2.txt`) en ajoutant **1 nouvelle ligne par passe** (`write_mode = "append_new_line"`, **0 ligne vide**).
   - Inclut les options `flatten_to_single_line` (convertit les prompts multi-lignes en une seule ligne propre `' '.join(text.split())`), `clean_markdown_formatting` (supprime les titres `**...:**` et puces `- `), `skip_duplicate_lines` (évite les doublons), `line_prefix`/`line_suffix`, et `save_individual_sidecar_txt` (sauvegarde également `<image_name>.txt` à côté de chaque image).
+- **`ZiggartDatasetCaptionCuratorAndTriggerInjector` (Ziggart Dataset Caption Curator & Trigger Injector)** :
+  - Audite et nettoie un dossier complet d'images et de fichiers `.txt` sidecars pour l'entraînement LoRA / Krea2 / Flux : suppression automatique du boilerplate VLM (`"In this image..."`, `"Here is a detailed prompt:"`), injection idempotente de `trigger_word_prefix` / `trigger_word_suffix` sans doublons, règles `find_and_replace_rules` (`ancien -> nouveau`) et `banned_phrases`, vérification du budget de tokens CLIP/Qwen3VL (`max_token_budget`), modes `dry_run_preview_only` / `write_in_place_atomic` / `export_to_output_folder`, et génération d'une planche contact QA visuelle (`qa_contact_sheet`) + rapport JSON (`qa_report_json`).
 
 

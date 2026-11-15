@@ -2054,7 +2054,7 @@ def _install_zero_build_3d_shims(vendor_root: Path, auto_install: bool = True) -
                     f = self._current.face_matrix()
                     if len(f) > target_faces > 0 and len(v) > 0:
                         cols = np.full((len(v), 3), 0.8, dtype=np.float32)
-                        sv, sf, _ = simplify_mesh_vertex_clustering(v, f, cols, target_faces)
+                        sv, sf, _ = decimate_mesh_vertex_clustering(v, f, cols, target_faces)
                         self._current = _ShimMesh(sv, sf)
 
         pml_pkg = types.ModuleType("pymeshlab")
