@@ -119,6 +119,33 @@ def image_to_data_uri(image: Any, max_dimension: int = 0) -> str:
     return f"data:image/png;base64,{encoded}"
 
 
+def _resolve_vlm_node_config(
+    model: str,
+    mmproj: str,
+    model_path_override: str,
+    mmproj_path_override: str,
+    context_size: int,
+    gpu_layers: int,
+    threads: int,
+    flash_attention: bool,
+    mmproj_on_gpu: bool,
+    vlm_config: ModelConfig | None = None,
+) -> ModelConfig:
+    if isinstance(vlm_config, ModelConfig):
+        return vlm_config
+    model_path = _resolve_gguf(model, model_path_override, "model GGUF")
+    projector_path = _resolve_gguf(mmproj, mmproj_path_override, "mmproj GGUF")
+    return ModelConfig(
+        model_path=model_path,
+        mmproj_path=projector_path,
+        context_size=int(context_size),
+        gpu_layers=int(gpu_layers),
+        threads=int(threads),
+        flash_attention=bool(flash_attention),
+        mmproj_on_gpu=bool(mmproj_on_gpu),
+    )
+
+
 class GGUFVisionPrompt:
     """Describe ComfyUI images with a local GGUF vision-language model and mmproj."""
 
@@ -277,20 +304,18 @@ class GGUFVisionPrompt:
         mmproj_path_override="",
         vlm_config=None,
     ):
-        if isinstance(vlm_config, ModelConfig):
-            config = vlm_config
-        else:
-            model_path = _resolve_gguf(model, model_path_override, "model GGUF")
-            projector_path = _resolve_gguf(mmproj, mmproj_path_override, "mmproj GGUF")
-            config = ModelConfig(
-                model_path=model_path,
-                mmproj_path=projector_path,
-                context_size=int(context_size),
-                gpu_layers=int(gpu_layers),
-                threads=int(threads),
-                flash_attention=bool(flash_attention),
-                mmproj_on_gpu=bool(mmproj_on_gpu),
-            )
+        config = _resolve_vlm_node_config(
+            model=model,
+            mmproj=mmproj,
+            model_path_override=model_path_override,
+            mmproj_path_override=mmproj_path_override,
+            context_size=context_size,
+            gpu_layers=gpu_layers,
+            threads=threads,
+            flash_attention=flash_attention,
+            mmproj_on_gpu=mmproj_on_gpu,
+            vlm_config=vlm_config,
+        )
 
         try:
             MODEL_MANAGER.load(config, bool(unload_comfy_models_before))
@@ -504,6 +529,386 @@ class ZiggartGGUFVLMLoader:
                 mmproj_on_gpu=bool(mmproj_on_gpu),
             ),
         )
+
+
+def _strip_json_fences(text: str) -> str:
+    cleaned = strip_thinking_tags(text or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+    return cleaned.strip()
+
+
+def _format_diff_items(label: str, value: Any) -> str | None:
+    if isinstance(value, list):
+        items = [str(item).strip() for item in value if str(item).strip()]
+        if items:
+            return f"{label}: " + "; ".join(items)
+        return None
+    text = str(value).strip() if value is not None else ""
+    return f"{label}: {text}" if text else None
+
+
+def _parse_revision_response(raw_text: str, fallback_prompt: str) -> tuple[str, str, float]:
+    """Parse structured JSON revision output from the VLM with a safe text fallback."""
+    cleaned = _strip_json_fences(raw_text)
+    payload: dict[str, Any] | None = None
+
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end > start:
+        try:
+            candidate = json.loads(cleaned[start : end + 1])
+            if isinstance(candidate, dict):
+                payload = candidate
+        except json.JSONDecodeError:
+            payload = None
+
+    if payload is None:
+        revised = cleaned or fallback_prompt
+        return revised, "Raw VLM response (non-JSON fallback).", 5.0
+
+    try:
+        score = float(payload.get("fidelity_score", 5.0))
+    except (TypeError, ValueError):
+        score = 5.0
+    score = max(1.0, min(10.0, score))
+
+    revised = str(payload.get("revised_prompt", "")).strip() or fallback_prompt
+
+    report_parts = [
+        f"Fidelity score: {score:.1f}/10.0",
+        _format_diff_items("Missing or wrong", payload.get("missing_or_wrong")),
+        _format_diff_items("Hallucinated elements", payload.get("hallucinated_elements")),
+        _format_diff_items("Notes", payload.get("notes") or payload.get("summary")),
+    ]
+    diff_report = "\n".join(part for part in report_parts if part)
+    return revised, diff_report, score
+
+
+class ZiggartGGUFVisionPromptReviser:
+    """Compare original and generated images against the current prompt and output a corrected prompt."""
+
+    DESCRIPTION = (
+        "Compares an original target image against a generated image and the prompt used to create it, "
+        "diagnoses visual discrepancies, and produces a revised prompt for iterative refinement loops."
+    )
+    CATEGORY = "Ziggart/LLM"
+    FUNCTION = "revise"
+    RETURN_TYPES = ("STRING", "STRING", "FLOAT", "BOOLEAN")
+    RETURN_NAMES = ("revised_prompt", "diff_report", "fidelity_score", "needs_revision")
+    OUTPUT_TOOLTIPS = (
+        "Corrected prompt ready for the next generation pass.",
+        "Structured diff report listing missing, wrong, and hallucinated elements.",
+        "Estimated visual fidelity score (1.0-10.0) of generated_image vs original_image.",
+        "True when fidelity_score is below fidelity_threshold.",
+    )
+
+    FOCUS_INSTRUCTIONS = {
+        "all": "all visual aspects: subject identity, pose, clothing, objects, composition, background, colors, lighting, and artistic style",
+        "subject_and_details": "subject identity, facial features, accessories, clothing details, and key objects",
+        "composition_and_pose": "framing, camera angle, spatial layout, body pose, gaze direction, and proportions",
+        "style_and_lighting": "medium, rendering technique, lighting direction, contrast, mood, and texture",
+        "colors_and_background": "color palette, materials, environment, and background elements",
+    }
+
+    MODE_INSTRUCTIONS = {
+        "surgical_edit": (
+            "Keep accurate parts and effective phrasing from current_prompt; surgically fix, replace, "
+            "or add only what diverges from the original target image, and remove hallucinated elements."
+        ),
+        "full_rewrite": (
+            "Rewrite the prompt cleanly from scratch so it faithfully reproduces the original target image "
+            "while correcting every discrepancy observed in the generated image."
+        ),
+    }
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        models, projectors = _gguf_files()
+        return {
+            "required": {
+                "original_image": ("IMAGE", {"tooltip": "Target reference image to match."}),
+                "generated_image": ("IMAGE", {"tooltip": "Image generated from current_prompt."}),
+                "current_prompt": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "tooltip": "Prompt used to generate generated_image.",
+                    },
+                ),
+                "model": (models, {"tooltip": "Language-model GGUF from models/LLM/GGUF."}),
+                "mmproj": (projectors, {"tooltip": "Matching mmproj GGUF from models/LLM/GGUF."}),
+                "free_vram_after": (
+                    "BOOLEAN",
+                    {
+                        "default": True,
+                        "tooltip": "Close the embedded LLM and mmproj after inference to release VRAM.",
+                    },
+                ),
+                "enable_thinking": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                        "tooltip": "Enable internal thinking mode before producing the final JSON.",
+                    },
+                ),
+            },
+            "optional": {
+                "revision_mode": (
+                    ["surgical_edit", "full_rewrite"],
+                    {
+                        "default": "surgical_edit",
+                        "tooltip": "surgical_edit preserves accurate parts of current_prompt; full_rewrite rewrites cleanly.",
+                    },
+                ),
+                "revision_focus": (
+                    list(cls.FOCUS_INSTRUCTIONS.keys()),
+                    {
+                        "default": "all",
+                        "tooltip": "Visual aspect to prioritize when auditing discrepancies.",
+                    },
+                ),
+                "fidelity_threshold": (
+                    "FLOAT",
+                    {
+                        "default": 8.5,
+                        "min": 1.0,
+                        "max": 10.0,
+                        "step": 0.5,
+                        "tooltip": "If fidelity_score is below this threshold, needs_revision is True.",
+                    },
+                ),
+                "previous_diff_notes": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "tooltip": "Optional diff notes from prior iterations to avoid repeating or oscillating edits.",
+                    },
+                ),
+                "custom_instruction": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "tooltip": "Optional extra instruction for the prompt reviser.",
+                    },
+                ),
+                "max_image_dimension": (
+                    ["original", "512", "768", "1024", "1536", "2048", "3072", "4096"],
+                    {
+                        "default": "2048",
+                        "tooltip": "Downscale each image so its longest side is at most this size.",
+                    },
+                ),
+                "max_tokens": ("INT", {"default": 1024, "min": 1, "max": 32768}),
+                "temperature": ("FLOAT", {"default": 0.15, "min": 0.0, "max": 2.0, "step": 0.05}),
+                "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "top_k": ("INT", {"default": 40, "min": 0, "max": 1000}),
+                "seed": ("INT", {"default": -1, "min": -1, "max": 0x7FFFFFFF}),
+                "context_size": ("INT", {"default": 8192, "min": 2048, "max": 262144, "step": 1024}),
+                "gpu_layers": ("INT", {"default": -1, "min": -1, "max": 999}),
+                "threads": ("INT", {"default": max(1, (os.cpu_count() or 4) // 2), "min": 1, "max": 256}),
+                "flash_attention": ("BOOLEAN", {"default": True}),
+                "mmproj_on_gpu": ("BOOLEAN", {"default": True}),
+                "unload_comfy_models_before": ("BOOLEAN", {"default": True}),
+                "model_path_override": ("STRING", {"default": ""}),
+                "mmproj_path_override": ("STRING", {"default": ""}),
+                "vlm_config": ("GGUF_VL_MODEL",),
+            },
+        }
+
+    def revise(
+        self,
+        original_image,
+        generated_image,
+        current_prompt,
+        model,
+        mmproj,
+        free_vram_after,
+        enable_thinking,
+        revision_mode="surgical_edit",
+        revision_focus="all",
+        fidelity_threshold=8.5,
+        previous_diff_notes="",
+        custom_instruction="",
+        max_image_dimension="2048",
+        max_tokens=1024,
+        temperature=0.15,
+        top_p=0.9,
+        top_k=40,
+        seed=-1,
+        context_size=8192,
+        gpu_layers=-1,
+        threads=4,
+        flash_attention=True,
+        mmproj_on_gpu=True,
+        unload_comfy_models_before=True,
+        model_path_override="",
+        mmproj_path_override="",
+        vlm_config=None,
+    ):
+        config = _resolve_vlm_node_config(
+            model=model,
+            mmproj=mmproj,
+            model_path_override=model_path_override,
+            mmproj_path_override=mmproj_path_override,
+            context_size=context_size,
+            gpu_layers=gpu_layers,
+            threads=threads,
+            flash_attention=flash_attention,
+            mmproj_on_gpu=mmproj_on_gpu,
+            vlm_config=vlm_config,
+        )
+
+        system_prompt = (
+            "You are an expert image-generation prompt auditor and reviser. "
+            "You will receive two images: (1) the TARGET ORIGINAL IMAGE and (2) the GENERATED IMAGE "
+            "produced from the current prompt. Compare them carefully, diagnose every mismatch, "
+            "and return ONLY a valid JSON object with keys: "
+            '"fidelity_score" (float 1.0 to 10.0), '
+            '"missing_or_wrong" (array of concise strings), '
+            '"hallucinated_elements" (array of concise strings), '
+            '"notes" (concise string), and '
+            '"revised_prompt" (string containing only the ready-to-use image-generation prompt).'
+        )
+
+        focus_desc = self.FOCUS_INSTRUCTIONS.get(revision_focus, self.FOCUS_INSTRUCTIONS["all"])
+        mode_desc = self.MODE_INSTRUCTIONS.get(revision_mode, self.MODE_INSTRUCTIONS["surgical_edit"])
+
+        def frame_for(batch, index):
+            return batch[index] if len(batch) > 1 and index < len(batch) else batch[0]
+
+        try:
+            MODEL_MANAGER.load(config, bool(unload_comfy_models_before))
+            maximum = 0 if max_image_dimension == "original" else int(max_image_dimension)
+            count = max(len(original_image), len(generated_image))
+            revised_prompts: list[str] = []
+            diff_reports: list[str] = []
+            scores: list[float] = []
+
+            for index in range(count):
+                orig_uri = image_to_data_uri(frame_for(original_image, index), maximum)
+                gen_uri = image_to_data_uri(frame_for(generated_image, index), maximum)
+
+                instruction_lines = [
+                    f"Revision focus: {focus_desc}.",
+                    f"Editing strategy: {mode_desc}",
+                    f"\nCurrent prompt:\n{current_prompt.strip() or '(empty)'}",
+                ]
+                if previous_diff_notes.strip():
+                    instruction_lines.append(
+                        f"\nPrevious iteration notes (avoid oscillating on resolved items):\n{previous_diff_notes.strip()}"
+                    )
+                if custom_instruction.strip():
+                    instruction_lines.append(f"\nAdditional user instruction:\n{custom_instruction.strip()}")
+
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "\n".join(instruction_lines) + "\n\nImage 1 — TARGET ORIGINAL IMAGE:"},
+                            {"type": "image_url", "image_url": {"url": orig_uri}},
+                            {"type": "text", "text": "Image 2 — GENERATED IMAGE (from current prompt):"},
+                            {"type": "image_url", "image_url": {"url": gen_uri}},
+                        ],
+                    },
+                ]
+                raw = MODEL_MANAGER.chat(
+                    messages,
+                    max_tokens=int(max_tokens),
+                    temperature=float(temperature),
+                    top_p=float(top_p),
+                    top_k=int(top_k),
+                    seed=int(seed),
+                    enable_thinking=bool(enable_thinking),
+                )
+                revised, diff_report, score = _parse_revision_response(raw, current_prompt)
+                revised_prompts.append(revised)
+                diff_reports.append(diff_report)
+                scores.append(score)
+
+            separator = "\n\n---\n\n"
+            avg_score = round(sum(scores) / len(scores), 2) if scores else 5.0
+            needs_revision = any(s < float(fidelity_threshold) for s in scores)
+            return (
+                separator.join(revised_prompts),
+                separator.join(diff_reports),
+                float(avg_score),
+                bool(needs_revision),
+            )
+        except EmbeddedLlamaError as exc:
+            raise RuntimeError(f"GGUF Vision Prompt Reviser failed: {exc}") from exc
+        finally:
+            if free_vram_after:
+                MODEL_MANAGER.unload()
+
+
+class ZiggartPromptRevisionGate:
+    """Selects between current and revised prompt based on needs_revision and accumulates diff notes."""
+
+    DESCRIPTION = (
+        "Utility gate for iterative prompt revision loops: outputs revised_prompt while needs_revision is True "
+        "(or keeps current_prompt once converged) and appends latest_diff_report to previous_notes."
+    )
+    CATEGORY = "Ziggart/LLM"
+    FUNCTION = "select"
+    RETURN_TYPES = ("STRING", "STRING", "BOOLEAN")
+    RETURN_NAMES = ("active_prompt", "accumulated_notes", "continue_revision")
+    OUTPUT_TOOLTIPS = (
+        "Selected prompt: revised_prompt when needs_revision is True (or force_use_revised), else current_prompt.",
+        "Cumulative diff notes combining previous_notes and latest_diff_report for the next iteration.",
+        "Pass-through boolean indicating whether another revision pass is recommended.",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "current_prompt": ("STRING", {"default": "", "multiline": True}),
+                "revised_prompt": ("STRING", {"default": "", "multiline": True}),
+                "needs_revision": ("BOOLEAN", {"default": True}),
+            },
+            "optional": {
+                "latest_diff_report": ("STRING", {"default": "", "multiline": True}),
+                "previous_notes": ("STRING", {"default": "", "multiline": True}),
+                "iteration_label": ("STRING", {"default": ""}),
+                "force_use_revised": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                        "tooltip": "Always output revised_prompt even when needs_revision is False.",
+                    },
+                ),
+            },
+        }
+
+    def select(
+        self,
+        current_prompt: str,
+        revised_prompt: str,
+        needs_revision: bool,
+        latest_diff_report: str = "",
+        previous_notes: str = "",
+        iteration_label: str = "",
+        force_use_revised: bool = False,
+    ) -> tuple[str, str, bool]:
+        use_revised = bool(needs_revision) or bool(force_use_revised)
+        active_prompt = revised_prompt if (use_revised and revised_prompt.strip()) else current_prompt
+
+        notes_chunks: list[str] = []
+        if previous_notes.strip():
+            notes_chunks.append(previous_notes.strip())
+        if latest_diff_report.strip():
+            label = iteration_label.strip()
+            entry = f"[{label}]\n{latest_diff_report.strip()}" if label else latest_diff_report.strip()
+            notes_chunks.append(entry)
+
+        accumulated_notes = "\n\n".join(notes_chunks)
+        return (active_prompt, accumulated_notes, bool(needs_revision))
 
 
 # ---------------------------------------------------------------------------
@@ -1971,6 +2376,8 @@ if (
 NODE_CLASS_MAPPINGS = {
     "ZiggartGGUFVisionPrompt": GGUFVisionPrompt,
     "ZiggartGGUFVLMLoader": ZiggartGGUFVLMLoader,
+    "ZiggartGGUFVisionPromptReviser": ZiggartGGUFVisionPromptReviser,
+    "ZiggartPromptRevisionGate": ZiggartPromptRevisionGate,
     "ZiggartFolderImageQueueLoader": ZiggartFolderImageQueueLoader,
     "ZiggartVisionPromptTxtSaver": ZiggartVisionPromptTxtSaver,
     "ZiggartDatasetCaptionCuratorAndTriggerInjector": ZiggartDatasetCaptionCuratorAndTriggerInjector,
@@ -1978,6 +2385,8 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "ZiggartGGUFVisionPrompt": "GGUF Vision Prompt",
     "ZiggartGGUFVLMLoader": "GGUF VLM Loader",
+    "ZiggartGGUFVisionPromptReviser": "GGUF Vision Prompt Reviser",
+    "ZiggartPromptRevisionGate": "Ziggart Prompt Revision Gate",
     "ZiggartFolderImageQueueLoader": "Ziggart Folder Image Batch & Queue Loader",
     "ZiggartVisionPromptTxtSaver": "Ziggart Vision Prompt TXT & Wildcard Line Saver",
     "ZiggartDatasetCaptionCuratorAndTriggerInjector": "Ziggart Dataset Caption Curator & Trigger Injector (QA)",

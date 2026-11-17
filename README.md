@@ -42,6 +42,8 @@ A complete collection of **59 local, in-process ComfyUI nodes** combining:
 | **Krea2 VLM Smart Tile Upscaler** | `ZiggartSmartTileUpscaler` | `Ziggart/Detailer` | Overlapping tiled upscaler (1.0×–4.0×) with optional per-tile VLM captioning (preventing background hallucinations) or fast pure-Krea2 tiled upscaling. |
 | **GGUF Vision Prompt** | `ZiggartGGUFVisionPrompt` | `Ziggart/LLM` | Multimodal prompt generation, image analysis, and specialist passes (Composition, Subject, Style). |
 | **GGUF VLM Loader** | `ZiggartGGUFVLMLoader` | `Ziggart/LLM` | Reusable `GGUF_VL_MODEL` configuration node shared across all Ziggart VLM & Detailer nodes. |
+| **GGUF Vision Prompt Reviser** | `ZiggartGGUFVisionPromptReviser` | `Ziggart/LLM` | Compares `original_image` vs `generated_image` against `current_prompt`, diagnoses discrepancies, and outputs a corrected `revised_prompt`, `diff_report`, `fidelity_score`, and `needs_revision` gate. |
+| **Ziggart Prompt Revision Gate** | `ZiggartPromptRevisionGate` | `Ziggart/LLM` | Loop helper that selects `revised_prompt` while `needs_revision` is `True` (or locks in `current_prompt` once converged) and accumulates `diff_report` history across passes. |
 | **Ziggart Folder Image Batch & Queue Loader** | `ZiggartFolderImageQueueLoader` | `Ziggart/LLM` | Scans a folder of images (`.jpg`, `.png`, `.webp`, etc.), reports how many queues are needed (`🔍 Scan Folder & Count Queues`), increments `image_index` one-by-one, and includes a 1-click **`▶️ Queue All Remaining Images (1-by-1)`** button. |
 | **Ziggart Vision Prompt TXT & Wildcard Line Saver** | `ZiggartVisionPromptTxtSaver` | `Ziggart/LLM` | Receives Vision prompt outputs, optionally flattens multi-line/Markdown descriptions into a single clean line (`flatten_to_single_line`, `clean_markdown_formatting`), skips duplicates, and appends 1 line per pass into a master `.txt` file (`0 empty lines`) + optional `<image_name>.txt` sidecars. |
 | **Ziggart Dataset Caption Curator & Trigger Injector (LoRA / Krea2)** | `ZiggartDatasetCaptionCuratorAndTriggerInjector` | `Ziggart/LLM` | Batch Dataset Caption Curator, LoRA Trigger Word Injector & Token Budget QA Inspector: strips VLM boilerplate (`"In this image..."`), injects prefix/suffix trigger words idempotently, applies find/replace & banned-phrase rules, audits CLIP/Qwen3VL token budgets, and renders a color-coded visual QA Contact Sheet (`IMAGE`) + JSON report. |
@@ -109,6 +111,7 @@ A complete collection of **59 local, in-process ComfyUI nodes** combining:
    - [19A. Ziggart Folder Image Batch & Queue Loader](#19a-ziggart-folder-image-batch--queue-loader)
    - [19B. Ziggart Vision Prompt TXT & Wildcard Line Saver](#19b-ziggart-vision-prompt-txt--wildcard-line-saver)
    - [19C. Ziggart Dataset Caption Curator & Trigger Injector (LoRA / Krea2)](#19c-ziggart-dataset-caption-curator--trigger-injector-lora--krea2)
+   - [19D. GGUF Vision Prompt Reviser & Prompt Revision Gate](#19d-gguf-vision-prompt-reviser--prompt-revision-gate)
    - [20. GGUF Quality & Anatomy Critic](#20-gguf-quality--anatomy-critic)
    - [21. GGUF Mask-Aware Inpaint Prompter](#21-gguf-mask-aware-inpaint-prompter)
 6. [3D Generation Suite (`Ziggart/3D` — RTX 3070 Ti 8GB–16GB VRAM Optimized)](#3d-generation-suite-ziggart3d--rtx-3070-ti-8gb16gb-vram-optimized)
@@ -797,6 +800,35 @@ Batch Dataset Caption Curator, Trigger Word Injector, and Token Budget QA Inspec
 
 ---
 
+### 19D. GGUF Vision Prompt Reviser & Prompt Revision Gate
+
+*Classes: `ZiggartGGUFVisionPromptReviser` & `ZiggartPromptRevisionGate` | Category: `Ziggart/LLM`*
+
+Enables iterative **Vision → Generate → Compare → Revise** loops (2–3+ passes) to converge toward a prompt that faithfully reproduces a target reference image:
+
+```text
+original_image ─► GGUF Vision Prompt ─► KSampler (Pass 1) ─► generated_image
+     │                                                              │
+     └──────────────────────────► GGUF Vision Prompt Reviser ◄──────┘
+                                        │
+                          (revised_prompt + diff_report)
+                                        ▼
+                                  KSampler (Pass 2 / 3)
+```
+
+- **GGUF Vision Prompt Reviser (`ZiggartGGUFVisionPromptReviser`)**:
+  - **Inputs**: `original_image`, `generated_image`, `current_prompt`, VLM settings (`model`, `mmproj`, or shared `vlm_config` from `ZiggartGGUFVLMLoader`), `revision_mode` (`surgical_edit` or `full_rewrite`), `revision_focus` (`all`, `subject_and_details`, `composition_and_pose`, `style_and_lighting`, `colors_and_background`), `fidelity_threshold` (default `8.5`), `previous_diff_notes`, and `custom_instruction`.
+  - **Outputs**:
+    - `revised_prompt` (`STRING`): Corrected prompt ready for the next generation pass.
+    - `diff_report` (`STRING`): Structured audit listing `Fidelity score`, `Missing or wrong` elements, `Hallucinated elements`, and `Notes`.
+    - `fidelity_score` (`FLOAT`): Estimated visual fidelity (`1.0`–`10.0`).
+    - `needs_revision` (`BOOLEAN`): `True` when `fidelity_score < fidelity_threshold`.
+- **Ziggart Prompt Revision Gate (`ZiggartPromptRevisionGate`)**:
+  - **Inputs**: `current_prompt`, `revised_prompt`, `needs_revision`, optional `latest_diff_report`, `previous_notes`, `iteration_label`, `force_use_revised`.
+  - **Outputs**: `active_prompt` (`STRING`), `accumulated_notes` (`STRING` combining prior and latest diff reports for `previous_diff_notes`), and `continue_revision` (`BOOLEAN`).
+
+---
+
 ### 20. GGUF Quality & Anatomy Critic
 
 *Class: `ZiggartVLMImageCritic` | Category: `Ziggart/LLM`*
@@ -1018,6 +1050,7 @@ All **59 Ziggart nodes** and their distinct operating modes are provided as **15
 | [`13_3D_Avatar_HairDeck_VRM_and_Live_Webcam_Mocap.json`](./example_workflows/13_3D_Avatar_HairDeck_VRM_and_Live_Webcam_Mocap.json) | `ZiggartAvatarModelDownloader`, `ZiggartAvatarCanonicalPrep`, `ZiggartHairDeckGenerator`, `ZiggartAutoRigger`, `ZiggartFacialBlendshapeBuilder`, `ZiggartVRMAssembler`, `ZiggartAvatarFunFX`, `ZiggartVRMPoseAndMocapStudio` | Complete 2D-to-3D `.vrm` Avatar creation pipeline with automatic first-run model caching, HairDeck 3D hair cards & spring-bones, 25-bone humanoid rigging, 20 facial BlendShapes, fun physics/accessories, and **Interactive 3D VRM Pose Editor + 60 FPS Live Webcam Mocap ("Replace Me!")**. |
 | [`14_3D_FlowHMR_Video_and_Webcam_Mocap_to_VRM_Avatar.json`](./example_workflows/14_3D_FlowHMR_Video_and_Webcam_Mocap_to_VRM_Avatar.json) | `ZiggartFlowHMRModelLoader`, `ZiggartFlowHMRWebcamCapture`, `ZiggartFlowHMRVideoExtractor`, `ZiggartMocapRetargetVRM`, `ZiggartAvatarMocapDrive`, `ZiggartMocapExporter`, `ZiggartVRMPoseAndMocapStudio` | End-to-end FlowHMR video/webcam motion capture to VRM 3D Avatar pipeline with SMPL-H ➔ VRM 25-bone retargeting, ground contact locking, multi-pass video conditioning generation (`RGB`, `MASK`, `DEPTH`, `NORMAL`, `OPENPOSE`), and `.bvh` / `.npz` / `.json` export. |
 | [`15_Folder_Image_Batch_Queue_to_Vision_and_SingleLine_TXT_Saver.json`](./example_workflows/15_Folder_Image_Batch_Queue_to_Vision_and_SingleLine_TXT_Saver.json) | `ZiggartFolderImageQueueLoader`, `ZiggartGGUFVLMLoader`, `ZiggartGGUFVisionPrompt`, `ZiggartVisionPromptTxtSaver`, `ZiggartDatasetCaptionCuratorAndTriggerInjector` | Automated 1-by-1 folder image scanning & queueing (`🔍 Scan Folder & Count Queues` + `▶️ Queue All Remaining Images (1-by-1)` + `skip_existing_txt`) into **GGUF Vision Prompt**, single-line consolidation (`flatten_to_single_line = True`, `clean_markdown_formatting = True`, `0 empty lines`) into `all_prompts_krea2.txt` + per-image `.txt` sidecars, and batch dataset curation / LoRA trigger injection + visual QA Contact Sheet inspection. |
+| [`16_Vision_Prompt_Iterative_Revision_Loop.json`](./example_workflows/16_Vision_Prompt_Iterative_Revision_Loop.json) | `ZiggartGGUFVLMLoader`, `ZiggartGGUFVisionPrompt`, `ZiggartGGUFVisionPromptReviser`, `ZiggartPromptRevisionGate` | Iterative **Vision → Generate → Compare & Revise** loop comparing the original target image against the generated image and current prompt, outputting `revised_prompt`, `diff_report`, `fidelity_score`, and `needs_revision` through the revision gate for multi-pass refinement. |
 
 ### Workflow A: Krea2 (`Qwen3VL-4B`) Modular Prompt Director + Multi-Character Detailing
 

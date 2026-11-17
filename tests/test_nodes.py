@@ -243,6 +243,144 @@ class NodeExecutionTests(unittest.TestCase):
         self.assertEqual(content_types.count("image_url"), 3)
         self.assertTrue(fake.unloaded)
 
+    def test_prompt_reviser_parses_json_and_sends_both_images(self):
+        class FakeManager:
+            def __init__(self):
+                self.calls = []
+                self.loaded_config = None
+                self.unloaded = False
+
+            def load(self, config, unload_comfy_models):
+                self.loaded_config = config
+
+            def chat(self, messages, **kwargs):
+                self.calls.append(messages)
+                return (
+                    "```json\n"
+                    '{"fidelity_score": 6.5, '
+                    '"missing_or_wrong": ["red scarf missing"], '
+                    '"hallucinated_elements": ["extra hat"], '
+                    '"notes": "Keep pose, fix outfit.", '
+                    '"revised_prompt": "a woman wearing a red scarf, no hat"}\n'
+                    "```"
+                )
+
+            def unload(self):
+                self.unloaded = True
+
+        fake = FakeManager()
+        original = nodes.MODEL_MANAGER
+        nodes.MODEL_MANAGER = fake
+        cfg = embedded_model.ModelConfig(
+            model_path="shared.gguf",
+            mmproj_path="shared-mm.gguf",
+            context_size=8192,
+            gpu_layers=-1,
+            threads=4,
+            flash_attention=True,
+            mmproj_on_gpu=True,
+        )
+        try:
+            orig_img = np.zeros((1, 8, 8, 3), dtype=np.float32)
+            gen_img = np.ones((1, 8, 8, 3), dtype=np.float32)
+            revised, report, score, needs_revision = nodes.ZiggartGGUFVisionPromptReviser().revise(
+                original_image=orig_img,
+                generated_image=gen_img,
+                current_prompt="a woman wearing a hat",
+                model=nodes.NO_MODEL,
+                mmproj=nodes.NO_MMPROJ,
+                free_vram_after=True,
+                enable_thinking=False,
+                fidelity_threshold=8.5,
+                previous_diff_notes="Pass 1: fix background",
+                vlm_config=cfg,
+            )
+        finally:
+            nodes.MODEL_MANAGER = original
+
+        self.assertEqual(fake.loaded_config, cfg)
+        self.assertEqual(revised, "a woman wearing a red scarf, no hat")
+        self.assertAlmostEqual(score, 6.5)
+        self.assertTrue(needs_revision)
+        self.assertIn("red scarf missing", report)
+        self.assertIn("extra hat", report)
+        user_content = fake.calls[0][-1]["content"]
+        self.assertEqual([p["type"] for p in user_content].count("image_url"), 2)
+        self.assertIn("a woman wearing a hat", user_content[0]["text"])
+        self.assertIn("Pass 1: fix background", user_content[0]["text"])
+        self.assertTrue(fake.unloaded)
+
+    def test_prompt_reviser_plain_text_fallback(self):
+        class FakeManager:
+            def load(self, config, unload_comfy_models):
+                pass
+
+            def chat(self, messages, **kwargs):
+                return "clean fallback prompt"
+
+            def unload(self):
+                pass
+
+        original = nodes.MODEL_MANAGER
+        nodes.MODEL_MANAGER = FakeManager()
+        try:
+            with mock.patch.object(nodes, "_resolve_gguf", side_effect=["m.gguf", "mm.gguf"]):
+                orig_img = np.zeros((1, 4, 4, 3), dtype=np.float32)
+                gen_img = np.zeros((1, 4, 4, 3), dtype=np.float32)
+                revised, report, score, needs_revision = nodes.ZiggartGGUFVisionPromptReviser().revise(
+                    original_image=orig_img,
+                    generated_image=gen_img,
+                    current_prompt="initial prompt",
+                    model=nodes.NO_MODEL,
+                    mmproj=nodes.NO_MMPROJ,
+                    free_vram_after=False,
+                    enable_thinking=False,
+                    fidelity_threshold=4.0,
+                )
+        finally:
+            nodes.MODEL_MANAGER = original
+
+        self.assertEqual(revised, "clean fallback prompt")
+        self.assertEqual(score, 5.0)
+        self.assertFalse(needs_revision)
+        self.assertIn("fallback", report.lower())
+
+    def test_prompt_revision_gate_selection_and_notes_accumulation(self):
+        gate = nodes.ZiggartPromptRevisionGate()
+        active, notes, cont = gate.select(
+            current_prompt="old prompt",
+            revised_prompt="new prompt",
+            needs_revision=True,
+            latest_diff_report="Fixed scarf",
+            previous_notes="Pass 1: initial",
+            iteration_label="Pass 2",
+        )
+        self.assertEqual(active, "new prompt")
+        self.assertTrue(cont)
+        self.assertEqual(notes, "Pass 1: initial\n\n[Pass 2]\nFixed scarf")
+
+        active_done, _, cont_done = gate.select(
+            current_prompt="converged prompt",
+            revised_prompt="tweaked prompt",
+            needs_revision=False,
+        )
+        self.assertEqual(active_done, "converged prompt")
+        self.assertFalse(cont_done)
+
+        active_forced, _, _ = gate.select(
+            current_prompt="converged prompt",
+            revised_prompt="tweaked prompt",
+            needs_revision=False,
+            force_use_revised=True,
+        )
+        self.assertEqual(active_forced, "tweaked prompt")
+
+    def test_revision_nodes_registered_in_mappings(self):
+        self.assertIn("ZiggartGGUFVisionPromptReviser", nodes.NODE_CLASS_MAPPINGS)
+        self.assertIn("ZiggartPromptRevisionGate", nodes.NODE_CLASS_MAPPINGS)
+        self.assertIn("ZiggartGGUFVisionPromptReviser", nodes.NODE_DISPLAY_NAME_MAPPINGS)
+        self.assertIn("ZiggartPromptRevisionGate", nodes.NODE_DISPLAY_NAME_MAPPINGS)
+
 
 if __name__ == "__main__":
     unittest.main()
