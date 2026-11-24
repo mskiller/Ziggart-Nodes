@@ -173,15 +173,19 @@
         "Node name for S&R": "ZiggartGGUFVLMLoader"
       },
       "widgets_values": [
-        "WeVisOne-VL-4B-Q4_K_M.gguf",
-        "mmproj-WeVisOne-VL-F16.gguf",
+        "[No model GGUF found]",
+        "[No mmproj GGUF found]",
         4096,
         -1,
         14,
         true,
         true,
         "",
-        ""
+        "",
+        "f16",
+        512,
+        true,
+        256
       ],
       "widgets_values_named": {
         "model": "WeVisOne-VL-4B-Q4_K_M.gguf",
@@ -286,8 +290,8 @@
         "Node name for S&R": "ZiggartDetailerKrea2"
       },
       "widgets_values": [
-        "WeVisOne-VL-4B-Q4_K_M.gguf",
-        "mmproj-WeVisOne-VL-F16.gguf",
+        "[No model GGUF found]",
+        "[No mmproj GGUF found]",
         "face",
         "ultra-detailed face, natural skin pores, balanced studio lighting, sharp focus, 8k",
         "blurry, plastic skin, distorted features, artifacts",
@@ -429,8 +433,8 @@
         "Node name for S&R": "ZiggartDetailerKrea2"
       },
       "widgets_values": [
-        "WeVisOne-VL-4B-Q4_K_M.gguf",
-        "mmproj-WeVisOne-VL-F16.gguf",
+        "[No model GGUF found]",
+        "[No mmproj GGUF found]",
         "eyes",
         "ultra-detailed sharp eyes, intricate iris fibers, natural catchlights, crystal clear, 8k",
         "blurry pupils, asymmetrical irises, bloodshot, artifacts",
@@ -673,8 +677,8 @@
         "Node name for S&R": "ZiggartAutoPromptDetailer"
       },
       "widgets_values": [
-        "WeVisOne-VL-4B-Q4_K_M.gguf",
-        "mmproj-WeVisOne-VL-F16.gguf",
+        "[No model GGUF found]",
+        "[No mmproj GGUF found]",
         "faces and hands",
         "Describe this cropped region in rich visual detail for high-resolution image refinement. Focus on exact pose, skin texture, lighting direction, and anatomy. Output only the positive prompt.",
         "ultra-detailed, anatomically correct, sharp focus, high resolution, 8k",

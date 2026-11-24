@@ -169,15 +169,19 @@
         "Node name for S&R": "ZiggartGGUFVLMLoader"
       },
       "widgets_values": [
-        "WeVisOne-VL-4B-Q4_K_M.gguf",
-        "mmproj-WeVisOne-VL-F16.gguf",
+        "[No model GGUF found]",
+        "[No mmproj GGUF found]",
         8192,
         -1,
         14,
         true,
         true,
         "",
-        ""
+        "",
+        "f16",
+        512,
+        true,
+        256
       ],
       "widgets_values_named": {
         "model": "WeVisOne-VL-4B-Q4_K_M.gguf",
@@ -255,8 +259,8 @@
         "Node name for S&R": "ZiggartWeVisOneDetector"
       },
       "widgets_values": [
-        "WeVisOne-VL-4B-Q4_K_M.gguf",
-        "mmproj-WeVisOne-VL-F16.gguf",
+        "[No model GGUF found]",
+        "[No mmproj GGUF found]",
         "eyes or sunglasses",
         1.6,
         1,
@@ -386,8 +390,8 @@
         "Node name for S&R": "ZiggartVLMInpaintPrompter"
       },
       "widgets_values": [
-        "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
-        "mmproj-Qwen2.5-VL-F16.gguf",
+        "[No model GGUF found]",
+        "[No mmproj GGUF found]",
         "Add ornate vintage gold steampunk goggles with glowing cyan glass lenses matching the scene lighting and perspective.",
         1.6,
         true,

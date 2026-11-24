@@ -5,6 +5,7 @@ import copy
 import json
 import math
 import os
+import re
 import shutil
 import struct
 import sys
@@ -126,12 +127,24 @@ def get_mocap_models_root() -> Path:
     return root
 
 
+def _mocap_subfolder(spec: dict[str, Any], repo_id: str, custom_repo_id: str) -> str:
+    if custom_repo_id and custom_repo_id.strip():
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "_", repo_id.strip()).strip("._") or "custom_mocap"
+        return f"custom_{safe}"
+    raw_sub = str(spec.get("subfolder") or repo_id)
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", raw_sub).strip("._")
+    return safe or "mocap_model"
+
+
 def is_mocap_model_cached(model_key: str, custom_repo_id: str = "") -> tuple[bool, Path, dict[str, Any]]:
     """Checks if a mocap model or checkpoint is already present locally."""
     spec = MOCAP_MODEL_REGISTRY.get(model_key, {})
     repo_id = (custom_repo_id or spec.get("repo_id") or model_key).strip()
-    subfolder = spec.get("subfolder") or repo_id.replace("/", "_")
-    target_dir = get_mocap_models_root() / subfolder
+    subfolder = _mocap_subfolder(spec, repo_id, custom_repo_id)
+    root = get_mocap_models_root().resolve()
+    target_dir = (root / subfolder).resolve()
+    if os.path.commonpath([os.path.normcase(str(root)), os.path.normcase(str(target_dir))]) != os.path.normcase(str(root)):
+        target_dir = root / "mocap_model"
     manifest_path = target_dir / ".ziggart_cached_manifest.json"
 
     if manifest_path.is_file():
@@ -174,8 +187,11 @@ def download_mocap_model(model_key: str, custom_repo_id: str = "", force_recheck
     """Downloads or verifies mocap weights in the persistent cache."""
     spec = MOCAP_MODEL_REGISTRY.get(model_key, {})
     repo_id = (custom_repo_id or spec.get("repo_id") or model_key).strip()
-    subfolder = spec.get("subfolder") or repo_id.replace("/", "_")
-    target_dir = get_mocap_models_root() / subfolder
+    subfolder = _mocap_subfolder(spec, repo_id, custom_repo_id)
+    root = get_mocap_models_root().resolve()
+    target_dir = (root / subfolder).resolve()
+    if os.path.commonpath([os.path.normcase(str(root)), os.path.normcase(str(target_dir))]) != os.path.normcase(str(root)):
+        target_dir = root / "mocap_model"
     target_dir.mkdir(parents=True, exist_ok=True)
 
     cached, _, manifest = is_mocap_model_cached(model_key, custom_repo_id)
@@ -195,21 +211,23 @@ def download_mocap_model(model_key: str, custom_repo_id: str = "", force_recheck
         snapshot_download(
             repo_id=repo_id,
             local_dir=str(target_dir),
-            local_dir_use_symlinks=False,
             ignore_patterns=["*.git*", "*.md", "*.png", "*.jpg"],
         )
     except Exception as e:
-        # If network error or gated, write placeholder manifest so local manual downloads can take over
+        # Do NOT write status='ready' on download failure so subsequent checks still know weights are pending
         manifest = {
-            "status": "ready",
+            "status": "offline_pending",
             "repo_id": repo_id,
             "model_key": model_key,
             "note": f"Manual drop-in or offline mode: {e}",
-            "downloaded_at": time.time(),
+            "checked_at": time.time(),
         }
-        (target_dir / ".ziggart_cached_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        try:
+            (target_dir / ".ziggart_cached_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        except Exception:
+            pass
         return {
-            "status": "ready",
+            "status": "offline_pending",
             "model_key": model_key,
             "repo_id": repo_id,
             "target_dir": str(target_dir),
@@ -417,6 +435,7 @@ def run_flowhmr_motion_extraction(
     flow_steps: int = 15,
     sampling_guidance: float = 1.25,
     temporal_window: int = 64,
+    fps: float = 30.0,
 ) -> dict[str, Any]:
     """
     Executes the FlowHMR video-conditioned flow matching motion extraction.
@@ -440,7 +459,9 @@ def run_flowhmr_motion_extraction(
     root_trans = np.zeros((num_frames, 3), dtype=np.float32)
 
     # Extract temporal optical flow / movement centroids for conditioning
-    # Analyze frame-to-frame intensity deltas
+    max_frame_val = float(np.max(frames)) if frames.size else 1.0
+    scale_denom = 255.0 if max_frame_val > 1.5 else 1.0
+    eff_fps = max(1.0, float(fps))
     gray_frames = [
         np.dot(frames[i, ..., :3], [0.2989, 0.5870, 0.1140]).astype(np.float32)
         for i in range(num_frames)
@@ -450,10 +471,10 @@ def run_flowhmr_motion_extraction(
         cur_gray = gray_frames[t]
         prev_gray = gray_frames[max(0, t - 1)]
         diff = np.abs(cur_gray - prev_gray)
-        motion_energy = float(np.mean(diff) / 255.0)
+        motion_energy = float(np.mean(diff) / scale_denom)
 
         # Natural biological breathing and kinetic baseline
-        phase = 2.0 * math.pi * (t / 30.0)
+        phase = 2.0 * math.pi * (t / eff_fps)
         spine_sway = 2.5 * math.sin(phase * 0.8) * (1.0 + motion_energy * 2.0)
         arm_swing = 12.0 * math.sin(phase * 1.2) * (1.0 + motion_energy * 3.0)
         hip_bounce = 0.025 * math.sin(phase * 2.4) * (1.0 + motion_energy * 1.5)
@@ -515,29 +536,29 @@ def export_mocap_to_bvh(
     frame_count = len(rotations_list)
     frame_time = 1.0 / max(fps, 1.0)
 
-    # Full 17-joint Humanoid BVH Skeleton Template (depth-first channel order)
+    # Full 17-joint Humanoid BVH Skeleton Template (meters + Z-Y-X Euler order matching retargeter)
     bvh_header = (
         "HIERARCHY\n"
         "ROOT Hips\n"
         "{\n"
         "\tOFFSET 0.00 0.00 0.00\n"
-        "\tCHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation\n"
+        "\tCHANNELS 6 Xposition Yposition Zposition Zrotation Yrotation Xrotation\n"
         "\tJOINT Spine\n"
         "\t{\n"
         "\t\tOFFSET 0.00 0.14 0.00\n"
-        "\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\tCHANNELS 3 Zrotation Yrotation Xrotation\n"
         "\t\tJOINT Chest\n"
         "\t\t{\n"
         "\t\t\tOFFSET 0.00 0.14 0.00\n"
-        "\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\tCHANNELS 3 Zrotation Yrotation Xrotation\n"
         "\t\t\tJOINT Neck\n"
         "\t\t\t{\n"
         "\t\t\t\tOFFSET 0.00 0.18 0.00\n"
-        "\t\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\t\tCHANNELS 3 Zrotation Yrotation Xrotation\n"
         "\t\t\t\tJOINT Head\n"
         "\t\t\t\t{\n"
         "\t\t\t\t\tOFFSET 0.00 0.10 0.00\n"
-        "\t\t\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\t\t\tCHANNELS 3 Zrotation Yrotation Xrotation\n"
         "\t\t\t\t\tEnd Site\n"
         "\t\t\t\t\t{\n"
         "\t\t\t\t\t\tOFFSET 0.00 0.10 0.00\n"
@@ -547,15 +568,15 @@ def export_mocap_to_bvh(
         "\t\t\tJOINT LeftUpperArm\n"
         "\t\t\t{\n"
         "\t\t\t\tOFFSET 0.16 0.10 0.00\n"
-        "\t\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\t\tCHANNELS 3 Zrotation Yrotation Xrotation\n"
         "\t\t\t\tJOINT LeftLowerArm\n"
         "\t\t\t\t{\n"
         "\t\t\t\t\tOFFSET 0.17 0.00 0.00\n"
-        "\t\t\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\t\t\tCHANNELS 3 Zrotation Yrotation Xrotation\n"
         "\t\t\t\t\tJOINT LeftHand\n"
         "\t\t\t\t\t{\n"
         "\t\t\t\t\t\tOFFSET 0.15 0.00 0.00\n"
-        "\t\t\t\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\t\t\t\tCHANNELS 3 Zrotation Yrotation Xrotation\n"
         "\t\t\t\t\t\tEnd Site\n"
         "\t\t\t\t\t\t{\n"
         "\t\t\t\t\t\t\tOFFSET 0.08 0.00 0.00\n"
@@ -566,15 +587,15 @@ def export_mocap_to_bvh(
         "\t\t\tJOINT RightUpperArm\n"
         "\t\t\t{\n"
         "\t\t\t\tOFFSET -0.16 0.10 0.00\n"
-        "\t\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\t\tCHANNELS 3 Zrotation Yrotation Xrotation\n"
         "\t\t\t\tJOINT RightLowerArm\n"
         "\t\t\t\t{\n"
         "\t\t\t\t\tOFFSET -0.17 0.00 0.00\n"
-        "\t\t\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\t\t\tCHANNELS 3 Zrotation Yrotation Xrotation\n"
         "\t\t\t\t\tJOINT RightHand\n"
         "\t\t\t\t\t{\n"
         "\t\t\t\t\t\tOFFSET -0.15 0.00 0.00\n"
-        "\t\t\t\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\t\t\t\tCHANNELS 3 Zrotation Yrotation Xrotation\n"
         "\t\t\t\t\t\tEnd Site\n"
         "\t\t\t\t\t\t{\n"
         "\t\t\t\t\t\t\tOFFSET -0.08 0.00 0.00\n"
@@ -587,15 +608,15 @@ def export_mocap_to_bvh(
         "\tJOINT LeftUpperLeg\n"
         "\t{\n"
         "\t\tOFFSET 0.09 -0.04 0.00\n"
-        "\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\tCHANNELS 3 Zrotation Yrotation Xrotation\n"
         "\t\tJOINT LeftLowerLeg\n"
         "\t\t{\n"
         "\t\t\tOFFSET 0.00 -0.32 0.00\n"
-        "\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\tCHANNELS 3 Zrotation Yrotation Xrotation\n"
         "\t\t\tJOINT LeftFoot\n"
         "\t\t\t{\n"
         "\t\t\t\tOFFSET 0.00 -0.30 0.03\n"
-        "\t\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\t\tCHANNELS 3 Zrotation Yrotation Xrotation\n"
         "\t\t\t\tEnd Site\n"
         "\t\t\t\t{\n"
         "\t\t\t\t\tOFFSET 0.00 -0.04 0.08\n"
@@ -606,15 +627,15 @@ def export_mocap_to_bvh(
         "\tJOINT RightUpperLeg\n"
         "\t{\n"
         "\t\tOFFSET -0.09 -0.04 0.00\n"
-        "\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\tCHANNELS 3 Zrotation Yrotation Xrotation\n"
         "\t\tJOINT RightLowerLeg\n"
         "\t\t{\n"
         "\t\t\tOFFSET 0.00 -0.32 0.00\n"
-        "\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\tCHANNELS 3 Zrotation Yrotation Xrotation\n"
         "\t\t\tJOINT RightFoot\n"
         "\t\t\t{\n"
         "\t\t\t\tOFFSET 0.00 -0.30 0.03\n"
-        "\t\t\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\t\t\tCHANNELS 3 Zrotation Yrotation Xrotation\n"
         "\t\t\t\tEnd Site\n"
         "\t\t\t\t{\n"
         "\t\t\t\t\tOFFSET 0.00 -0.04 0.08\n"
@@ -652,10 +673,10 @@ def export_mocap_to_bvh(
     for idx in range(frame_count):
         t = trans_list[idx] if idx < len(trans_list) else [0.0, 0.0, 0.0]
         r = rotations_list[idx] if idx < len(rotations_list) else {}
-        frame_vals: list[float] = [float(t[0]) * 100.0, float(t[1]) * 100.0, float(t[2]) * 100.0]
+        frame_vals: list[float] = [float(t[0]), float(t[1]), float(t[2])]
         for j_name in joint_order:
             j_rot = r.get(j_name, [0.0, 0.0, 0.0])
-            frame_vals.extend([float(j_rot[2]), float(j_rot[0]), float(j_rot[1])])
+            frame_vals.extend([float(j_rot[2]), float(j_rot[1]), float(j_rot[0])])
         lines.append(" ".join(f"{v:.4f}" for v in frame_vals) + "\n")
 
     out_p.write_text("".join(lines), encoding="utf-8")
@@ -765,6 +786,10 @@ class ZiggartFlowHMRWebcamCapture:
             },
         }
 
+    @classmethod
+    def IS_CHANGED(cls, **kwargs: Any) -> float:
+        return time.time()
+
     def capture_webcam(
         self,
         camera_index: int = 0,
@@ -775,10 +800,15 @@ class ZiggartFlowHMRWebcamCapture:
         num_frames = int(duration_seconds * target_fps)
         frames_list: list[np.ndarray] = []
 
+        cap = None
         try:
             import cv2  # type: ignore
 
-            cap = cv2.VideoCapture(int(camera_index))
+            idx_int = int(camera_index)
+            cap = cv2.VideoCapture(idx_int, cv2.CAP_DSHOW) if os.name == "nt" and hasattr(cv2, "CAP_DSHOW") else cv2.VideoCapture(idx_int)
+            if not cap.isOpened() and os.name == "nt":
+                cap.release()
+                cap = cv2.VideoCapture(idx_int)
             if cap.isOpened():
                 for _ in range(num_frames):
                     ret, frame = cap.read()
@@ -787,9 +817,14 @@ class ZiggartFlowHMRWebcamCapture:
                     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     rgb_resized = cv2.resize(rgb, (resolution, resolution), interpolation=cv2.INTER_AREA)
                     frames_list.append(rgb_resized.astype(np.float32) / 255.0)
-                cap.release()
         except Exception:
             pass
+        finally:
+            if cap is not None:
+                try:
+                    cap.release()
+                except Exception:
+                    pass
 
         # Fallback if webcam is not present or in headless test environment:
         if not frames_list:
@@ -860,6 +895,7 @@ class ZiggartFlowHMRVideoExtractor:
             flowhmr_model,
             camera_mode=cam_mode,
             flow_steps=int(flow_steps),
+            fps=float(fps),
         )
 
         # Retarget to VRM standard
@@ -927,9 +963,38 @@ class ZiggartMocapRetargetVRM:
     ) -> tuple[dict[str, Any], str]:
         cloned = copy.deepcopy(mocap_data)
         rotations = cloned.get("bone_rotations_deg", [])
+        smooth = float(np.clip(temporal_smoothing, 0.0, 0.95))
+        if smooth > 0.0 and isinstance(rotations, list) and len(rotations) > 1:
+            alpha = float(np.clip(1.0 - smooth, 0.05, 1.0))
+            smoothed_rots: list[dict[str, list[float]]] = []
+            prev_rot: dict[str, list[float]] = {}
+            for frame_dict in rotations:
+                if not isinstance(frame_dict, dict):
+                    smoothed_rots.append(frame_dict)
+                    continue
+                cur_out: dict[str, list[float]] = {}
+                for b_name, rot_vec in frame_dict.items():
+                    vec = [float(rot_vec[0]), float(rot_vec[1]), float(rot_vec[2])]
+                    if b_name in prev_rot:
+                        p = prev_rot[b_name]
+                        vec = [
+                            alpha * vec[0] + (1.0 - alpha) * p[0],
+                            alpha * vec[1] + (1.0 - alpha) * p[1],
+                            alpha * vec[2] + (1.0 - alpha) * p[2],
+                        ]
+                    cur_out[b_name] = vec
+                    prev_rot[b_name] = vec
+                smoothed_rots.append(cur_out)
+            cloned["bone_rotations_deg"] = smoothed_rots
+            rotations = smoothed_rots
+
         trans = np.asarray(cloned.get("root_translations", []), dtype=np.float32)
 
         if trans.ndim == 2 and len(trans) > 0:
+            if smooth > 0.0 and len(trans) > 1:
+                alpha = float(np.clip(1.0 - smooth, 0.05, 1.0))
+                for f_i in range(1, len(trans)):
+                    trans[f_i] = alpha * trans[f_i] + (1.0 - alpha) * trans[f_i - 1]
             if ground_snap:
                 min_y = float(np.min(trans[:, 1]))
                 trans[:, 1] = trans[:, 1] - min_y
@@ -1098,10 +1163,27 @@ class ZiggartMocapExporter:
         if fmt == "bvh":
             res_p = export_mocap_to_bvh(mocap_data, target_path)
         elif fmt == "npz":
-            # Save poses and translations
-            poses = np.asarray(mocap_data.get("bone_rotations_deg", []))
-            trans = np.asarray(mocap_data.get("root_translations", []))
-            np.savez_compressed(target_path, poses=poses, translations=trans, fps=mocap_data.get("fps", 30.0))
+            # Save poses and translations as numeric float32 arrays (no pickled object arrays)
+            raw_rots = mocap_data.get("bone_rotations_deg", [])
+            joint_names = sorted({k for fr in raw_rots if isinstance(fr, dict) for k in fr.keys()})
+            if raw_rots and joint_names:
+                poses_num = np.zeros((len(raw_rots), len(joint_names), 3), dtype=np.float32)
+                for f_i, fr in enumerate(raw_rots):
+                    if isinstance(fr, dict):
+                        for j_i, j_name in enumerate(joint_names):
+                            v = fr.get(j_name)
+                            if isinstance(v, (list, tuple)) and len(v) == 3:
+                                poses_num[f_i, j_i] = [float(v[0]), float(v[1]), float(v[2])]
+            else:
+                poses_num = np.zeros((0, 0, 3), dtype=np.float32)
+            trans = np.asarray(mocap_data.get("root_translations", []), dtype=np.float32)
+            np.savez_compressed(
+                target_path,
+                poses=poses_num,
+                joint_names=np.asarray(joint_names, dtype=np.str_),
+                translations=trans,
+                fps=np.float32(mocap_data.get("fps", 30.0)),
+            )
             res_p = target_path
         else:
             target_path.write_text(json.dumps(mocap_data, indent=2), encoding="utf-8")

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import contextlib
-import functools
+import inspect
 from typing import Any, Callable
 
 import torch
@@ -16,17 +16,6 @@ except Exception:
 # ---------------------------------------------------------------------------
 # Startup Detection & Registry of Available Attention Backends
 # ---------------------------------------------------------------------------
-
-MAIN_BACKEND_ORDER = [
-    "auto",
-    "sage",
-    "flash",
-    "xformers",
-    "pytorch",
-    "sub_quad",
-    "split",
-    "basic",
-]
 
 _DETECTION_CACHE: dict[str, Any] | None = None
 _ORIGINAL_GLOBAL_ATTN: dict[str, Callable[..., Any]] = {}
@@ -232,17 +221,27 @@ def _unwrap_comfy_attn(fn: Callable[..., Any] | None) -> Callable[..., Any] | No
     return getattr(fn, "__wrapped__", fn)
 
 
-def _strip_override_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of kwargs without 'optimized_attention_override' in transformer_options."""
-    if "transformer_options" not in kwargs or not isinstance(kwargs["transformer_options"], dict):
-        return kwargs
-    t_opts = kwargs["transformer_options"]
-    if "optimized_attention_override" not in t_opts:
-        return kwargs
+def _strip_override_from_kwargs(
+    kwargs: dict[str, Any],
+    target_fn: Callable[..., Any] | None = None,
+) -> dict[str, Any]:
+    """Return a copy of kwargs safe to pass to an unwrapped ComfyUI attention function."""
     clean_kwargs = dict(kwargs)
-    clean_t_opts = dict(t_opts)
-    clean_t_opts.pop("optimized_attention_override", None)
-    clean_kwargs["transformer_options"] = clean_t_opts
+    if "transformer_options" in clean_kwargs and isinstance(clean_kwargs["transformer_options"], dict):
+        t_opts = clean_kwargs["transformer_options"]
+        if "optimized_attention_override" in t_opts:
+            clean_t_opts = dict(t_opts)
+            clean_t_opts.pop("optimized_attention_override", None)
+            clean_kwargs["transformer_options"] = clean_t_opts
+    if target_fn is not None and clean_kwargs:
+        try:
+            sig = inspect.signature(target_fn)
+            has_varkw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+            if not has_varkw:
+                accepted = set(sig.parameters.keys())
+                clean_kwargs = {k: v for k, v in clean_kwargs.items() if k in accepted}
+        except (TypeError, ValueError):
+            pass
     return clean_kwargs
 
 
@@ -259,9 +258,9 @@ def _to_b_h_n_d(
         return q, k, v, b, dim_head
     b, _, dim_total = q.shape
     dim_head = dim_total // heads
-    q_4d = q.view(b, -1, heads, dim_head).transpose(1, 2)
-    k_4d = k.view(b, -1, heads, dim_head).transpose(1, 2)
-    v_4d = v.view(b, -1, heads, dim_head).transpose(1, 2)
+    q_4d = q.reshape(b, -1, heads, dim_head).transpose(1, 2)
+    k_4d = k.reshape(b, -1, heads, dim_head).transpose(1, 2)
+    v_4d = v.reshape(b, -1, heads, dim_head).transpose(1, 2)
     return q_4d, k_4d, v_4d, b, dim_head
 
 
@@ -282,8 +281,7 @@ def _prepare_mask_for_sdpa(
     mask: torch.Tensor | None,
     b: int,
     heads: int,
-    q_len: int,
-     dtype: torch.dtype,
+    dtype: torch.dtype,
     device: torch.device,
 ) -> torch.Tensor | None:
     """Normalize ComfyUI attention mask for F.scaled_dot_product_attention."""
@@ -297,10 +295,10 @@ def _prepare_mask_for_sdpa(
         return mask.unsqueeze(0).unsqueeze(0)
     if mask.ndim == 3:
         if mask.shape[0] == b * heads:
-            return mask.view(b, heads, mask.shape[-2], mask.shape[-1])
-        if mask.shape[0] == b:
+            return mask.reshape(b, heads, mask.shape[-2], mask.shape[-1])
+        if mask.shape[0] == b or mask.shape[0] == 1:
             return mask.unsqueeze(1)
-        return mask.view(b, -1, mask.shape[-2], mask.shape[-1])
+        return mask.reshape(b, -1, mask.shape[-2], mask.shape[-1])
     return mask
 
 
@@ -313,31 +311,33 @@ def _sdpa_kernel_context(sub_kernel: str):
 
     det = detect_available_attentions()
     sdp_backends = det["pytorch"].get("sdp_backends", {})
+    cm: Any = None
 
     if sub_kernel in sdp_backends:
         try:
             from torch.nn.attention import sdpa_kernel
 
-            with sdpa_kernel(sdp_backends[sub_kernel]):
-                yield
-            return
+            cm = sdpa_kernel(sdp_backends[sub_kernel])
         except Exception:
-            pass
+            cm = None
 
-    if hasattr(torch.backends, "cuda") and hasattr(torch.backends.cuda, "sdp_kernel"):
+    if cm is None and hasattr(torch.backends, "cuda") and hasattr(torch.backends.cuda, "sdp_kernel"):
         kwargs = {
             "enable_flash": sub_kernel == "sdpa_flash",
             "enable_mem_efficient": sub_kernel == "sdpa_mem_efficient",
             "enable_math": sub_kernel == "sdpa_math",
         }
         try:
-            with torch.backends.cuda.sdp_kernel(**kwargs):
-                yield
-            return
+            cm = torch.backends.cuda.sdp_kernel(**kwargs)
         except Exception:
-            pass
+            cm = None
 
-    yield
+    if cm is None:
+        yield
+        return
+
+    with cm:
+        yield
 
 
 def _attention_basic_impl(
@@ -355,7 +355,7 @@ def _attention_basic_impl(
     if comfy_attention is not None and hasattr(comfy_attention, "attention_basic"):
         fn = _unwrap_comfy_attn(comfy_attention.attention_basic)
         if callable(fn):
-            clean_kwargs = _strip_override_from_kwargs(kwargs)
+            clean_kwargs = _strip_override_from_kwargs(kwargs, target_fn=fn)
             return fn(
                 q,
                 k,
@@ -372,9 +372,12 @@ def _attention_basic_impl(
     scale = dim_head**-0.5
     scores = torch.matmul(q_4d.float(), k_4d.float().transpose(-2, -1)) * scale
     if mask is not None:
-        m = _prepare_mask_for_sdpa(mask, b, heads, q_4d.shape[2], scores.dtype, scores.device)
+        m = _prepare_mask_for_sdpa(mask, b, heads, scores.dtype, scores.device)
         if m is not None:
-            scores = scores + m
+            if m.dtype == torch.bool:
+                scores = scores.masked_fill(~m, float("-inf"))
+            else:
+                scores = scores + m
     attn = torch.softmax(scores, dim=-1).to(v_4d.dtype)
     out = torch.matmul(attn, v_4d)
     return _from_b_h_n_d(out, b, heads, dim_head, skip_output_reshape)
@@ -393,9 +396,8 @@ def _attention_pytorch_impl(
     **kwargs: Any,
 ) -> torch.Tensor:
     """PyTorch scaled_dot_product_attention with optional SDPA kernel selection."""
-    # If default SDPA and ComfyUI's native attention_pytorch is available, we can use SDPA directly
     q_4d, k_4d, v_4d, b, dim_head = _to_b_h_n_d(q, k, v, heads, skip_reshape)
-    sdpa_mask = _prepare_mask_for_sdpa(mask, b, heads, q_4d.shape[2], q_4d.dtype, q_4d.device)
+    sdpa_mask = _prepare_mask_for_sdpa(mask, b, heads, q_4d.dtype, q_4d.device)
 
     with _sdpa_kernel_context(sub_kernel):
         out = F.scaled_dot_product_attention(
@@ -423,7 +425,6 @@ def _attention_sage_impl(
 ) -> torch.Tensor:
     """SageAttention implementation supporting auto, cuda_fp16, cuda_fp8, sm90, and triton sub-kernels."""
     if mask is not None:
-        # SageAttention does not accept arbitrary attention masks; fall back to PyTorch SDPA
         return _attention_pytorch_impl(
             q,
             k,
@@ -447,18 +448,21 @@ def _attention_sage_impl(
         sage_fn = sage_funcs.get("sage_auto") or next(iter(sage_funcs.values()))
 
     in_dtype = v.dtype
-    if q.dtype == torch.float32 or k.dtype == torch.float32 or v.dtype == torch.float32:
-        q, k, v = q.to(torch.float16), k.to(torch.float16), v.to(torch.float16)
+    target_dtype = q.dtype if q.dtype in (torch.float16, torch.bfloat16) else torch.float16
+    if q.dtype != target_dtype or k.dtype != target_dtype or v.dtype != target_dtype:
+        q = q.to(target_dtype)
+        k = k.to(target_dtype)
+        v = v.to(target_dtype)
 
     q_4d, k_4d, v_4d, b, dim_head = _to_b_h_n_d(q, k, v, heads, skip_reshape)
+    q_4d = q_4d.contiguous()
+    k_4d = k_4d.contiguous()
+    v_4d = v_4d.contiguous()
 
-    # Specific CUDA / Triton sub-kernels require contiguous tensors
-    if sub_kernel and sub_kernel != "auto" and sub_kernel != "sage_auto":
-        q_4d = q_4d.contiguous()
-        k_4d = k_4d.contiguous()
-        v_4d = v_4d.contiguous()
-
-    out = sage_fn(q_4d, k_4d, v_4d, tensor_layout="HND", is_causal=False)
+    try:
+        out = sage_fn(q_4d, k_4d, v_4d, tensor_layout="HND", is_causal=False)
+    except TypeError:
+        out = sage_fn(q_4d, k_4d, v_4d, is_causal=False)
     out = out.to(in_dtype)
     return _from_b_h_n_d(out, b, heads, dim_head, skip_output_reshape)
 
@@ -494,17 +498,19 @@ def _attention_flash_impl(
     if not flash_funcs:
         raise RuntimeError("FlashAttention is not installed or available on this system.")
 
-    if sub_kernel in flash_funcs:
-        flash_fn = flash_funcs[sub_kernel]
-    else:
-        flash_fn = flash_funcs.get("flash_v3") or flash_funcs.get("flash_v2") or next(iter(flash_funcs.values()))
+    selected_name = sub_kernel if sub_kernel in flash_funcs else (
+        "flash_v3" if "flash_v3" in flash_funcs else ("flash_v2" if "flash_v2" in flash_funcs else next(iter(flash_funcs.keys())))
+    )
+    flash_fn = flash_funcs[selected_name]
 
     in_dtype = v.dtype
-    if q.dtype == torch.float32 or k.dtype == torch.float32 or v.dtype == torch.float32:
-        q, k, v = q.to(torch.float16), k.to(torch.float16), v.to(torch.float16)
+    target_dtype = q.dtype if q.dtype in (torch.float16, torch.bfloat16) else torch.float16
+    if q.dtype != target_dtype or k.dtype != target_dtype or v.dtype != target_dtype:
+        q = q.to(target_dtype)
+        k = k.to(target_dtype)
+        v = v.to(target_dtype)
 
     if skip_reshape:
-        # Incoming is (B, H, N, D) -> transpose to (B, N, H, D)
         b, _, _, dim_head = q.shape
         q_nhd = q.transpose(1, 2).contiguous()
         k_nhd = k.transpose(1, 2).contiguous()
@@ -512,11 +518,17 @@ def _attention_flash_impl(
     else:
         b, _, dim_total = q.shape
         dim_head = dim_total // heads
-        q_nhd = q.view(b, -1, heads, dim_head).contiguous()
-        k_nhd = k.view(b, -1, heads, dim_head).contiguous()
-        v_nhd = v.view(b, -1, heads, dim_head).contiguous()
+        q_nhd = q.reshape(b, -1, heads, dim_head).contiguous()
+        k_nhd = k.reshape(b, -1, heads, dim_head).contiguous()
+        v_nhd = v.reshape(b, -1, heads, dim_head).contiguous()
 
-    res = flash_fn(q_nhd, k_nhd, v_nhd, dropout_p=0.0, causal=False)
+    if selected_name == "flash_v3":
+        res = flash_fn(q_nhd, k_nhd, v_nhd, causal=False)
+    else:
+        try:
+            res = flash_fn(q_nhd, k_nhd, v_nhd, dropout_p=0.0, causal=False)
+        except TypeError:
+            res = flash_fn(q_nhd, k_nhd, v_nhd, causal=False)
     out_nhd = res[0] if isinstance(res, tuple) else res
     out_nhd = out_nhd.to(in_dtype)
 
@@ -550,15 +562,26 @@ def _attention_xformers_impl(
     else:
         b, _, dim_total = q.shape
         dim_head = dim_total // heads
-        q_nhd = q.view(b, -1, heads, dim_head).contiguous()
-        k_nhd = k.view(b, -1, heads, dim_head).contiguous()
-        v_nhd = v.view(b, -1, heads, dim_head).contiguous()
+        q_nhd = q.reshape(b, -1, heads, dim_head).contiguous()
+        k_nhd = k.reshape(b, -1, heads, dim_head).contiguous()
+        v_nhd = v.reshape(b, -1, heads, dim_head).contiguous()
 
     attn_bias = None
     if mask is not None:
-        attn_bias = _prepare_mask_for_sdpa(mask, b, heads, q_nhd.shape[1], q_nhd.dtype, q_nhd.device)
-        if attn_bias is not None and attn_bias.shape[1] == 1 and heads > 1:
-            attn_bias = attn_bias.expand(b, heads, attn_bias.shape[-2], attn_bias.shape[-1]).contiguous()
+        attn_bias = _prepare_mask_for_sdpa(mask, b, heads, q_nhd.dtype, q_nhd.device)
+        if attn_bias is not None:
+            if attn_bias.dtype == torch.bool:
+                float_bias = torch.zeros(attn_bias.shape, dtype=q_nhd.dtype, device=q_nhd.device)
+                float_bias.masked_fill_(~attn_bias, float("-inf"))
+                attn_bias = float_bias
+            if attn_bias.shape[0] == 1 and b > 1 or attn_bias.shape[1] == 1 and heads > 1:
+                attn_bias = attn_bias.expand(b, heads, attn_bias.shape[-2], attn_bias.shape[-1]).contiguous()
+            k_len = k_nhd.shape[1]
+            rem = k_len % 8
+            if rem != 0:
+                pad_k = 8 - rem
+                padded_bias = F.pad(attn_bias, (0, pad_k), value=float("-inf"))
+                attn_bias = padded_bias[..., :k_len]
 
     out_nhd = xf_fn(q_nhd, k_nhd, v_nhd, attn_bias=attn_bias)
 
@@ -583,7 +606,7 @@ def _attention_comfy_named_impl(
     if comfy_attention is not None and hasattr(comfy_attention, attr_name):
         fn = _unwrap_comfy_attn(getattr(comfy_attention, attr_name))
         if callable(fn):
-            clean_kwargs = _strip_override_from_kwargs(kwargs)
+            clean_kwargs = _strip_override_from_kwargs(kwargs, target_fn=fn)
             return fn(
                 q,
                 k,
@@ -626,21 +649,23 @@ def make_attention_override(
             orig_func = None
             call_args = args
 
-        if len(call_args) >= 4:
-            q, k, v, heads = call_args[:4]
-            extra_pos = call_args[4:]
-        else:
-            q = kwargs.pop("q")
-            k = kwargs.pop("k")
-            v = kwargs.pop("v")
-            heads = kwargs.pop("heads")
-            extra_pos = ()
+        pos_names = ("q", "k", "v", "heads", "mask", "attn_precision", "skip_reshape", "skip_output_reshape")
+        resolved: dict[str, Any] = {}
+        for idx, val in enumerate(call_args):
+            if idx < len(pos_names):
+                resolved[pos_names[idx]] = val
 
-        # Unpack optional positional args (mask, attn_precision, skip_reshape, skip_output_reshape)
-        mask = kwargs.pop("mask", extra_pos[0] if len(extra_pos) > 0 else None)
-        attn_precision = kwargs.pop("attn_precision", extra_pos[1] if len(extra_pos) > 1 else None)
-        skip_reshape = kwargs.pop("skip_reshape", extra_pos[2] if len(extra_pos) > 2 else False)
-        skip_output_reshape = kwargs.pop("skip_output_reshape", extra_pos[3] if len(extra_pos) > 3 else False)
+        q = resolved.get("q", kwargs.pop("q", None))
+        k = resolved.get("k", kwargs.pop("k", None))
+        v = resolved.get("v", kwargs.pop("v", None))
+        heads = resolved.get("heads", kwargs.pop("heads", None))
+        if q is None or k is None or v is None or heads is None:
+            raise TypeError("Attention override requires q, k, v, and heads arguments.")
+
+        mask = resolved.get("mask", kwargs.pop("mask", None))
+        attn_precision = resolved.get("attn_precision", kwargs.pop("attn_precision", None))
+        skip_reshape = resolved.get("skip_reshape", kwargs.pop("skip_reshape", False))
+        skip_output_reshape = resolved.get("skip_output_reshape", kwargs.pop("skip_output_reshape", False))
 
         try:
             if attention == "sage":
@@ -736,7 +761,7 @@ def make_attention_override(
             # "auto" or unknown -> delegate to original unwrapped function if present
             if callable(orig_func):
                 unwrapped = _unwrap_comfy_attn(orig_func)
-                clean_kwargs = _strip_override_from_kwargs(kwargs)
+                clean_kwargs = _strip_override_from_kwargs(kwargs, target_fn=unwrapped)
                 return unwrapped(
                     q,
                     k,
@@ -957,8 +982,7 @@ class ZiggartAttentionSelector:
                 _apply_or_restore_global_override(override_fn)
                 global_state = "enabled (global + model)"
             else:
-                _apply_or_restore_global_override(None)
-                global_state = "disabled (per-model patch only)"
+                global_state = "disabled (per-model patch only)" if t_opts is not None else "no-op (model lacks model_options)"
 
         sub_note = effective_sub_kernel
         if sub_kernel != "auto" and effective_sub_kernel == "auto":

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import copy
 import fnmatch
 import io
 import json
+import math
 import os
 import queue
 import random
@@ -36,12 +38,19 @@ except Exception:
     PromptServer = None
     web = None
 
-from .embedded_model import MODEL_MANAGER, EmbeddedLlamaError, ModelConfig, strip_thinking_tags
+from .embedded_model import (
+    MODEL_MANAGER,
+    EmbeddedLlamaError,
+    ModelConfig,
+    build_json_schema_response_format,
+    strip_thinking_tags,
+)
 
 
 MODEL_FOLDER = "llm_gguf"
 NO_MODEL = "[No model GGUF found]"
 NO_MMPROJ = "[No mmproj GGUF found]"
+NO_MMPROJ_TEXT_ONLY = "[None (Text-Only LLM)]"
 
 
 def _register_model_folder() -> None:
@@ -74,15 +83,21 @@ def _gguf_files() -> tuple[list[str], list[str]]:
     return models or [NO_MODEL], projectors or [NO_MMPROJ]
 
 
-def _resolve_gguf(selected: str, override: str, label: str) -> str:
-    candidate = override.strip()
+def _resolve_gguf(selected: str, override: str, label: str, *, allow_empty: bool = False) -> str:
+    candidate = (override or "").strip()
     if candidate:
         path = Path(os.path.expandvars(os.path.expanduser(candidate))).resolve()
     else:
-        if selected in (NO_MODEL, NO_MMPROJ):
+        if allow_empty and selected in (NO_MMPROJ_TEXT_ONLY, "[Use vision_session]", "", NO_MMPROJ):
+            return ""
+        if selected in (NO_MODEL, NO_MMPROJ, NO_MMPROJ_TEXT_ONLY):
             raise ValueError(
                 f"No {label} was found. Put it in ComfyUI/models/LLM/GGUF and refresh "
                 f"ComfyUI, or provide an absolute {label} path in the advanced field."
+            )
+        if folder_paths is None:
+            raise ValueError(
+                f"Could not resolve selected {label} outside ComfyUI without an override path: {selected}"
             )
         full_path = folder_paths.get_full_path(MODEL_FOLDER, selected)
         if not full_path:
@@ -154,6 +169,117 @@ def image_to_thumbnail_uri(image: Any, max_dimension: int = 384) -> str:
     return f"data:image/jpeg;base64,{encoded}"
 
 
+def _tensor_to_uint8_rgb(image: Any, max_dimension: int = 2048) -> np.ndarray | None:
+    """Convert one Comfy IMAGE tensor/array (HWC float 0..1) into an RGB uint8 numpy array."""
+    if image is None:
+        return None
+    if hasattr(image, "detach"):
+        image = image.detach().cpu().float().numpy()
+    array = np.asarray(image)
+    if array.ndim != 3 or array.shape[-1] not in (1, 3, 4):
+        return None
+    array = np.nan_to_num(array, nan=0.0, posinf=1.0, neginf=0.0)
+    array = (np.clip(array, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
+    if array.shape[-1] == 1:
+        array = np.repeat(array, 3, axis=-1)
+    if array.shape[-1] == 4:
+        rgb = array[..., :3].astype(np.float32)
+        alpha = array[..., 3:4].astype(np.float32) / 255.0
+        array = (rgb * alpha + 0.5).astype(np.uint8)
+    if max_dimension > 0 and max(array.shape[0], array.shape[1]) > max_dimension:
+        pil_img = Image.fromarray(array)
+        scale = max_dimension / max(pil_img.size)
+        target = (
+            max(1, round(pil_img.width * scale)),
+            max(1, round(pil_img.height * scale)),
+        )
+        pil_img = pil_img.resize(target, Image.Resampling.LANCZOS)
+        return np.asarray(pil_img, dtype=np.uint8)
+    return array
+
+
+VISION_CAPTION_PRESETS: dict[str, dict[str, str]] = {
+    "custom (use system_prompt & prompt)": {
+        "system": "",
+        "prompt": "",
+    },
+    "krea2_qwen3vl_prose": {
+        "system": (
+            "You are an expert Krea2 / Qwen3VL image prompt writer. Produce a single cohesive, "
+            "high-signal visual generation prompt with zero markdown headers, zero bullet points, "
+            "and zero conversational preamble."
+        ),
+        "prompt": (
+            "Describe this image as a single continuous Krea2 generation prompt covering subject identity, "
+            "appearance, attire, pose, spatial placement, environment, lighting, camera framing, and artistic medium."
+        ),
+    },
+    "flux_detailed_description": {
+        "system": (
+            "You are an expert Flux / SD3 prompt engineer. Write vivid, concrete natural-language "
+            "descriptions grounded strictly in what is visible. Output only the prompt text."
+        ),
+        "prompt": (
+            "Write a detailed natural-language Flux generation prompt describing the visual scene, "
+            "materials, textures, colors, lighting direction, lens qualities, and composition."
+        ),
+    },
+    "danbooru_pony_tags": {
+        "system": (
+            "You are an anime/illustration tagger. Output ONLY comma-separated Danbooru-style tags "
+            "in lowercase, ordered from subject count and character traits to clothing, pose, setting, and style."
+        ),
+        "prompt": (
+            "Tag every visible element of this image as clean comma-separated Danbooru tags. "
+            "Do not write full sentences or explanations."
+        ),
+    },
+    "lora_neutral_ground_truth": {
+        "system": (
+            "You are a neutral LoRA dataset captioner. Describe only objective visual facts in plain "
+            "prose without subjective quality buzzwords like masterpiece, best quality, 8k, or stunning."
+        ),
+        "prompt": (
+            "Write an accurate, objective single-line training caption describing the subject, clothing, "
+            "pose, background, lighting, and camera angle."
+        ),
+    },
+    "json_structured_metadata": {
+        "system": (
+            "You are a visual metadata extractor. Return ONLY a valid JSON object with keys: "
+            '"subject", "pose", "attire", "setting", "lighting", "style", "tags".'
+        ),
+        "prompt": (
+            "Analyze the image and return structured JSON metadata describing subject, pose, attire, "
+            "setting, lighting, artistic style, and concise tags."
+        ),
+    },
+}
+
+_VERBOSITY_INSTRUCTIONS: dict[str, str] = {
+    "short": "Keep the output concise (around 35-60 words or 10-18 tags).",
+    "medium": "Use balanced detail (around 75-130 words or 20-35 tags).",
+    "detailed": "Be richly detailed and thorough (around 140-220 words or 35-60 tags).",
+}
+
+
+def _resolve_caption_prompts(
+    caption_preset: str,
+    verbosity: str,
+    system_prompt: str,
+    prompt: str,
+) -> tuple[str, str]:
+    preset = VISION_CAPTION_PRESETS.get(caption_preset)
+    if not preset or caption_preset == "custom (use system_prompt & prompt)":
+        return system_prompt, prompt
+    eff_sys = preset["system"]
+    verb_note = _VERBOSITY_INSTRUCTIONS.get(verbosity, "")
+    eff_prompt = preset["prompt"]
+    if verb_note:
+        eff_prompt = f"{eff_prompt} {verb_note}"
+    return eff_sys, eff_prompt
+
+
 @dataclass(frozen=True)
 class VisionChatSession:
     """Immutable snapshot of a GGUF Vision Prompt run for multi-turn interactive review & chat."""
@@ -172,6 +298,7 @@ class VisionChatSession:
     top_k: int = 40
     seed: int = -1
     enable_thinking: bool = False
+    source_image_rgb: Any = None
 
 
 def _resolve_vlm_node_config(
@@ -185,11 +312,22 @@ def _resolve_vlm_node_config(
     flash_attention: bool,
     mmproj_on_gpu: bool,
     vlm_config: ModelConfig | None = None,
+    *,
+    allow_empty_mmproj: bool = False,
+    enable_prefix_cache: bool = True,
+    prefix_cache_mb: int = 256,
+    kv_cache_type: str = "f16",
+    n_batch: int = 512,
 ) -> ModelConfig:
     if isinstance(vlm_config, ModelConfig):
         return vlm_config
     model_path = _resolve_gguf(model, model_path_override, "model GGUF")
-    projector_path = _resolve_gguf(mmproj, mmproj_path_override, "mmproj GGUF")
+    projector_path = _resolve_gguf(
+        mmproj,
+        mmproj_path_override,
+        "mmproj GGUF",
+        allow_empty=allow_empty_mmproj,
+    )
     return ModelConfig(
         model_path=model_path,
         mmproj_path=projector_path,
@@ -198,6 +336,10 @@ def _resolve_vlm_node_config(
         threads=int(threads),
         flash_attention=bool(flash_attention),
         mmproj_on_gpu=bool(mmproj_on_gpu),
+        enable_prefix_cache=bool(enable_prefix_cache),
+        prefix_cache_mb=int(prefix_cache_mb),
+        kv_cache_type=str(kv_cache_type or "f16"),
+        n_batch=int(n_batch),
     )
 
 
@@ -287,8 +429,25 @@ class GGUFVisionPrompt:
                 ),
                 "max_tokens": ("INT", {"default": 1024, "min": 1, "max": 32768}),
                 "temperature": ("FLOAT", {"default": 0.2, "min": 0.0, "max": 2.0, "step": 0.05}),
-                "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "top_k": ("INT", {"default": 40, "min": 0, "max": 1000}),
+                "top_p": (
+                    "FLOAT",
+                    {
+                        "default": -1.0,
+                        "min": -1.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "tooltip": "-1.0 = inherit from vision_session (or default 0.9).",
+                    },
+                ),
+                "top_k": (
+                    "INT",
+                    {
+                        "default": -1,
+                        "min": -1,
+                        "max": 1000,
+                        "tooltip": "-1 = inherit from vision_session (or default 40).",
+                    },
+                ),
                 "seed": ("INT", {"default": -1, "min": -1, "max": 0x7FFFFFFF}),
                 "context_size": ("INT", {"default": 8192, "min": 2048, "max": 262144, "step": 1024}),
                 "gpu_layers": (
@@ -327,8 +486,28 @@ class GGUFVisionPrompt:
                         "tooltip": "Optional shared VLM configuration from GGUF VLM Loader (overrides local model/mmproj settings)."
                     },
                 ),
+                "caption_preset": (
+                    list(VISION_CAPTION_PRESETS.keys()),
+                    {
+                        "default": "custom (use system_prompt & prompt)",
+                        "tooltip": "Optional captioning style preset; leave on 'custom' to use your own system_prompt and prompt.",
+                    },
+                ),
+                "verbosity": (
+                    ["medium", "short", "detailed"],
+                    {
+                        "default": "medium",
+                        "tooltip": "Target description length when a caption_preset is active.",
+                    },
+                ),
             },
         }
+
+    @classmethod
+    def IS_CHANGED(cls, seed: int = -1, **kwargs: Any) -> Any:
+        if int(seed) < 0:
+            return float("nan")
+        return None
 
     def generate(
         self,
@@ -359,6 +538,8 @@ class GGUFVisionPrompt:
         model_path_override="",
         mmproj_path_override="",
         vlm_config=None,
+        caption_preset="custom (use system_prompt & prompt)",
+        verbosity="medium",
     ):
         config = _resolve_vlm_node_config(
             model=model,
@@ -371,6 +552,9 @@ class GGUFVisionPrompt:
             flash_attention=flash_attention,
             mmproj_on_gpu=mmproj_on_gpu,
             vlm_config=vlm_config,
+        )
+        eff_system_prompt, eff_prompt = _resolve_caption_prompts(
+            caption_preset, verbosity, system_prompt, prompt
         )
 
         try:
@@ -409,10 +593,10 @@ class GGUFVisionPrompt:
             )
 
             def specialist_system_message():
-                return system_prompt.strip() or fallback_specialist_system
+                return eff_system_prompt.strip() or fallback_specialist_system
 
             def specialist_instruction(pass_name):
-                custom_prompt = prompt.strip()
+                custom_prompt = eff_prompt.strip()
                 if not custom_prompt:
                     return pass_prompts[pass_name]
                 return (
@@ -467,27 +651,34 @@ class GGUFVisionPrompt:
                     )
                 return content
 
-            def infer(messages):
+            def infer(messages, item_seed: int):
                 return MODEL_MANAGER.chat(
                     messages,
                     max_tokens=int(max_tokens),
                     temperature=float(temperature),
                     top_p=float(top_p),
                     top_k=int(top_k),
-                    seed=int(seed),
+                    seed=item_seed,
                     enable_thinking=bool(enable_thinking),
                 )
 
             first_visual_parts: list[dict[str, Any]] = []
             first_messages: list[dict[str, Any]] = []
             thumbnail_uri = ""
+            source_rgb_0: np.ndarray | None = None
             if len(image) > 0:
                 try:
                     thumbnail_uri = image_to_thumbnail_uri(image[0], 384)
                 except Exception:
                     thumbnail_uri = ""
+                try:
+                    source_rgb_0 = _tensor_to_uint8_rgb(image[0], max_dimension=2048)
+                except Exception:
+                    source_rgb_0 = None
 
+            base_seed = int(seed)
             for index in range(len(image)):
+                item_seed = base_seed if base_seed < 0 else int((base_seed + index * 13) & 0x7FFFFFFF)
                 notes = []
                 for pass_name, enabled in enabled_passes.items():
                     if not enabled:
@@ -504,11 +695,11 @@ class GGUFVisionPrompt:
                             ),
                         },
                     ]
-                    result = infer(specialist_messages)
+                    result = infer(specialist_messages, item_seed)
                     pass_results[pass_name].append(result)
                     notes.append(f"{pass_name.title()} analysis:\n{result}")
 
-                final_instruction = prompt
+                final_instruction = eff_prompt
                 if notes:
                     final_instruction += (
                         "\n\nSpecialist analysis notes are provided below. Use them as evidence, resolve any "
@@ -517,10 +708,10 @@ class GGUFVisionPrompt:
                     )
                 user_visual_content = visual_content(index, final_instruction)
                 messages = []
-                if system_prompt.strip():
-                    messages.append({"role": "system", "content": system_prompt})
+                if eff_system_prompt.strip():
+                    messages.append({"role": "system", "content": eff_system_prompt})
                 messages.append({"role": "user", "content": user_visual_content})
-                answer_text = infer(messages)
+                answer_text = infer(messages, item_seed)
                 answers.append(answer_text)
                 if index == 0:
                     first_visual_parts = [
@@ -535,15 +726,16 @@ class GGUFVisionPrompt:
 
             separator = "\n\n---\n\n"
             joined_answer = separator.join(answers)
+            first_answer = answers[0] if answers else ""
             session_messages = copy.deepcopy(first_messages)
             if session_messages:
-                session_messages.append({"role": "assistant", "content": joined_answer})
+                session_messages.append({"role": "assistant", "content": first_answer})
             vision_session = VisionChatSession(
                 model_config=config,
                 unload_comfy_models_before=bool(unload_comfy_models_before),
-                system_prompt=str(system_prompt or ""),
-                initial_prompt=str(prompt or ""),
-                initial_answer=joined_answer,
+                system_prompt=str(eff_system_prompt or ""),
+                initial_prompt=str(eff_prompt or ""),
+                initial_answer=first_answer,
                 visual_parts=first_visual_parts,
                 messages=session_messages,
                 thumbnail_uri=thumbnail_uri,
@@ -553,6 +745,7 @@ class GGUFVisionPrompt:
                 top_k=int(top_k),
                 seed=int(seed),
                 enable_thinking=bool(enable_thinking),
+                source_image_rgb=source_rgb_0,
             )
             return (
                 joined_answer,
@@ -569,17 +762,18 @@ class GGUFVisionPrompt:
 
 
 class ZiggartGGUFVLMLoader:
-    """Shared GGUF Vision-Language model configuration node."""
+    """Shared GGUF Vision-Language (or text-only GGUF LLM) model configuration node."""
 
     DESCRIPTION = (
-        "Creates a reusable GGUF_VL_MODEL configuration that can be shared across "
-        "GGUF Vision Prompt, Detailers Krea2, and WeVisOne-VL Detector nodes."
+        "Creates a reusable GGUF_VL_MODEL configuration shared across GGUF Vision Prompt, "
+        "Batch Captioner, Detailers, and Wildcard Harmonizer (select [None (Text-Only LLM)] "
+        "in mmproj for pure text models)."
     )
     CATEGORY = "Ziggart/LLM"
     FUNCTION = "create_config"
     RETURN_TYPES = ("GGUF_VL_MODEL",)
     RETURN_NAMES = ("vlm_config",)
-    OUTPUT_TOOLTIPS = ("Shared GGUF VLM configuration object.",)
+    OUTPUT_TOOLTIPS = ("Shared GGUF VLM / LLM configuration object.",)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -587,7 +781,10 @@ class ZiggartGGUFVLMLoader:
         return {
             "required": {
                 "model": (models, {"tooltip": "Language-model GGUF from models/LLM/GGUF."}),
-                "mmproj": (projectors, {"tooltip": "Matching mmproj GGUF from models/LLM/GGUF."}),
+                "mmproj": (
+                    list(projectors) + [NO_MMPROJ_TEXT_ONLY],
+                    {"tooltip": "Matching mmproj GGUF, or '[None (Text-Only LLM)]' for pure text models."},
+                ),
                 "context_size": ("INT", {"default": 8192, "min": 1024, "max": 262144, "step": 1024}),
                 "gpu_layers": ("INT", {"default": -1, "min": -1, "max": 999}),
                 "threads": ("INT", {"default": max(1, (os.cpu_count() or 4) // 2), "min": 1, "max": 256}),
@@ -597,6 +794,19 @@ class ZiggartGGUFVLMLoader:
             "optional": {
                 "model_path_override": ("STRING", {"default": ""}),
                 "mmproj_path_override": ("STRING", {"default": ""}),
+                "kv_cache_type": (
+                    ["f16", "q8_0", "q4_0"],
+                    {
+                        "default": "f16",
+                        "tooltip": "Quantize KV cache ('q8_0' or 'q4_0') to fit larger contexts inside 8-16 GB VRAM.",
+                    },
+                ),
+                "n_batch": (
+                    "INT",
+                    {"default": 512, "min": 64, "max": 4096, "step": 64},
+                ),
+                "enable_prefix_cache": ("BOOLEAN", {"default": True}),
+                "prefix_cache_mb": ("INT", {"default": 256, "min": 16, "max": 4096, "step": 32}),
             },
         }
 
@@ -611,9 +821,15 @@ class ZiggartGGUFVLMLoader:
         mmproj_on_gpu: bool = True,
         model_path_override: str = "",
         mmproj_path_override: str = "",
+        kv_cache_type: str = "f16",
+        n_batch: int = 512,
+        enable_prefix_cache: bool = True,
+        prefix_cache_mb: int = 256,
     ) -> tuple[ModelConfig]:
         model_path = _resolve_gguf(model, model_path_override, "model GGUF")
-        projector_path = _resolve_gguf(mmproj, mmproj_path_override, "mmproj GGUF")
+        projector_path = _resolve_gguf(
+            mmproj, mmproj_path_override, "mmproj GGUF", allow_empty=True
+        )
         return (
             ModelConfig(
                 model_path=model_path,
@@ -623,6 +839,74 @@ class ZiggartGGUFVLMLoader:
                 threads=int(threads),
                 flash_attention=bool(flash_attention),
                 mmproj_on_gpu=bool(mmproj_on_gpu),
+                enable_prefix_cache=bool(enable_prefix_cache),
+                prefix_cache_mb=int(prefix_cache_mb),
+                kv_cache_type=str(kv_cache_type or "f16"),
+                n_batch=int(n_batch),
+            ),
+        )
+
+
+class ZiggartOpenAIVLMLoader:
+    """OpenAI-compatible remote/local server configuration (llama-server, Ollama, LM Studio, vLLM)."""
+
+    DESCRIPTION = (
+        "Connects any Ziggart VLM / Detailer / Captioner node to a running OpenAI-compatible "
+        "vision or text server (llama-server, Ollama, LM Studio, vLLM) without unloading ComfyUI diffusion models."
+    )
+    CATEGORY = "Ziggart/LLM"
+    FUNCTION = "create_config"
+    RETURN_TYPES = ("GGUF_VL_MODEL",)
+    RETURN_NAMES = ("vlm_config",)
+    OUTPUT_TOOLTIPS = ("Shared OpenAI-compatible VLM/LLM configuration object.",)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_base_url": (
+                    "STRING",
+                    {
+                        "default": "http://127.0.0.1:8080/v1",
+                        "tooltip": "Base URL of the OpenAI-compatible server (e.g. http://127.0.0.1:8080/v1 or http://127.0.0.1:11434/v1).",
+                    },
+                ),
+                "model_name": (
+                    "STRING",
+                    {
+                        "default": "local-vlm",
+                        "tooltip": "Model identifier served by the endpoint (e.g. qwen3-vl, llava, etc.).",
+                    },
+                ),
+                "context_size": ("INT", {"default": 8192, "min": 1024, "max": 262144, "step": 1024}),
+            },
+            "optional": {
+                "api_key": ("STRING", {"default": ""}),
+                "request_timeout": ("FLOAT", {"default": 120.0, "min": 5.0, "max": 600.0, "step": 5.0}),
+            },
+        }
+
+    def create_config(
+        self,
+        api_base_url: str = "http://127.0.0.1:8080/v1",
+        model_name: str = "local-vlm",
+        context_size: int = 8192,
+        api_key: str = "",
+        request_timeout: float = 120.0,
+    ) -> tuple[ModelConfig]:
+        cleaned_url = (api_base_url or "").strip().rstrip("/")
+        if not cleaned_url.startswith(("http://", "https://")):
+            raise ValueError(
+                f"api_base_url must start with http:// or https:// (got '{api_base_url}')."
+            )
+        return (
+            ModelConfig(
+                backend="openai_compatible",
+                api_base_url=cleaned_url,
+                api_key=(api_key or "").strip(),
+                api_model=(model_name or "local-vlm").strip(),
+                context_size=int(context_size),
+                request_timeout=float(request_timeout),
             ),
         )
 
@@ -801,8 +1085,25 @@ class ZiggartGGUFVisionPromptReviser:
                 ),
                 "max_tokens": ("INT", {"default": 1024, "min": 1, "max": 32768}),
                 "temperature": ("FLOAT", {"default": 0.15, "min": 0.0, "max": 2.0, "step": 0.05}),
-                "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "top_k": ("INT", {"default": 40, "min": 0, "max": 1000}),
+                "top_p": (
+                    "FLOAT",
+                    {
+                        "default": -1.0,
+                        "min": -1.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "tooltip": "-1.0 = inherit from vision_session (or default 0.9).",
+                    },
+                ),
+                "top_k": (
+                    "INT",
+                    {
+                        "default": -1,
+                        "min": -1,
+                        "max": 1000,
+                        "tooltip": "-1 = inherit from vision_session (or default 40).",
+                    },
+                ),
                 "seed": ("INT", {"default": -1, "min": -1, "max": 0x7FFFFFFF}),
                 "context_size": ("INT", {"default": 8192, "min": 2048, "max": 262144, "step": 1024}),
                 "gpu_layers": ("INT", {"default": -1, "min": -1, "max": 999}),
@@ -815,6 +1116,12 @@ class ZiggartGGUFVisionPromptReviser:
                 "vlm_config": ("GGUF_VL_MODEL",),
             },
         }
+
+    @classmethod
+    def IS_CHANGED(cls, seed: int = -1, **kwargs: Any) -> Any:
+        if int(seed) < 0:
+            return float("nan")
+        return None
 
     def revise(
         self,
@@ -873,6 +1180,26 @@ class ZiggartGGUFVisionPromptReviser:
 
         focus_desc = self.FOCUS_INSTRUCTIONS.get(revision_focus, self.FOCUS_INSTRUCTIONS["all"])
         mode_desc = self.MODE_INSTRUCTIONS.get(revision_mode, self.MODE_INSTRUCTIONS["surgical_edit"])
+        response_schema = build_json_schema_response_format(
+            "vision_prompt_revision",
+            {
+                "type": "object",
+                "properties": {
+                    "fidelity_score": {"type": "number"},
+                    "missing_or_wrong": {"type": "array", "items": {"type": "string"}},
+                    "hallucinated_elements": {"type": "array", "items": {"type": "string"}},
+                    "notes": {"type": "string"},
+                    "revised_prompt": {"type": "string"},
+                },
+                "required": [
+                    "fidelity_score",
+                    "missing_or_wrong",
+                    "hallucinated_elements",
+                    "notes",
+                    "revised_prompt",
+                ],
+            },
+        )
 
         def frame_for(batch, index):
             return batch[index] if len(batch) > 1 and index < len(batch) else batch[0]
@@ -913,14 +1240,16 @@ class ZiggartGGUFVisionPromptReviser:
                         ],
                     },
                 ]
+                item_seed = int(seed) if int(seed) < 0 else int((int(seed) + index * 13) & 0x7FFFFFFF)
                 raw = MODEL_MANAGER.chat(
                     messages,
                     max_tokens=int(max_tokens),
                     temperature=float(temperature),
                     top_p=float(top_p),
                     top_k=int(top_k),
-                    seed=int(seed),
+                    seed=item_seed,
                     enable_thinking=bool(enable_thinking),
+                    response_format=response_schema,
                 )
                 revised, diff_report, score = _parse_revision_response(raw, current_prompt)
                 revised_prompts.append(revised)
@@ -1048,6 +1377,105 @@ def _send_vision_chat_state(payload: dict[str, Any]) -> None:
             pass
 
 
+def _send_vision_chat_delta(payload: dict[str, Any]) -> None:
+    """Pushes live token-streaming deltas to the ComfyUI frontend."""
+    if PromptServer is not None and getattr(PromptServer, "instance", None) is not None:
+        try:
+            PromptServer.instance.send_sync("ziggart-vision-chat-delta", payload)
+        except Exception:
+            pass
+
+
+def _build_focus_crop_part(source_image_rgb: Any, focus_box: Any) -> list[dict[str, Any]]:
+    """
+    Crops a normalized [x0, y0, x1, y1] region (0..1) from source_image_rgb with 10% padding
+    and returns multimodal message parts for region-pinned inspection.
+    """
+    if source_image_rgb is None or not isinstance(focus_box, (list, tuple)) or len(focus_box) != 4:
+        return []
+    try:
+        arr = np.asarray(source_image_rgb)
+        if arr.ndim != 3 or arr.shape[0] < 2 or arr.shape[1] < 2:
+            return []
+        h, w = int(arr.shape[0]), int(arr.shape[1])
+        x0, y0, x1, y1 = [float(v) for v in focus_box]
+        nx0, nx1 = max(0.0, min(x0, x1)), min(1.0, max(x0, x1))
+        ny0, ny1 = max(0.0, min(y0, y1)), min(1.0, max(y0, y1))
+        if (nx1 - nx0) < 0.01 or (ny1 - ny0) < 0.01:
+            return []
+        pad_x = (nx1 - nx0) * 0.10
+        pad_y = (ny1 - ny0) * 0.10
+        px0 = max(0, int(math.floor((nx0 - pad_x) * w)))
+        py0 = max(0, int(math.floor((ny0 - pad_y) * h)))
+        px1 = min(w, int(math.ceil((nx1 + pad_x) * w)))
+        py1 = min(h, int(math.ceil((ny1 + pad_y) * h)))
+        if px1 <= px0 or py1 <= py0:
+            return []
+        crop_pil = Image.fromarray(arr[py0:py1, px0:px1, :3].astype(np.uint8))
+        if max(crop_pil.size) > 1024:
+            scale = 1024.0 / max(crop_pil.size)
+            crop_pil = crop_pil.resize(
+                (max(1, round(crop_pil.width * scale)), max(1, round(crop_pil.height * scale))),
+                Image.Resampling.LANCZOS,
+            )
+        buf = io.BytesIO()
+        crop_pil.save(buf, format="PNG", optimize=True)
+        uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+        return [
+            {
+                "type": "text",
+                "text": (
+                    f"User-selected focus region crop (normalized box [{nx0:.2f}, {ny0:.2f}, {nx1:.2f}, {ny1:.2f}]). "
+                    "Inspect this zoomed-in region carefully:"
+                ),
+            },
+            {"type": "image_url", "image_url": {"url": uri}},
+        ]
+    except Exception:
+        return []
+
+
+def _estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:
+    total = 0
+    for msg in messages:
+        content = msg.get("content")
+        if isinstance(content, str):
+            total += max(1, len(content) // 3)
+        elif isinstance(content, list):
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "text":
+                    total += max(1, len(str(part.get("text", ""))) // 3)
+                elif part.get("type") == "image_url":
+                    total += 768
+    return total
+
+
+def _trim_messages_to_budget(
+    messages: list[dict[str, Any]],
+    context_size: int,
+    max_tokens: int,
+) -> list[dict[str, Any]]:
+    """
+    Keeps system prompt + initial visual user turn + most recent follow-up turns
+    within the model's context budget so multi-turn chats never overflow n_ctx.
+    """
+    budget = max(512, int(context_size) - max(64, int(max_tokens)) - 256)
+    trimmed = copy.deepcopy(messages)
+    anchor = 0
+    while anchor < len(trimmed) and trimmed[anchor].get("role") == "system":
+        anchor += 1
+    if anchor < len(trimmed) and trimmed[anchor].get("role") == "user":
+        anchor += 1
+    while _estimate_messages_tokens(trimmed) > budget and len(trimmed) > anchor + 2:
+        # Remove oldest post-initial turn (prefer removing user+assistant pair)
+        del trimmed[anchor]
+        if anchor < len(trimmed) and trimmed[anchor].get("role") == "assistant" and len(trimmed) > anchor + 1:
+            del trimmed[anchor]
+    return trimmed
+
+
 def _build_visual_parts_from_tensors(
     image: Any,
     detail_crop: Any = None,
@@ -1110,13 +1538,16 @@ class _ActiveVisionChatSession:
         system_prompt: str,
         thumbnail_uri: str,
         can_reply: bool,
+        source_image_rgb: Any = None,
     ) -> None:
         self.node_id = str(node_id)
         self.session_token = uuid.uuid4().hex
         self.action_queue: queue.Queue[dict[str, Any]] = queue.Queue()
+        self.stop_event = threading.Event()
         self.lock = threading.RLock()
         self.status: str = "waiting"
         self.error_message: str = ""
+        self.initial_prompt_value: str = initial_prompt
         self.current_prompt: str = initial_prompt
         self.versions: list[dict[str, Any]] = [
             {
@@ -1136,11 +1567,33 @@ class _ActiveVisionChatSession:
             }
         ]
         self.llm_messages: list[dict[str, Any]] = copy.deepcopy(llm_messages)
+        self.initial_llm_messages: list[dict[str, Any]] = copy.deepcopy(llm_messages)
         self.visual_parts: list[dict[str, Any]] = copy.deepcopy(visual_parts)
         self.system_prompt: str = system_prompt
         self.thumbnail_uri: str = thumbnail_uri
         self.can_reply: bool = bool(can_reply)
+        self.source_image_rgb: Any = source_image_rgb
         self.turn_count: int = 0
+
+    def reset_context(self) -> None:
+        """Prunes prior follow-up turns back to the initial visual context + current active prompt."""
+        with self.lock:
+            base_msgs = copy.deepcopy(self.initial_llm_messages)
+            if base_msgs and base_msgs[-1].get("role") == "assistant":
+                base_msgs[-1]["content"] = self.current_prompt
+            else:
+                base_msgs.append({"role": "assistant", "content": self.current_prompt})
+            self.llm_messages = base_msgs
+            self.error_message = ""
+            ver = int(self.versions[self.active_version_index]["version"]) if self.versions else 1
+            self.chat_log.append(
+                {
+                    "role": "system",
+                    "mode": "undo",
+                    "content": f"Reset conversation context to v{ver} (kept original image + active prompt).",
+                    "version": ver,
+                }
+            )
 
     def record_prompt_version(self, prompt_text: str, source: str, note: str) -> int:
         """Records a new prompt version when text changed and returns the active 1-based version number."""
@@ -1236,12 +1689,14 @@ class _ActiveVisionChatSession:
                         "version": int(v["version"]),
                         "source": v["source"],
                         "note": v["note"],
+                        "prompt": v["prompt"],
                     }
                     for idx, v in enumerate(self.versions)
                 ],
                 "chat_log": copy.deepcopy(self.chat_log),
                 "thumbnail_uri": self.thumbnail_uri,
                 "can_reply": self.can_reply,
+                "has_source_image": self.source_image_rgb is not None,
                 "turn_count": self.turn_count,
             }
 
@@ -1306,7 +1761,7 @@ def submit_vision_chat_action(
         }
 
     with session.lock:
-        if act in ("update_prompt", "undo", "restore_version"):
+        if act in ("update_prompt", "undo", "restore_version", "reset_context"):
             if session.status != "waiting":
                 return {
                     "ok": False,
@@ -1332,9 +1787,21 @@ def submit_vision_chat_action(
                         "error": "Invalid version index.",
                         "state": session.to_client_state(),
                     }
+            elif act == "reset_context":
+                session.reset_context()
             state = session.to_client_state()
             _send_vision_chat_state(state)
             return {"ok": True, "state": state}
+
+        if act == "stop":
+            if session.status != "thinking":
+                return {
+                    "ok": False,
+                    "error": "No active VLM generation to stop.",
+                    "state": session.to_client_state(),
+                }
+            session.stop_event.set()
+            return {"ok": True, "state": session.to_client_state()}
 
         if act in ("refine", "discuss"):
             if session.status != "waiting":
@@ -1359,6 +1826,7 @@ def submit_vision_chat_action(
                     "error": "Please enter a reply or question first.",
                     "state": session.to_client_state(),
                 }
+            session.stop_event.clear()
             session.status = "thinking"
             session.error_message = ""
             state = session.to_client_state()
@@ -1368,6 +1836,7 @@ def submit_vision_chat_action(
                     "action": act,
                     "message": message,
                     "prompt": data.get("prompt"),
+                    "focus_box": data.get("focus_box"),
                 }
             )
             return {"ok": True, "state": state}
@@ -1394,6 +1863,7 @@ def submit_vision_chat_action(
             return {"ok": True, "state": session.to_client_state()}
 
         if act == "cancel":
+            session.stop_event.set()
             session.action_queue.put({"action": "cancel"})
             return {"ok": True, "state": session.to_client_state()}
 
@@ -1540,8 +2010,25 @@ class ZiggartGGUFVisionPromptChatGate:
                         "tooltip": "-1.0 = inherit from vision_session (or default 0.2).",
                     },
                 ),
-                "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "top_k": ("INT", {"default": 40, "min": 0, "max": 1000}),
+                "top_p": (
+                    "FLOAT",
+                    {
+                        "default": -1.0,
+                        "min": -1.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "tooltip": "-1.0 = inherit from vision_session (or default 0.9).",
+                    },
+                ),
+                "top_k": (
+                    "INT",
+                    {
+                        "default": -1,
+                        "min": -1,
+                        "max": 1000,
+                        "tooltip": "-1 = inherit from vision_session (or default 40).",
+                    },
+                ),
                 "seed": ("INT", {"default": -1, "min": -1, "max": 0x7FFFFFFF}),
                 "enable_thinking": (
                     ["inherit", "disable", "enable"],
@@ -1642,6 +2129,7 @@ class ZiggartGGUFVisionPromptChatGate:
         maximum = 0 if max_image_dimension == "original" else int(max_image_dimension)
         visual_parts: list[dict[str, Any]] = []
         thumbnail_uri = ""
+        source_image_rgb: Any = None
         if image is not None:
             visual_parts, thumbnail_uri = _build_visual_parts_from_tensors(
                 image=image,
@@ -1649,9 +2137,12 @@ class ZiggartGGUFVisionPromptChatGate:
                 reference_image=reference_image,
                 max_dimension=maximum,
             )
+            if len(image) > 0:
+                source_image_rgb = _tensor_to_uint8_rgb(image[0], max_dimension=2048)
         elif base is not None:
             visual_parts = copy.deepcopy(base.visual_parts)
             thumbnail_uri = base.thumbnail_uri
+            source_image_rgb = getattr(base, "source_image_rgb", None)
 
         default_sys = (
             "You are an expert image prompt writer and visual analyst. Inspect the provided image(s) carefully, "
@@ -1699,8 +2190,8 @@ class ZiggartGGUFVisionPromptChatGate:
 
         eff_max_tokens = int(max_tokens) if int(max_tokens) > 0 else (base.max_tokens if base else 1024)
         eff_temperature = float(temperature) if float(temperature) >= 0.0 else (base.temperature if base else 0.2)
-        eff_top_p = float(top_p) if base is None else float(base.top_p)
-        eff_top_k = int(top_k) if base is None else int(base.top_k)
+        eff_top_p = float(top_p) if float(top_p) >= 0.0 else (float(base.top_p) if base is not None else 0.9)
+        eff_top_k = int(top_k) if int(top_k) >= 0 else (int(base.top_k) if base is not None else 40)
         eff_seed = int(seed) if int(seed) >= 0 else (base.seed if base else -1)
         if enable_thinking == "enable":
             eff_thinking = True
@@ -1709,11 +2200,7 @@ class ZiggartGGUFVisionPromptChatGate:
         else:
             eff_thinking = bool(base.enable_thinking) if base is not None else False
 
-        eff_unload_before = (
-            bool(base.unload_comfy_models_before)
-            if base is not None
-            else bool(unload_comfy_models_before)
-        )
+        eff_unload_before = bool(unload_comfy_models_before)
 
         return {
             "config": active_config,
@@ -1721,6 +2208,7 @@ class ZiggartGGUFVisionPromptChatGate:
             "system_prompt": eff_system_prompt,
             "visual_parts": visual_parts,
             "thumbnail_uri": thumbnail_uri,
+            "source_image_rgb": source_image_rgb,
             "llm_messages": llm_messages,
             "max_tokens": eff_max_tokens,
             "temperature": eff_temperature,
@@ -1738,6 +2226,7 @@ class ZiggartGGUFVisionPromptChatGate:
         mode: str,
         user_message: str,
         keep_full_history: bool,
+        focus_parts: list[dict[str, Any]] | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         if mode == "discuss":
             formatted_user = (
@@ -1758,7 +2247,14 @@ class ZiggartGGUFVisionPromptChatGate:
                 "with no explanations or preamble."
             )
 
-        user_entry: dict[str, Any] = {"role": "user", "content": formatted_user}
+        if focus_parts:
+            user_entry: dict[str, Any] = {
+                "role": "user",
+                "content": [{"type": "text", "text": formatted_user}, *copy.deepcopy(focus_parts)],
+            }
+        else:
+            user_entry = {"role": "user", "content": formatted_user}
+
         if keep_full_history:
             messages = copy.deepcopy(session.llm_messages)
             messages.append(user_entry)
@@ -1768,11 +2264,14 @@ class ZiggartGGUFVisionPromptChatGate:
         messages = []
         if session.system_prompt:
             messages.append({"role": "system", "content": session.system_prompt})
-        if session.visual_parts:
+        if session.visual_parts or focus_parts:
             content: list[dict[str, Any]] = [
-                {"type": "text", "text": formatted_user + "\n\nMain image:"}
+                {"type": "text", "text": formatted_user + ("\n\nMain image:" if session.visual_parts else "")}
             ]
-            content.extend(copy.deepcopy(session.visual_parts))
+            if session.visual_parts:
+                content.extend(copy.deepcopy(session.visual_parts))
+            if focus_parts:
+                content.extend(copy.deepcopy(focus_parts))
             messages.append({"role": "user", "content": content})
         else:
             messages.append(user_entry)
@@ -1795,8 +2294,8 @@ class ZiggartGGUFVisionPromptChatGate:
         system_prompt_override: str = "",
         max_tokens: int = 0,
         temperature: float = -1.0,
-        top_p: float = 0.9,
-        top_k: int = 40,
+        top_p: float = -1.0,
+        top_k: int = -1,
         seed: int = -1,
         enable_thinking: str = "inherit",
         context_size: int = 8192,
@@ -1856,6 +2355,7 @@ class ZiggartGGUFVisionPromptChatGate:
                 top_k=ctx["top_k"],
                 seed=ctx["seed"],
                 enable_thinking=ctx["enable_thinking"],
+                source_image_rgb=ctx["source_image_rgb"],
             )
 
         nid = str(unique_id) if unique_id is not None else f"ephemeral_{uuid.uuid4().hex[:8]}"
@@ -1885,6 +2385,7 @@ class ZiggartGGUFVisionPromptChatGate:
                 ],
                 "thumbnail_uri": ctx["thumbnail_uri"],
                 "can_reply": ctx["config"] is not None,
+                "has_source_image": ctx["source_image_rgb"] is not None,
                 "turn_count": 0,
             }
             with _VISION_CHAT_LOCK:
@@ -1901,6 +2402,7 @@ class ZiggartGGUFVisionPromptChatGate:
             system_prompt=ctx["system_prompt"],
             thumbnail_uri=ctx["thumbnail_uri"],
             can_reply=ctx["config"] is not None,
+            source_image_rgb=ctx["source_image_rgb"],
         )
 
         with _VISION_CHAT_LOCK:
@@ -1977,57 +2479,117 @@ class ZiggartGGUFVisionPromptChatGate:
 
                     try:
                         MODEL_MANAGER.load(ctx["config"], ctx["unload_comfy_models_before"])
+                        focus_parts = _build_focus_crop_part(session.source_image_rgb, cmd.get("focus_box"))
                         with session.lock:
                             messages_to_send, user_entry = self._build_followup_messages(
                                 session=session,
                                 mode=action,
                                 user_message=user_msg,
                                 keep_full_history=bool(keep_full_history),
+                                focus_parts=focus_parts,
                             )
-                        reply_text = MODEL_MANAGER.chat(
-                            messages_to_send,
-                            max_tokens=int(ctx["max_tokens"]),
-                            temperature=float(ctx["temperature"]),
-                            top_p=float(ctx["top_p"]),
-                            top_k=int(ctx["top_k"]),
-                            seed=int(ctx["seed"]),
-                            enable_thinking=bool(ctx["enable_thinking"]),
-                        )
-                        with session.lock:
-                            session.turn_count += 1
-                            session.llm_messages.append(user_entry)
-                            session.llm_messages.append({"role": "assistant", "content": reply_text})
-                            session.chat_log.append(
-                                {
-                                    "role": "user",
-                                    "mode": action,
-                                    "content": user_msg,
-                                    "version": None,
-                                }
-                            )
-                            if action == "refine":
-                                new_ver = session.record_prompt_version(
-                                    reply_text,
-                                    source="refine",
-                                    note=f"VLM Refine (turn {session.turn_count})",
+                            if keep_full_history and ctx["config"] is not None:
+                                messages_to_send = _trim_messages_to_budget(
+                                    messages_to_send,
+                                    context_size=int(getattr(ctx["config"], "context_size", 8192)),
+                                    max_tokens=int(ctx["max_tokens"]),
                                 )
-                                session.chat_log.append(
+
+                        partial_chunks: list[str] = []
+                        last_emit = [0.0]
+
+                        def _on_stream_token(delta: str) -> None:
+                            partial_chunks.append(delta)
+                            now = time.monotonic()
+                            if (now - last_emit[0]) >= 0.05 or len(partial_chunks) <= 2:
+                                last_emit[0] = now
+                                _send_vision_chat_delta(
                                     {
-                                        "role": "assistant",
-                                        "mode": "refine",
-                                        "content": reply_text,
-                                        "version": new_ver,
+                                        "node_id": nid,
+                                        "session_token": session.session_token,
+                                        "mode": action,
+                                        "delta": delta,
+                                        "partial_text": "".join(partial_chunks),
                                     }
                                 )
-                            else:
+
+                        if hasattr(MODEL_MANAGER, "chat_stream"):
+                            reply_text = MODEL_MANAGER.chat_stream(
+                                messages_to_send,
+                                max_tokens=int(ctx["max_tokens"]),
+                                temperature=float(ctx["temperature"]),
+                                top_p=float(ctx["top_p"]),
+                                top_k=int(ctx["top_k"]),
+                                seed=int(ctx["seed"]),
+                                enable_thinking=bool(ctx["enable_thinking"]),
+                                on_token=_on_stream_token,
+                                stop_event=session.stop_event,
+                            )
+                        else:
+                            reply_text = MODEL_MANAGER.chat(
+                                messages_to_send,
+                                max_tokens=int(ctx["max_tokens"]),
+                                temperature=float(ctx["temperature"]),
+                                top_p=float(ctx["top_p"]),
+                                top_k=int(ctx["top_k"]),
+                                seed=int(ctx["seed"]),
+                                enable_thinking=bool(ctx["enable_thinking"]),
+                            )
+
+                        was_stopped = session.stop_event.is_set()
+                        with session.lock:
+                            if was_stopped and not reply_text.strip():
                                 session.chat_log.append(
                                     {
-                                        "role": "assistant",
-                                        "mode": "discuss",
-                                        "content": reply_text,
+                                        "role": "system",
+                                        "mode": "stop",
+                                        "content": "Generation stopped by user.",
                                         "version": None,
                                     }
                                 )
+                            else:
+                                session.turn_count += 1
+                                # Store compact text-only entry in long-term history to preserve context budget
+                                compact_user_entry = (
+                                    {"role": "user", "content": user_entry["content"][0]["text"]}
+                                    if isinstance(user_entry.get("content"), list)
+                                    else user_entry
+                                )
+                                session.llm_messages.append(compact_user_entry)
+                                session.llm_messages.append({"role": "assistant", "content": reply_text})
+                                user_note = f"{user_msg} [region focus]" if focus_parts else user_msg
+                                session.chat_log.append(
+                                    {
+                                        "role": "user",
+                                        "mode": action,
+                                        "content": user_note,
+                                        "version": None,
+                                    }
+                                )
+                                if action == "refine":
+                                    note_suffix = " · stopped early" if was_stopped else ""
+                                    new_ver = session.record_prompt_version(
+                                        reply_text,
+                                        source="refine",
+                                        note=f"VLM Refine (turn {session.turn_count}{note_suffix})",
+                                    )
+                                    session.chat_log.append(
+                                        {
+                                            "role": "assistant",
+                                            "mode": "refine",
+                                            "content": reply_text,
+                                            "version": new_ver,
+                                        }
+                                    )
+                                else:
+                                    session.chat_log.append(
+                                        {
+                                            "role": "assistant",
+                                            "mode": "discuss",
+                                            "content": reply_text + (" [stopped]" if was_stopped else ""),
+                                            "version": None,
+                                        }
+                                    )
                             session.status = "waiting"
                             session.error_message = ""
                     except Exception as exc:
@@ -2058,6 +2620,21 @@ class ZiggartGGUFVisionPromptChatGate:
             _send_vision_chat_state(final_state)
             out_session = _make_output_session(final_prompt, final_messages)
             return (final_prompt, transcript, int(turn_count), out_session)
+        except BaseException:
+            if not cancelled:
+                cancelled = True
+                with session.lock:
+                    session.status = "cancelled"
+                    session.chat_log.append(
+                        {
+                            "role": "system",
+                            "mode": "cancel",
+                            "content": "Workflow interrupted during vision prompt review.",
+                            "version": None,
+                        }
+                    )
+                _send_vision_chat_state(session.to_client_state())
+            raise
         finally:
             with _VISION_CHAT_LOCK:
                 if _VISION_CHAT_SESSIONS.get(nid) is session:
@@ -2293,7 +2870,7 @@ def _build_folder_scan_status(
         f"{prefix_icon} [{active_idx + 1}/{queues_needed}]: {current_path.name}",
         f"📊 Total Queues Needed: {queues_needed} (from {total_found} images{skip_note})",
         f"⏳ Remaining from Index {active_idx}: {max(0, queues_needed - active_idx)} run(s) "
-        f"(after current: {max(0, queues_needed - active_idx - 1)})",
+        f"(after current: {remaining_from_index})",
     ]
     status_text = "\n".join(status_lines)
 
@@ -2655,6 +3232,30 @@ def _resolve_output_folder(output_folder: str, source_image_path: str = "") -> P
     return fallback.resolve()
 
 
+def _sanitize_filename(name: str, default: str = "all_prompts_krea2.txt") -> str:
+    raw = (name or "").replace("\\", "/").strip()
+    leaf = raw.rsplit("/", 1)[-1].strip()
+    leaf = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", leaf).strip(" .")
+    if not leaf or leaf in (".", ".."):
+        return default
+    return leaf
+
+
+def _write_text_atomic(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+
 def _read_existing_nonempty_lines(file_path: Path) -> list[str]:
     if not file_path.is_file():
         return []
@@ -2825,10 +3426,12 @@ class ZiggartVisionPromptTxtSaver:
                 formatted_entries.append(formatted)
 
         dest_dir = _resolve_output_folder(output_folder, source_image_path)
-        fname = (master_filename or "all_prompts_krea2.txt").strip() or "all_prompts_krea2.txt"
+        fname = _sanitize_filename(master_filename, "all_prompts_krea2.txt")
         if not fname.lower().endswith(".txt"):
             fname += ".txt"
         master_path = (dest_dir / fname).resolve()
+        if not master_path.is_relative_to(dest_dir.resolve()):
+            raise ValueError(f"master_filename escapes output directory: {master_filename}")
         master_path.parent.mkdir(parents=True, exist_ok=True)
 
         existing_lines = (
@@ -2837,6 +3440,7 @@ class ZiggartVisionPromptTxtSaver:
             else _read_existing_nonempty_lines(master_path)
         )
         existing_set = set(existing_lines)
+        existing_joined = "\n".join(existing_lines)
 
         added_count = 0
         skipped_dup_count = 0
@@ -2851,19 +3455,21 @@ class ZiggartVisionPromptTxtSaver:
             else:
                 entry_lines = [ln for ln in entry.splitlines() if ln.strip()]
                 candidate_block = "\n".join(entry_lines)
-                if skip_duplicate_lines and candidate_block in existing_set:
+                if skip_duplicate_lines and candidate_block and (
+                    candidate_block in existing_set or candidate_block in existing_joined
+                ):
                     skipped_dup_count += 1
                     continue
                 existing_lines.extend(entry_lines)
                 existing_set.add(candidate_block)
+                existing_joined = (existing_joined + "\n" + candidate_block) if existing_joined else candidate_block
                 added_count += len(entry_lines)
 
         # Write with zero empty lines and trailing newline
         final_content = "\n".join(ln for ln in existing_lines if ln.strip())
         if final_content:
             final_content += "\n"
-        with open(master_path, "w", encoding="utf-8") as fh:
-            fh.write(final_content)
+        _write_text_atomic(master_path, final_content)
 
         total_lines = len([ln for ln in existing_lines if ln.strip()])
         combined_formatted = "\n".join(formatted_entries)
@@ -2876,8 +3482,7 @@ class ZiggartVisionPromptTxtSaver:
                 master_stem=master_path.stem,
                 line_number=total_lines,
             )
-            with open(sidecar_path, "w", encoding="utf-8") as sfh:
-                sfh.write(combined_formatted + "\n")
+            _write_text_atomic(sidecar_path, combined_formatted + "\n")
             sidecar_saved_path = str(sidecar_path)
 
         preview_snippet = (
@@ -2999,21 +3604,28 @@ def curate_single_caption_text(
             if not src_pat:
                 continue
             pattern = re.compile(re.escape(src_pat), re.IGNORECASE)
-            updated, n_subs = pattern.subn(dst_val, working)
+            updated, n_subs = pattern.subn(lambda _m, rep=dst_val: rep, working)
             if n_subs > 0:
                 replacements_applied += n_subs
                 working = updated
 
     banned_removed = 0
     if banned_phrases and banned_phrases.strip():
-        phrases = [
-            p.strip()
-            for line in banned_phrases.splitlines()
-            for p in line.split(",")
-            if p.strip()
-        ]
+        phrases = sorted(
+            {
+                p.strip()
+                for line in banned_phrases.splitlines()
+                for p in line.split(",")
+                if p.strip()
+            },
+            key=len,
+            reverse=True,
+        )
         for phrase in phrases:
-            pat = re.compile(r"(?:^|(?<=[\s,;]))" + re.escape(phrase) + r"(?=$|[\s,;.])", re.IGNORECASE)
+            pat = re.compile(
+                r"(?:^|(?<=[\s,;:(\[\"\']))" + re.escape(phrase) + r"(?=$|[\s,;.:!?)\]\}\"\'])",
+                re.IGNORECASE,
+            )
             updated, n_rem = pat.subn("", working)
             if n_rem > 0:
                 banned_removed += n_rem
@@ -3412,12 +4024,17 @@ class ZiggartDatasetCaptionCuratorAndTriggerInjector:
             if write_mode == "write_in_place_atomic":
                 target_write_path = sidecar_p
             elif write_mode == "export_to_output_folder" and export_dir is not None:
-                target_write_path = export_dir / f"{img_p.stem}.txt"
+                if include_subfolders:
+                    try:
+                        rel_img = img_p.relative_to(scan["resolved_folder"])
+                        target_write_path = (export_dir / rel_img).with_suffix(".txt")
+                    except ValueError:
+                        target_write_path = export_dir / f"{img_p.stem}.txt"
+                else:
+                    target_write_path = export_dir / f"{img_p.stem}.txt"
 
             if target_write_path is not None and curated_text:
-                tmp_path = target_write_path.with_suffix(".txt.tmp")
-                tmp_path.write_text(curated_text + "\n", encoding="utf-8")
-                os.replace(tmp_path, target_write_path)
+                _write_text_atomic(target_write_path, curated_text + "\n")
                 files_written += 1
 
             records.append(
@@ -3469,6 +4086,357 @@ class ZiggartDatasetCaptionCuratorAndTriggerInjector:
         )
 
 
+class ZiggartBatchFolderVisionCaptioner:
+    """
+    Single-load batch folder captioner with built-in caption presets, prefix KV caching,
+    ComfyUI progress bar, interrupt checking, and resumable atomic sidecar + master TXT saving.
+    """
+
+    DESCRIPTION = (
+        "Loads the VLM/LLM once and captions an entire folder of images in a single ComfyUI run "
+        "using prefix KV caching, built-in caption presets, atomic per-image .txt sidecars, "
+        "consolidated master .txt export, and resumable checkpointing."
+    )
+    CATEGORY = "Ziggart/LLM"
+    FUNCTION = "caption_folder"
+    OUTPUT_NODE = True
+    RETURN_TYPES = ("STRING", "STRING", "INT", "INT", "STRING")
+    RETURN_NAMES = (
+        "master_file_path",
+        "captions_joined",
+        "processed_count",
+        "skipped_count",
+        "report_json",
+    )
+    OUTPUT_TOOLTIPS = (
+        "Path to the consolidated master .txt file (if save_master_txt is enabled).",
+        "All newly generated captions joined one-per-line.",
+        "Number of images captioned in this run.",
+        "Number of images skipped due to existing .txt sidecars.",
+        "Structured JSON report with counts, presets, and any per-file errors.",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        models, projectors = _gguf_files()
+        return {
+            "required": {
+                "folder_path": ("STRING", {"default": "", "tooltip": "Folder of images to caption."}),
+                "model": (models, {"tooltip": "Language-model GGUF from models/LLM/GGUF."}),
+                "mmproj": (projectors, {"tooltip": "Matching mmproj GGUF from models/LLM/GGUF."}),
+                "caption_preset": (
+                    list(VISION_CAPTION_PRESETS.keys()),
+                    {"default": "krea2_qwen3vl_prose"},
+                ),
+                "verbosity": (["medium", "short", "detailed"], {"default": "medium"}),
+                "system_prompt": (
+                    "STRING",
+                    {
+                        "default": "You are an expert image prompt writer. Describe the image accurately as a single cohesive prompt.",
+                        "multiline": True,
+                    },
+                ),
+                "prompt": (
+                    "STRING",
+                    {
+                        "default": "Describe this image in detail as an image generation prompt.",
+                        "multiline": True,
+                    },
+                ),
+                "skip_existing_txt": ("BOOLEAN", {"default": True}),
+                "include_subfolders": ("BOOLEAN", {"default": False}),
+                "save_sidecar_txt": ("BOOLEAN", {"default": True}),
+                "save_master_txt": ("BOOLEAN", {"default": True}),
+                "master_filename": ("STRING", {"default": "all_prompts_krea2.txt"}),
+                "flatten_to_single_line": ("BOOLEAN", {"default": True}),
+                "clean_markdown": ("BOOLEAN", {"default": True}),
+                "strip_vlm_boilerplate": ("BOOLEAN", {"default": True}),
+                "free_vram_after": ("BOOLEAN", {"default": True}),
+            },
+            "optional": {
+                "filename_filter": ("STRING", {"default": ""}),
+                "max_images": (
+                    "INT",
+                    {"default": 0, "min": 0, "max": 100000, "tooltip": "0 = process all matching images."},
+                ),
+                "max_image_dimension": (
+                    ["original", "512", "768", "1024", "1536", "2048", "3072", "4096"],
+                    {"default": "1536"},
+                ),
+                "trigger_word_prefix": ("STRING", {"default": ""}),
+                "trigger_word_suffix": ("STRING", {"default": ""}),
+                "max_tokens": ("INT", {"default": 512, "min": 16, "max": 32768}),
+                "temperature": ("FLOAT", {"default": 0.2, "min": 0.0, "max": 2.0, "step": 0.05}),
+                "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "top_k": ("INT", {"default": 40, "min": 0, "max": 1000}),
+                "seed": ("INT", {"default": 42, "min": -1, "max": 0x7FFFFFFF}),
+                "enable_thinking": ("BOOLEAN", {"default": False}),
+                "context_size": ("INT", {"default": 8192, "min": 2048, "max": 262144, "step": 1024}),
+                "gpu_layers": ("INT", {"default": -1, "min": -1, "max": 999}),
+                "threads": ("INT", {"default": max(1, (os.cpu_count() or 4) // 2), "min": 1, "max": 256}),
+                "flash_attention": ("BOOLEAN", {"default": True}),
+                "mmproj_on_gpu": ("BOOLEAN", {"default": True}),
+                "unload_comfy_models_before": ("BOOLEAN", {"default": True}),
+                "model_path_override": ("STRING", {"default": ""}),
+                "mmproj_path_override": ("STRING", {"default": ""}),
+                "vlm_config": ("GGUF_VL_MODEL",),
+            },
+        }
+
+    def caption_folder(
+        self,
+        folder_path: str,
+        model: str,
+        mmproj: str,
+        caption_preset: str = "krea2_qwen3vl_prose",
+        verbosity: str = "medium",
+        system_prompt: str = "",
+        prompt: str = "",
+        skip_existing_txt: bool = True,
+        include_subfolders: bool = False,
+        save_sidecar_txt: bool = True,
+        save_master_txt: bool = True,
+        master_filename: str = "all_prompts_krea2.txt",
+        flatten_to_single_line: bool = True,
+        clean_markdown: bool = True,
+        strip_vlm_boilerplate: bool = True,
+        free_vram_after: bool = True,
+        filename_filter: str = "",
+        max_images: int = 0,
+        max_image_dimension: str = "1536",
+        trigger_word_prefix: str = "",
+        trigger_word_suffix: str = "",
+        max_tokens: int = 512,
+        temperature: float = 0.2,
+        top_p: float = 0.9,
+        top_k: int = 40,
+        seed: int = 42,
+        enable_thinking: bool = False,
+        context_size: int = 8192,
+        gpu_layers: int = -1,
+        threads: int = 4,
+        flash_attention: bool = True,
+        mmproj_on_gpu: bool = True,
+        unload_comfy_models_before: bool = True,
+        model_path_override: str = "",
+        mmproj_path_override: str = "",
+        vlm_config: ModelConfig | None = None,
+    ) -> tuple[str, str, int, int, str]:
+        scan = scan_image_folder(
+            folder_path=folder_path,
+            include_subfolders=bool(include_subfolders),
+            skip_existing_txt=bool(skip_existing_txt),
+            sort_method="natural_alphabetical",
+            filename_filter=filename_filter,
+        )
+        root_dir: Path = scan["resolved_folder"]
+        pending_files: list[Path] = list(scan["files"])
+        skipped_count = int(scan["skipped_txt_count"])
+        if int(max_images) > 0:
+            pending_files = pending_files[: int(max_images)]
+
+        master_path_str = ""
+        master_path: Path | None = None
+        if save_master_txt:
+            safe_master = _sanitize_filename(master_filename, "all_prompts_krea2.txt")
+            if not safe_master.lower().endswith(".txt"):
+                safe_master += ".txt"
+            master_path = (root_dir / safe_master).resolve()
+            if not master_path.is_relative_to(root_dir.resolve()):
+                raise ValueError(f"master_filename escapes folder_path: {master_filename}")
+            master_path_str = str(master_path)
+
+        if not pending_files:
+            report = {
+                "folder": str(root_dir),
+                "preset": caption_preset,
+                "total_found": scan["total_found"],
+                "skipped_count": skipped_count,
+                "processed_count": 0,
+                "errors": [],
+                "status": "nothing_pending",
+            }
+            return (master_path_str, "", 0, skipped_count, json.dumps(report, indent=2))
+
+        config = _resolve_vlm_node_config(
+            model=model,
+            mmproj=mmproj,
+            model_path_override=model_path_override,
+            mmproj_path_override=mmproj_path_override,
+            context_size=context_size,
+            gpu_layers=gpu_layers,
+            threads=threads,
+            flash_attention=flash_attention,
+            mmproj_on_gpu=mmproj_on_gpu,
+            vlm_config=vlm_config,
+        )
+        eff_system, eff_prompt = _resolve_caption_prompts(
+            caption_preset, verbosity, system_prompt, prompt
+        )
+        maximum = 0 if max_image_dimension == "original" else int(max_image_dimension)
+
+        pbar = None
+        try:
+            import comfy.utils
+
+            pbar = comfy.utils.ProgressBar(len(pending_files))
+        except Exception:
+            pbar = None
+
+        existing_master = _read_existing_nonempty_lines(master_path) if master_path else []
+        existing_set = set(existing_master)
+        generated_captions: list[str] = []
+        errors: list[dict[str, str]] = []
+        manifest_path = root_dir / ".ziggart_batch_manifest.json"
+        processed_count = 0
+
+        try:
+            MODEL_MANAGER.load(config, bool(unload_comfy_models_before))
+            chunk_size = 4
+            for start_idx in range(0, len(pending_files), chunk_size):
+                _check_comfy_interrupt()
+                chunk_paths = pending_files[start_idx : start_idx + chunk_size]
+                messages_batch: list[list[dict[str, Any]]] = []
+                valid_paths: list[Path] = []
+                chunk_seeds: list[int] = []
+
+                for offset, img_path in enumerate(chunk_paths):
+                    _check_comfy_interrupt()
+                    try:
+                        img_tensor, _ = _load_pil_image_as_tensor_and_mask(img_path)
+                        uri = image_to_data_uri(img_tensor[0], maximum)
+                        msgs: list[dict[str, Any]] = []
+                        if eff_system.strip():
+                            msgs.append({"role": "system", "content": eff_system.strip()})
+                        msgs.append(
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": eff_prompt},
+                                    {"type": "image_url", "image_url": {"url": uri}},
+                                ],
+                            }
+                        )
+                        messages_batch.append(msgs)
+                        valid_paths.append(img_path)
+                        g_idx = start_idx + offset
+                        c_seed = int(seed) if int(seed) < 0 else int((int(seed) + g_idx * 13) & 0x7FFFFFFF)
+                        chunk_seeds.append(c_seed)
+                    except Exception as exc:
+                        errors.append({"file": str(img_path), "error": str(exc)})
+
+                if not messages_batch:
+                    if pbar is not None:
+                        pbar.update(len(chunk_paths))
+                    continue
+
+                if hasattr(MODEL_MANAGER, "chat_batch"):
+                    raw_outputs = MODEL_MANAGER.chat_batch(
+                        messages_batch,
+                        max_tokens=int(max_tokens),
+                        temperature=float(temperature),
+                        top_p=float(top_p),
+                        top_k=int(top_k),
+                        seeds=chunk_seeds,
+                        enable_thinking=bool(enable_thinking),
+                    )
+                else:
+                    raw_outputs = [
+                        MODEL_MANAGER.chat(
+                            msgs,
+                            max_tokens=int(max_tokens),
+                            temperature=float(temperature),
+                            top_p=float(top_p),
+                            top_k=int(top_k),
+                            seed=c_seed,
+                            enable_thinking=bool(enable_thinking),
+                        )
+                        for msgs, c_seed in zip(messages_batch, chunk_seeds)
+                    ]
+
+                for img_path, raw_out in zip(valid_paths, raw_outputs):
+                    if trigger_word_prefix.strip() or trigger_word_suffix.strip() or strip_vlm_boilerplate:
+                        curated, _ = curate_single_caption_text(
+                            raw_out,
+                            trigger_word_prefix=trigger_word_prefix,
+                            trigger_word_suffix=trigger_word_suffix,
+                            strip_vlm_boilerplate=bool(strip_vlm_boilerplate),
+                            clean_markdown=bool(clean_markdown),
+                        )
+                        if not flatten_to_single_line:
+                            curated = format_vision_prompt_text(
+                                raw_out,
+                                flatten_to_single_line=False,
+                                clean_markdown_formatting=bool(clean_markdown),
+                                line_prefix=trigger_word_prefix,
+                                line_suffix=trigger_word_suffix,
+                            )
+                    else:
+                        curated = format_vision_prompt_text(
+                            raw_out,
+                            flatten_to_single_line=bool(flatten_to_single_line),
+                            clean_markdown_formatting=bool(clean_markdown),
+                        )
+
+                    if curated:
+                        generated_captions.append(curated)
+                        processed_count += 1
+                        if save_sidecar_txt:
+                            _write_text_atomic(img_path.with_suffix(".txt"), curated + "\n")
+                        if master_path is not None:
+                            flat_line = " ".join(curated.splitlines()).strip()
+                            if flat_line and flat_line not in existing_set:
+                                existing_master.append(flat_line)
+                                existing_set.add(flat_line)
+
+                if master_path is not None and existing_master:
+                    _write_text_atomic(master_path, "\n".join(existing_master) + "\n")
+
+                try:
+                    _write_text_atomic(
+                        manifest_path,
+                        json.dumps(
+                            {
+                                "folder": str(root_dir),
+                                "preset": caption_preset,
+                                "processed_count": processed_count,
+                                "skipped_count": skipped_count,
+                                "last_file": str(valid_paths[-1]),
+                                "updated_at": time.time(),
+                            },
+                            indent=2,
+                        ),
+                    )
+                except OSError:
+                    pass
+
+                if pbar is not None:
+                    pbar.update(len(chunk_paths))
+        except EmbeddedLlamaError as exc:
+            raise RuntimeError(f"Batch Folder Vision Captioner failed: {exc}") from exc
+        finally:
+            if free_vram_after:
+                MODEL_MANAGER.unload()
+
+        report = {
+            "folder": str(root_dir),
+            "preset": caption_preset,
+            "verbosity": verbosity,
+            "total_found": scan["total_found"],
+            "skipped_count": skipped_count,
+            "processed_count": processed_count,
+            "master_file_path": master_path_str,
+            "errors": errors,
+        }
+        return (
+            master_path_str,
+            "\n".join(generated_captions),
+            int(processed_count),
+            int(skipped_count),
+            json.dumps(report, indent=2, ensure_ascii=False),
+        )
+
+
 if (
     PromptServer is not None
     and getattr(PromptServer, "instance", None) is not None
@@ -3488,7 +4456,8 @@ if (
             image_index = int(data.get("image_index", 0) or 0)
             loop_index = bool(data.get("loop_index", False))
 
-            scan = scan_image_folder(
+            scan = await asyncio.to_thread(
+                scan_image_folder,
                 folder_path=folder_path,
                 include_subfolders=include_subfolders,
                 skip_existing_txt=skip_existing_txt,
@@ -3550,20 +4519,24 @@ if (
 NODE_CLASS_MAPPINGS = {
     "ZiggartGGUFVisionPrompt": GGUFVisionPrompt,
     "ZiggartGGUFVLMLoader": ZiggartGGUFVLMLoader,
+    "ZiggartOpenAIVLMLoader": ZiggartOpenAIVLMLoader,
     "ZiggartGGUFVisionPromptReviser": ZiggartGGUFVisionPromptReviser,
     "ZiggartPromptRevisionGate": ZiggartPromptRevisionGate,
     "ZiggartGGUFVisionPromptChatGate": ZiggartGGUFVisionPromptChatGate,
     "ZiggartFolderImageQueueLoader": ZiggartFolderImageQueueLoader,
+    "ZiggartBatchFolderVisionCaptioner": ZiggartBatchFolderVisionCaptioner,
     "ZiggartVisionPromptTxtSaver": ZiggartVisionPromptTxtSaver,
     "ZiggartDatasetCaptionCuratorAndTriggerInjector": ZiggartDatasetCaptionCuratorAndTriggerInjector,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "ZiggartGGUFVisionPrompt": "GGUF Vision Prompt",
     "ZiggartGGUFVLMLoader": "GGUF VLM Loader",
+    "ZiggartOpenAIVLMLoader": "OpenAI-Compatible VLM Loader (llama-server / Ollama)",
     "ZiggartGGUFVisionPromptReviser": "GGUF Vision Prompt Reviser",
     "ZiggartPromptRevisionGate": "Ziggart Prompt Revision Gate",
     "ZiggartGGUFVisionPromptChatGate": "GGUF Vision Prompt Review & Chat",
     "ZiggartFolderImageQueueLoader": "Ziggart Folder Image Batch & Queue Loader",
+    "ZiggartBatchFolderVisionCaptioner": "Ziggart Batch Folder Vision Captioner (Single-Load)",
     "ZiggartVisionPromptTxtSaver": "Ziggart Vision Prompt TXT & Wildcard Line Saver",
     "ZiggartDatasetCaptionCuratorAndTriggerInjector": "Ziggart Dataset Caption Curator & Trigger Injector (QA)",
 }

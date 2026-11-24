@@ -229,15 +229,19 @@
         "Node name for S&R": "ZiggartGGUFVLMLoader"
       },
       "widgets_values": [
-        "WeVisOne-VL-4B-Q4_K_M.gguf",
-        "mmproj-WeVisOne-VL-F16.gguf",
+        "[No model GGUF found]",
+        "[No mmproj GGUF found]",
         8192,
         -1,
         4,
         true,
         true,
         "",
-        ""
+        "",
+        "f16",
+        512,
+        true,
+        256
       ],
       "widgets_values_named": {
         "model": "WeVisOne-VL-4B-Q4_K_M.gguf",
@@ -312,8 +316,8 @@
       },
       "widgets_values": [
         "",
-        "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
-        "mmproj-Qwen2.5-VL-F16.gguf",
+        "[No model GGUF found]",
+        "[No mmproj GGUF found]",
         "Krea 2 Turbo / Flux Natural Prose (Strict Character Lock)",
         777,
         "fixed",
@@ -769,8 +773,8 @@
         "Node name for S&R": "ZiggartMultiSubjectDetailer"
       },
       "widgets_values": [
-        "WeVisOne-VL-4B-Q4_K_M.gguf",
-        "mmproj-WeVisOne-VL-F16.gguf",
+        "[No model GGUF found]",
+        "[No mmproj GGUF found]",
         "female character",
         "",
         "male character",

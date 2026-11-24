@@ -161,15 +161,19 @@
         "Node name for S&R": "ZiggartGGUFVLMLoader"
       },
       "widgets_values": [
-        "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
-        "mmproj-Qwen2.5-VL-F16.gguf",
+        "[No model GGUF found]",
+        "[No mmproj GGUF found]",
         8192,
         -1,
         14,
         true,
         true,
         "",
-        ""
+        "",
+        "f16",
+        512,
+        true,
+        256
       ],
       "widgets_values_named": {
         "model": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
@@ -248,6 +252,12 @@
           "type": "STRING",
           "slot_index": 3,
           "links": []
+        },
+        {
+          "name": "vision_session",
+          "type": "ZIGGART_VISION_SESSION",
+          "slot_index": 4,
+          "links": []
         }
       ],
       "title": "Usage A — GGUF Vision Prompt (Fast Single-Pass Image-to-Prompt)",
@@ -255,8 +265,8 @@
         "Node name for S&R": "ZiggartGGUFVisionPrompt"
       },
       "widgets_values": [
-        "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
-        "mmproj-Qwen2.5-VL-F16.gguf",
+        "[No model GGUF found]",
+        "[No mmproj GGUF found]",
         "You are an expert image prompt writer. Describe the image accurately as a detailed generation prompt. Output only the prompt.",
         "Turn this image into a rich, cinematic generation prompt for Krea 2 Turbo.",
         false,
@@ -278,7 +288,9 @@
         true,
         true,
         "",
-        ""
+        "",
+        "custom (use system_prompt & prompt)",
+        "medium"
       ],
       "widgets_values_named": {
         "model": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
@@ -369,8 +381,8 @@
         "Node name for S&R": "ZiggartWeVisOneDetector"
       },
       "widgets_values": [
-        "WeVisOne-VL-4B-Q4_K_M.gguf",
-        "mmproj-WeVisOne-VL-F16.gguf",
+        "[No model GGUF found]",
+        "[No mmproj GGUF found]",
         "main character face or intricate costume detail",
         1.4,
         1,
@@ -462,6 +474,12 @@
           "type": "STRING",
           "slot_index": 3,
           "links": []
+        },
+        {
+          "name": "vision_session",
+          "type": "ZIGGART_VISION_SESSION",
+          "slot_index": 4,
+          "links": []
         }
       ],
       "title": "Usage B — GGUF Vision Prompt (Composition + Subject + Style Specialist Passes + Detail Crop + Ref Image)",
@@ -469,8 +487,8 @@
         "Node name for S&R": "ZiggartGGUFVisionPrompt"
       },
       "widgets_values": [
-        "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
-        "mmproj-Qwen2.5-VL-F16.gguf",
+        "[No model GGUF found]",
+        "[No mmproj GGUF found]",
         "You are a master visual analyst and prompt engineer. Synthesize the main image, high-res detail crop, and reference style image.",
         "Combine the subject identity and details from the main image with the lighting and color palette of the reference image.",
         false,
@@ -492,7 +510,9 @@
         true,
         true,
         "",
-        ""
+        "",
+        "custom (use system_prompt & prompt)",
+        "medium"
       ],
       "widgets_values_named": {
         "model": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
@@ -576,8 +596,8 @@
       },
       "widgets_values": [
         "__female-full__, wearing __outfit-full__, __pose-full__, in __environnement-full__",
-        "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
-        "mmproj-Qwen2.5-VL-F16.gguf",
+        "[No model GGUF found]",
+        "[No mmproj GGUF found]",
         "Cinematic Director Shot (Rich Lighting & Camera)",
         4040,
         "fixed",

@@ -1,6 +1,42 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
+const FEEDBACK_NODES = new Set([
+    "ZiggartFolderImageQueueLoader",
+    "ZiggartVisionPromptTxtSaver",
+]);
+
+function findNodeByAnyId(graph, rawId) {
+    if (!graph || rawId === undefined || rawId === null) return null;
+    const strId = String(rawId);
+    const direct = graph._nodes_by_id?.[strId] || graph.getNodeById?.(+rawId);
+    if (direct) return direct;
+    const nodes = graph._nodes || [];
+    for (const n of nodes) {
+        if (String(n.id) === strId) return n;
+        if (n.subgraph) {
+            const sub = findNodeByAnyId(n.subgraph, strId.includes(":") ? strId.split(":").slice(1).join(":") : strId);
+            if (sub) return sub;
+        }
+    }
+    return null;
+}
+
+api.addEventListener("ziggart-node-feedback", (event) => {
+    const detail = event?.detail;
+    if (!detail || detail.node_id === undefined) return;
+    const node = findNodeByAnyId(app.graph, detail.node_id);
+    if (!node || !FEEDBACK_NODES.has(node.comfyClass || node.type)) return;
+    const w = node.widgets?.find((widget) => widget.name === detail.widget_name);
+    if (w) {
+        w.value = detail.value;
+        if (w.inputEl) {
+            w.inputEl.value = detail.value;
+        }
+        app.graph?.setDirtyCanvas?.(true, true);
+    }
+});
+
 function getWidget(node, name) {
     return node.widgets?.find((w) => w.name === name);
 }
@@ -147,26 +183,40 @@ app.registerExtension({
                             }
 
                             const idxWidget = getWidget(node, "image_index");
+                            const ctrlWidget = getWidget(node, "control_after_generate");
+                            const prevCtrl = ctrlWidget ? ctrlWidget.value : undefined;
+                            const skipExisting = Boolean(getWidget(node, "skip_existing_txt")?.value);
+
                             let startIdx = Number(idxWidget?.value ?? 0) || 0;
                             if (startIdx < 0 || startIdx >= totalNeeded) {
                                 startIdx = 0;
                             }
 
-                            const runsToQueue = totalNeeded - startIdx;
-                            for (let idx = startIdx; idx < totalNeeded; idx++) {
-                                if (idxWidget) {
-                                    idxWidget.value = idx;
+                            const runsToQueue = skipExisting ? totalNeeded : (totalNeeded - startIdx);
+                            if (ctrlWidget) {
+                                ctrlWidget.value = "fixed";
+                            }
+                            try {
+                                for (let step = 0; step < runsToQueue; step++) {
+                                    const targetIdx = skipExisting ? 0 : (startIdx + step);
+                                    if (idxWidget) {
+                                        idxWidget.value = targetIdx;
+                                    }
+                                    setStatusWidgetValue(
+                                        node,
+                                        `🚀 Enqueuing [${step + 1}/${runsToQueue}] (Index ${targetIdx})...`
+                                    );
+                                    await app.queuePrompt(0, 1);
                                 }
-                                setStatusWidgetValue(
-                                    node,
-                                    `🚀 Enqueuing [${idx + 1}/${totalNeeded}] (Index ${idx})...`
-                                );
-                                await app.queuePrompt(0, 1);
+                            } finally {
+                                if (ctrlWidget && prevCtrl !== undefined) {
+                                    ctrlWidget.value = prevCtrl;
+                                }
                             }
 
                             setStatusWidgetValue(
                                 node,
-                                `✅ Queued ${runsToQueue} run(s) (Index ${startIdx} → ${totalNeeded - 1}) into ComfyUI!\n` +
+                                `✅ Queued ${runsToQueue} run(s)${skipExisting ? " (skip_existing_txt mode)" : ` (Index ${startIdx} → ${totalNeeded - 1})`} into ComfyUI!\n` +
                                     `📊 Total Images in Queue Batch: ${runsToQueue} / ${totalNeeded}`
                             );
                         } finally {

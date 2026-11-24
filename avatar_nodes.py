@@ -201,10 +201,6 @@ def ensure_avatar_model_cached(
             "total_size_mb": 0.0,
         }
 
-    if hf_token and hf_token.strip():
-        os.environ["HF_TOKEN"] = hf_token.strip()
-        os.environ["HUGGING_FACE_HUB_TOKEN"] = hf_token.strip()
-
     # Also ensure the git wrapper/code repo is cloned in .cache/vendor_3d if specified
     git_repo = spec.get("git_repo", "")
     vendor_dir = Path(__file__).resolve().parent / ".cache" / "vendor_3d" / (spec.get("subfolder") or model_key)
@@ -1545,7 +1541,7 @@ def load_vrm_or_glb_avatar(path: str | Path) -> dict[str, Any] | None:
         prim = meshes[0]["primitives"][0]
         attrs = prim.get("attributes", {})
 
-        def _read_acc(acc_idx: int | None, dtype: Any, cols: int) -> np.ndarray | None:
+        def _read_acc(acc_idx: int | None, dtype: Any | None = None, cols: int | None = None) -> np.ndarray | None:
             if acc_idx is None or acc_idx < 0 or acc_idx >= len(accessors):
                 return None
             acc = accessors[acc_idx]
@@ -1555,6 +1551,19 @@ def load_vrm_or_glb_avatar(path: str | Path) -> dict[str, Any] | None:
             bv = buffer_views[bv_idx]
             offset = int(bv.get("byteOffset", 0)) + int(acc.get("byteOffset", 0))
             count = int(acc.get("count", 0))
+            if cols is None:
+                type_cols = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT2": 4, "MAT3": 9, "MAT4": 16}
+                cols = type_cols.get(str(acc.get("type", "SCALAR")), 1)
+            if dtype is None:
+                comp_map = {
+                    5120: np.int8,
+                    5121: np.uint8,
+                    5122: np.int16,
+                    5123: np.uint16,
+                    5125: np.uint32,
+                    5126: np.float32,
+                }
+                dtype = comp_map.get(int(acc.get("componentType", 5126)), np.float32)
             arr = np.frombuffer(bin_blob, dtype=dtype, count=count * cols, offset=offset).copy()
             return arr.reshape((count, cols)) if cols > 1 else arr
 
@@ -1562,15 +1571,26 @@ def load_vrm_or_glb_avatar(path: str | Path) -> dict[str, Any] | None:
         if verts is None or len(verts) == 0:
             return None
         norms = _read_acc(attrs.get("NORMAL"), np.float32, 3)
-        colors = _read_acc(attrs.get("COLOR_0"), np.float32, 3)
-        if colors is None or len(colors) != len(verts):
+        raw_colors = _read_acc(attrs.get("COLOR_0"))
+        if raw_colors is not None and len(raw_colors) == len(verts):
+            if np.issubdtype(raw_colors.dtype, np.uint8):
+                colors = raw_colors.astype(np.float32) / 255.0
+            elif np.issubdtype(raw_colors.dtype, np.uint16):
+                colors = raw_colors.astype(np.float32) / 65535.0
+            else:
+                colors = raw_colors.astype(np.float32)
+            if colors.ndim == 2 and colors.shape[1] >= 3:
+                colors = colors[:, :3]
+            else:
+                colors = np.full((len(verts), 3), 0.78, dtype=np.float32)
+        else:
             colors = np.full((len(verts), 3), 0.78, dtype=np.float32)
 
         idx_acc_id = prim.get("indices")
         faces: np.ndarray | None = None
         if idx_acc_id is not None and 0 <= idx_acc_id < len(accessors):
             comp_type = accessors[idx_acc_id].get("componentType", 5125)
-            idx_dtype = np.uint16 if comp_type == 5123 else np.uint32
+            idx_dtype = np.uint16 if comp_type == 5123 else (np.uint8 if comp_type == 5121 else np.uint32)
             flat_idx = _read_acc(idx_acc_id, idx_dtype, 1)
             if flat_idx is not None and len(flat_idx) >= 3:
                 faces = flat_idx[: (len(flat_idx) // 3) * 3].reshape((-1, 3)).astype(np.int32)
@@ -1586,11 +1606,17 @@ def load_vrm_or_glb_avatar(path: str | Path) -> dict[str, Any] | None:
         }
         rigged = auto_rig_humanoid_mesh(base_mesh, normalize_scale=False)
 
-        joints_0 = _read_acc(attrs.get("JOINTS_0"), np.uint16, 4)
-        weights_0 = _read_acc(attrs.get("WEIGHTS_0"), np.float32, 4)
+        joints_0 = _read_acc(attrs.get("JOINTS_0"), None, 4)
+        weights_0 = _read_acc(attrs.get("WEIGHTS_0"), None, 4)
+        max_bone_idx = max(0, len(rigged.get("bone_names", [])) - 1)
         if joints_0 is not None and weights_0 is not None and len(joints_0) == len(verts):
-            rigged["joints_0"] = joints_0
-            rigged["weights_0"] = weights_0
+            rigged["joints_0"] = np.clip(joints_0.astype(np.int32), 0, max_bone_idx).astype(np.uint16)
+            if np.issubdtype(weights_0.dtype, np.uint8):
+                rigged["weights_0"] = weights_0.astype(np.float32) / 255.0
+            elif np.issubdtype(weights_0.dtype, np.uint16):
+                rigged["weights_0"] = weights_0.astype(np.float32) / 65535.0
+            else:
+                rigged["weights_0"] = weights_0.astype(np.float32)
 
         # Restore morph targets if present in primitive
         target_names = (meshes[0].get("extras") or {}).get("targetNames") or []
@@ -1607,7 +1633,11 @@ def load_vrm_or_glb_avatar(path: str | Path) -> dict[str, Any] | None:
         else:
             rigged = build_avatar_facial_blendshapes(rigged)
 
-        rigged["spring_chains"] = []
+        extras_springs = (gltf.get("extras") or {}).get("ziggart_spring_chains")
+        if isinstance(extras_springs, list):
+            rigged["spring_chains"] = extras_springs
+        else:
+            rigged.setdefault("spring_chains", [])
         rigged["vrm_path"] = str(p)
         rigged["path"] = str(p)
         return rigged
@@ -1848,7 +1878,7 @@ def render_avatar_multipass(
         bg_color=bg_col,
     )
 
-    # Normal map pass (encode normals in [0, 1] RGB)
+    # Normal map pass (encode normals in [0, 1] RGB cleanly without diffuse shading)
     norm_colors = np.clip(0.5 + 0.5 * norms, 0.0, 1.0).astype(np.float32)
     normal_img, _ = render_3d_view(
         positions=verts,
@@ -1859,6 +1889,7 @@ def render_avatar_multipass(
         elevation_deg=elevation_deg,
         resolution=res,
         bg_color=(0.5, 0.5, 1.0),
+        unlit=True,
     )
     normal_img = normal_img * mask[..., None]
 
@@ -1939,16 +1970,41 @@ def render_avatar_multipass(
 
 _STUDIO_LIVE_CAPTURE_CACHE: dict[str, dict[str, Any]] = {}
 _STUDIO_LOCK = threading.RLock()
+_STUDIO_CACHE_MAX_ENTRIES = 32
+_STUDIO_CACHE_TTL_SEC = 3600.0
 
 
 def store_live_studio_capture(session_id: str, payload: dict[str, Any]) -> None:
+    key = str(session_id or "default")
+    now = time.time()
+    entry = dict(payload) if isinstance(payload, dict) else {"value": payload}
+    entry["_stored_at"] = now
     with _STUDIO_LOCK:
-        _STUDIO_LIVE_CAPTURE_CACHE[str(session_id or "default")] = payload
+        # Evict expired entries first
+        expired = [
+            k for k, v in _STUDIO_LIVE_CAPTURE_CACHE.items()
+            if (now - float(v.get("_stored_at", now))) > _STUDIO_CACHE_TTL_SEC
+        ]
+        for k in expired:
+            _STUDIO_LIVE_CAPTURE_CACHE.pop(k, None)
+        _STUDIO_LIVE_CAPTURE_CACHE.pop(key, None)
+        while len(_STUDIO_LIVE_CAPTURE_CACHE) >= _STUDIO_CACHE_MAX_ENTRIES:
+            oldest_k = next(iter(_STUDIO_LIVE_CAPTURE_CACHE))
+            _STUDIO_LIVE_CAPTURE_CACHE.pop(oldest_k, None)
+        _STUDIO_LIVE_CAPTURE_CACHE[key] = entry
 
 
 def get_live_studio_capture(session_id: str) -> dict[str, Any] | None:
+    key = str(session_id or "default")
+    now = time.time()
     with _STUDIO_LOCK:
-        return _STUDIO_LIVE_CAPTURE_CACHE.get(str(session_id or "default"))
+        item = _STUDIO_LIVE_CAPTURE_CACHE.get(key)
+        if item is None:
+            return None
+        if (now - float(item.get("_stored_at", now))) > _STUDIO_CACHE_TTL_SEC:
+            _STUDIO_LIVE_CAPTURE_CACHE.pop(key, None)
+            return None
+        return item
 
 
 def _decode_data_uri_to_rgb(data_uri: str, target_res: int = 512) -> tuple[np.ndarray, np.ndarray] | None:
@@ -2363,7 +2419,7 @@ class ZiggartAutoRigger:
     ) -> tuple[dict[str, Any], str, Any]:
         model_key = "unirig" if "unirig" in rig_backend.lower() else "make_it_animatable"
         cache_info = {}
-        if "geometric" not in rig_backend.lower():
+        if not rig_backend.lower().startswith("geometric"):
             cache_info = ensure_avatar_model_cached(
                 model_key,
                 hf_token=hf_token,
@@ -2759,6 +2815,20 @@ class ZiggartVRMPoseAndMocapStudio:
             },
         }
 
+    @classmethod
+    def IS_CHANGED(
+        cls,
+        studio_mode: str = "Pose Preset / Manual Sliders",
+        session_id: str = "default",
+        webcam_pose_json: str = "",
+        **kwargs: Any,
+    ) -> Any:
+        if "Live Webcam" in studio_mode or "FlowHMR" in studio_mode:
+            live_cap = get_live_studio_capture(session_id)
+            ts = live_cap.get("_stored_at") if isinstance(live_cap, dict) else 0.0
+            return f"{studio_mode}:{session_id}:{ts}:{len(webcam_pose_json or '')}"
+        return f"{studio_mode}:{session_id}"
+
     def execute_studio(
         self,
         studio_mode: str = "Pose Preset / Manual Sliders",
@@ -2813,37 +2883,48 @@ class ZiggartVRMPoseAndMocapStudio:
             expressions["aa"] = float(mouth_open_aa)
         if eye_blink > 0.0:
             expressions["blink"] = float(eye_blink)
-        if emotion_happy >= 0.0:
+        if emotion_happy > 0.0:
             expressions["happy"] = float(emotion_happy)
         if chibi_scale > 0.0:
             expressions["chibi_big_head"] = float(chibi_scale)
 
-        # Check if live browser webcam mocap or JSON override is available
-        live_capture = get_live_studio_capture(session_id)
-        parsed_json: dict[str, Any] = {}
-        if webcam_pose_json and webcam_pose_json.strip():
+        # Gate browser live capture / webcam_pose_json to Live Webcam / FlowHMR modes
+        is_capture_mode = "Live Webcam" in studio_mode or "FlowHMR" in studio_mode
+        live_capture = get_live_studio_capture(session_id) if is_capture_mode else None
+        parsed_json: dict[str, Any] = dict(live_capture) if isinstance(live_capture, dict) else {}
+        if is_capture_mode and webcam_pose_json and webcam_pose_json.strip():
             try:
-                parsed_json = json.loads(webcam_pose_json)
+                user_json = json.loads(webcam_pose_json)
+                if isinstance(user_json, dict):
+                    for k, v in user_json.items():
+                        parsed_json[k] = v
             except Exception:
-                parsed_json = {}
-        elif live_capture is not None and "Live Webcam" in studio_mode:
-            parsed_json = live_capture
+                pass
 
-        if isinstance(parsed_json.get("rotations"), dict):
+        if is_capture_mode and isinstance(parsed_json.get("rotations"), dict):
             for b_k, r_v in parsed_json["rotations"].items():
                 if isinstance(r_v, (list, tuple)) and len(r_v) == 3:
                     rotations[str(b_k)] = [float(r_v[0]), float(r_v[1]), float(r_v[2])]
-        if isinstance(parsed_json.get("expressions"), dict):
+        if is_capture_mode and isinstance(parsed_json.get("expressions"), dict):
             for e_k, e_v in parsed_json["expressions"].items():
                 expressions[str(e_k)] = float(e_v)
 
         fx_cfg = avatar_data.get("fun_fx_config") or {}
         physics_preset = str(fx_cfg.get("physics_preset", "Bouncy Anime"))
 
-        # Check if mocap_data provides an animation sequence
+        # Check if mocap_data or recorded_frames provides an animation sequence
         mocap_rots_list: list[dict[str, list[float]]] = []
+        mocap_trans_list: list[Any] = []
         if isinstance(mocap_data, dict) and "bone_rotations_deg" in mocap_data:
             mocap_rots_list = mocap_data.get("bone_rotations_deg", [])
+            mocap_trans_list = mocap_data.get("root_translations", []) or []
+        elif is_capture_mode and isinstance(parsed_json.get("recorded_frames"), list) and parsed_json["recorded_frames"]:
+            for rf in parsed_json["recorded_frames"]:
+                if isinstance(rf, dict):
+                    if isinstance(rf.get("rotations"), dict):
+                        mocap_rots_list.append(rf["rotations"])
+                    else:
+                        mocap_rots_list.append({k: v for k, v in rf.items() if isinstance(v, (list, tuple)) and len(v) == 3})
 
         if mocap_rots_list and ("FlowHMR" in studio_mode or num_frames > 1 or studio_mode == "Pose Preset / Manual Sliders"):
             n_frames = len(mocap_rots_list)
@@ -2859,10 +2940,12 @@ class ZiggartVRMPoseAndMocapStudio:
             frame_rots = dict(rotations)
             if mocap_rots_list and f_idx < len(mocap_rots_list):
                 frame_rots.update(mocap_rots_list[f_idx])
+            frame_trans = mocap_trans_list[f_idx] if f_idx < len(mocap_trans_list) else None
 
             posed = evaluate_avatar_pose_and_physics(
                 avatar_data,
                 bone_rotations_deg=frame_rots,
+                root_translation=frame_trans,
                 expression_weights=expressions,
                 physics_preset=physics_preset,
                 time_sec=t_sec,
@@ -2880,11 +2963,12 @@ class ZiggartVRMPoseAndMocapStudio:
             norm_batch.append(passes["normal"])
             pose_batch.append(passes["openpose"])
 
-        # If browser sent a direct WebGL canvas capture frame in Live Webcam mode, use it for frame 0 RGB
+        # If browser sent a direct WebGL/canvas capture frame in Live Webcam mode, update frame 0 RGB
+        # while keeping the true 3D rendered foreground alpha mask intact.
         if "Live Webcam" in studio_mode and isinstance(parsed_json.get("frame_data_uri"), str):
             decoded = _decode_data_uri_to_rgb(parsed_json["frame_data_uri"], target_res=res)
             if decoded is not None:
-                rgb_batch[0], mask_batch[0] = decoded
+                rgb_batch[0], _ = decoded
 
         vrm_path = str(avatar_data.get("vrm_path") or avatar_data.get("path") or vrm_or_glb_path or "")
 

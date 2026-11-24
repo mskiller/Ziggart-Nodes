@@ -25,8 +25,8 @@ from .embedded_model import (
     MODEL_MANAGER,
     EmbeddedLlamaError,
     ModelConfig,
+    build_json_schema_response_format,
     default_vlm_threads,
-    release_comfy_vram,
     strip_thinking_tags,
 )
 from .nodes import (
@@ -315,7 +315,8 @@ class ZiggartAutoPromptDetailer(ZiggartDetailerKrea2):
 
                 frame_prompts: list[str] = []
                 if boxes:
-                    MODEL_MANAGER.load(config, unload_comfy_models=True)
+                    unload_comfy = getattr(config, "backend", "in_process_gguf") == "in_process_gguf"
+                    MODEL_MANAGER.load(config, unload_comfy_models=unload_comfy)
                     crop_tensors: list[torch.Tensor] = []
                     crop_coords: list[tuple[int, int, int, int]] = []
                     crop_seeds: list[int] = []
@@ -347,13 +348,12 @@ class ZiggartAutoPromptDetailer(ZiggartDetailerKrea2):
         finally:
             if free_vram_after:
                 MODEL_MANAGER.unload()
-                release_comfy_vram()
 
         # Phase 2: Diffusion Refinement with Krea 2 Turbo
         any_detections = any(len(b_boxes) > 0 for b_boxes in batch_boxes)
         neg_cond = None
         if any_detections:
-            _, neg_cond = self._encode_prompts(clip, "", detail_negative_prompt)
+            neg_cond = self._encode_single_prompt(clip, detail_negative_prompt)
 
         for b in range(batch_size):
             frame = image[b : b + 1]
@@ -392,7 +392,7 @@ class ZiggartAutoPromptDetailer(ZiggartDetailerKrea2):
                 cropped_base_list.append(crop_high[:, :, :, :3].clone())
 
                 crop_pos_prompt = prompts[idx]
-                pos_cond, _ = self._encode_prompts(clip, crop_pos_prompt, detail_negative_prompt)
+                pos_cond = self._encode_single_prompt(clip, crop_pos_prompt)
 
                 latent_noise_mask = None
                 if use_latent_mask and feather_mask > 0:
@@ -582,7 +582,24 @@ class ZiggartVLMImageCritic:
         any_defect_found = False
 
         try:
-            MODEL_MANAGER.load(config, unload_comfy_models=True)
+            unload_comfy = getattr(config, "backend", "in_process_gguf") == "in_process_gguf"
+            MODEL_MANAGER.load(config, unload_comfy_models=unload_comfy)
+            critic_schema = build_json_schema_response_format(
+                "vlm_image_critic",
+                {
+                    "type": "object",
+                    "properties": {
+                        "score": {"type": "number"},
+                        "issues": {"type": "string"},
+                        "fix_prompt": {"type": "string"},
+                        "boxes": {
+                            "type": "array",
+                            "items": {"type": "array", "items": {"type": "number"}},
+                        },
+                    },
+                    "required": ["score", "issues", "fix_prompt", "boxes"],
+                },
+            )
             for b in range(batch_size):
                 frame = image[b]
                 data_uri = image_to_data_uri(frame, max_dimension=1024)
@@ -623,9 +640,23 @@ class ZiggartVLMImageCritic:
                     top_k=20,
                     seed=42,
                     enable_thinking=False,
+                    response_format=critic_schema,
                 )
 
-                boxes = parse_bounding_boxes(raw_response, img_w, img_h)
+                parsed_json: dict[str, Any] | None = None
+                json_match = re.search(r"\{[\s\S]*\}", raw_response)
+                if json_match:
+                    try:
+                        cand = json.loads(json_match.group(0))
+                        if isinstance(cand, dict):
+                            parsed_json = cand
+                    except Exception:
+                        parsed_json = None
+
+                if parsed_json is not None and isinstance(parsed_json.get("boxes"), list):
+                    boxes = parse_bounding_boxes(json.dumps(parsed_json["boxes"]), img_w, img_h)
+                else:
+                    boxes = parse_bounding_boxes(raw_response, img_w, img_h)
                 if max_detections > 0:
                     boxes = boxes[:max_detections]
 
@@ -633,17 +664,14 @@ class ZiggartVLMImageCritic:
                 score = 8 if not boxes else 5
                 issues = "No major defects localized." if not boxes else "Localized defects requiring refinement."
                 fix_prompt = "ultra-detailed, anatomically correct, sharp focus, natural texture, 8k"
-                json_match = re.search(r"\{[\s\S]*\}", raw_response)
-                if json_match:
+                if parsed_json is not None:
                     try:
-                        parsed_json = json.loads(json_match.group(0))
-                        if isinstance(parsed_json, dict):
-                            score = int(parsed_json.get("score", score))
-                            issues = str(parsed_json.get("issues", issues))
-                            if parsed_json.get("fix_prompt"):
-                                fix_prompt = str(parsed_json["fix_prompt"]).strip()
-                    except Exception:
+                        score = int(round(float(parsed_json.get("score", score))))
+                    except (TypeError, ValueError):
                         pass
+                    issues = str(parsed_json.get("issues", issues))
+                    if parsed_json.get("fix_prompt"):
+                        fix_prompt = str(parsed_json["fix_prompt"]).strip()
 
                 if boxes:
                     any_defect_found = True
@@ -688,7 +716,6 @@ class ZiggartVLMImageCritic:
         finally:
             if free_vram_after:
                 MODEL_MANAGER.unload()
-                release_comfy_vram()
 
         return (
             torch.cat(previews, dim=0),
@@ -824,7 +851,7 @@ class ZiggartCropByBBox:
                     b = item["box"]
                     box_t = (int(b[0]), int(b[1]), int(b[2]), int(b[3]))
                     padded = (
-                        crop_with_padding(box_t, img_w, img_h, crop_factor=crop_factor_override)
+                        crop_with_padding(box_t, img_w, img_h, crop_factor=eff_factor)
                         if crop_factor_override > 0.0 or "padded_crop" not in item
                         else tuple(item["padded_crop"])
                     )
@@ -1139,7 +1166,8 @@ class ZiggartVLMInpaintPrompter:
         bboxes_payload: list[dict[str, Any]] = []
 
         try:
-            MODEL_MANAGER.load(config, unload_comfy_models=True)
+            unload_comfy = getattr(config, "backend", "in_process_gguf") == "in_process_gguf"
+            MODEL_MANAGER.load(config, unload_comfy_models=unload_comfy)
             for b in range(batch_size):
                 frame = image[b]
                 m_idx = min(b, mask_batch.shape[0] - 1)
@@ -1214,7 +1242,6 @@ class ZiggartVLMInpaintPrompter:
         finally:
             if free_vram_after:
                 MODEL_MANAGER.unload()
-                release_comfy_vram()
 
         return (
             positive_prompts[0] if len(positive_prompts) == 1 else "\n\n---\n\n".join(positive_prompts),
@@ -1386,20 +1413,26 @@ class ZiggartSmartTileUpscaler(ZiggartDetailerKrea2):
                 label_prefix="vlm",
             )
             try:
-                MODEL_MANAGER.load(config, unload_comfy_models=True)
+                unload_comfy = getattr(config, "backend", "in_process_gguf") == "in_process_gguf"
+                MODEL_MANAGER.load(config, unload_comfy_models=unload_comfy)
+                tile_inst = (
+                    "Briefly describe only the visible content, textures, and lighting in this image tile "
+                    "in one concise sentence. Do not guess unseen objects outside the tile."
+                )
                 for b in range(batch_size):
+                    tile_tensors = [upscaled_base[b, ty0:ty1, tx0:tx1, :] for tx0, ty0, tx1, ty1 in tiles]
+                    tile_seeds = [
+                        int((seed + b * 101 + t_idx * 17) & 0x7FFFFFFF)
+                        for t_idx in range(len(tiles))
+                    ]
+                    descs = _describe_crops_batch_with_vlm(
+                        tile_tensors,
+                        instruction=tile_inst,
+                        max_tokens=96,
+                        seeds=tile_seeds,
+                    )
                     frame_prompts: list[str] = []
-                    for t_idx, (tx0, ty0, tx1, ty1) in enumerate(tiles):
-                        tile_3d = upscaled_base[b, ty0:ty1, tx0:tx1, :]
-                        desc = _describe_crop_with_vlm(
-                            tile_3d,
-                            instruction=(
-                                "Briefly describe only the visible content, textures, and lighting in this image tile "
-                                "in one concise sentence. Do not guess unseen objects outside the tile."
-                            ),
-                            max_tokens=96,
-                            seed=int((seed + b * 101 + t_idx * 17) & 0x7FFFFFFF),
-                        )
+                    for t_idx, ((tx0, ty0, tx1, ty1), desc) in enumerate(zip(tiles, descs)):
                         combined = f"{desc}, {base_suffix}" if (desc and base_suffix) else (desc or base_suffix)
                         frame_prompts.append(combined)
                         prompts_log.append(
@@ -1414,7 +1447,6 @@ class ZiggartSmartTileUpscaler(ZiggartDetailerKrea2):
             finally:
                 if free_vram_after:
                     MODEL_MANAGER.unload()
-                    release_comfy_vram()
         else:
             fallback_prompt = base_suffix or "high resolution, sharp details"
             for b in range(batch_size):
@@ -1695,13 +1727,12 @@ class ZiggartMultiSubjectDetailer(ZiggartDetailerKrea2):
         finally:
             if free_vram_after:
                 MODEL_MANAGER.unload()
-                release_comfy_vram()
 
         # Phase 2: Resample each grounded subject with its own CLIP conditioning
         any_tasks = any(len(t) > 0 for t in frame_tasks)
         neg_cond = None
         if any_tasks:
-            _, neg_cond = self._encode_prompts(clip, "", detail_negative_prompt)
+            neg_cond = self._encode_single_prompt(clip, detail_negative_prompt)
 
         for b in range(batch_size):
             frame = image[b : b + 1]
@@ -1733,7 +1764,7 @@ class ZiggartMultiSubjectDetailer(ZiggartDetailerKrea2):
                         align_corners=False,
                     ).permute(0, 2, 3, 1).clamp(0.0, 1.0)
 
-                pos_cond, _ = self._encode_prompts(clip, pos_prompt, detail_negative_prompt)
+                pos_cond = self._encode_single_prompt(clip, pos_prompt)
                 latent_noise_mask = None
                 if use_latent_mask and feather_mask > 0:
                     scaled_feather = max(1, int(round(feather_mask * (target_w / float(max(1, cw))))))
@@ -1802,6 +1833,15 @@ class ZiggartMultiSubjectDetailer(ZiggartDetailerKrea2):
 # ---------------------------------------------------------------------------
 
 
+def _safe_quantile_2d(tensor_2d: torch.Tensor, q: float) -> torch.Tensor:
+    """Computes quantile safely on large 2D tensors without exceeding PyTorch's 16M element cap."""
+    flat = tensor_2d.reshape(-1)
+    if flat.numel() > 1_000_000:
+        step = max(1, flat.numel() // 1_000_000)
+        flat = flat[::step]
+    return torch.quantile(flat, q)
+
+
 def _extract_subject_contour_mask(
     crop_rgb: torch.Tensor,
     mode: str = "edge_and_chroma_guided",
@@ -1842,7 +1882,7 @@ def _extract_subject_contour_mask(
         bg_std = border_pixels.std(dim=0, keepdim=True).unsqueeze(0).clamp(min=0.04)
 
         color_dist = torch.sqrt(((rgb - bg_mean) / bg_std).pow(2).mean(dim=-1) + 1e-6)
-        color_norm = (color_dist / (color_dist.quantile(0.92).clamp(min=0.15))).clamp(0.0, 1.0)
+        color_norm = (color_dist / (_safe_quantile_2d(color_dist, 0.92).clamp(min=0.15))).clamp(0.0, 1.0)
 
         # Sobel edge energy on luminance
         luma = (0.299 * rgb[:, :, 0] + 0.587 * rgb[:, :, 1] + 0.114 * rgb[:, :, 2]).unsqueeze(0).unsqueeze(0)
@@ -1852,7 +1892,7 @@ def _extract_subject_contour_mask(
         gx = F.conv2d(luma_pad, kx)
         gy = F.conv2d(luma_pad, ky)
         grad = torch.sqrt(gx * gx + gy * gy + 1e-6).squeeze(0).squeeze(0)
-        grad_norm = (grad / (grad.quantile(0.92).clamp(min=0.05))).clamp(0.0, 1.0)
+        grad_norm = (grad / (_safe_quantile_2d(grad, 0.92).clamp(min=0.05))).clamp(0.0, 1.0)
 
         if mode == "adaptive_otsu_silhouette":
             salience = 0.70 * color_norm + 0.30 * ellipse_prior
@@ -1868,7 +1908,7 @@ def _extract_subject_contour_mask(
         fill_ratio = float(raw_mask.mean().item())
         if fill_ratio < float(min_fill):
             q_val = max(0.05, min(0.95, 1.0 - float(min_fill)))
-            q_thresh = salience.quantile(q_val)
+            q_thresh = _safe_quantile_2d(salience, q_val)
             raw_mask = torch.maximum(raw_mask, (salience >= q_thresh).float())
 
     # Morphological closing (dilate then erode) to fill interior holes
@@ -2227,6 +2267,8 @@ class ZiggartColorAndFrequencyMatcher:
         )
         diff = (matched - original_image[:, :, :, :3].to(matched.device)).abs() * 4.0
         heatmap = diff.clamp(0.0, 1.0)
+        if original_image.shape[-1] == 4:
+            matched = torch.cat([matched, original_image[:, :, :, 3:4].to(matched.device, dtype=matched.dtype)], dim=-1)
         return (matched, heatmap)
 
 
@@ -2261,15 +2303,19 @@ def _score_crop_with_vlm_or_signal(
     detail_prompt: str,
 ) -> tuple[float, str]:
     """
-    Scores a crop from 1.0 to 10.0. If a loaded/valid `vlm_config` is provided, queries the VLM
-    for a JSON score + defect note and blends it with signal sharpness; otherwise uses `_score_crop_signal_quality`.
+    Scores a crop from 1.0 to 10.0. If a valid `vlm_config` is provided, queries the VLM
+    with structured JSON output + blends with signal sharpness; otherwise uses `_score_crop_signal_quality`.
     """
     sig_score = _score_crop_signal_quality(crop_rgb)
-    if vlm_config is None or not getattr(vlm_config, "model_path", ""):
+    has_vlm = vlm_config is not None and (
+        bool(getattr(vlm_config, "model_path", ""))
+        or getattr(vlm_config, "backend", "in_process_gguf") == "openai_compatible"
+    )
+    if not has_vlm:
         return sig_score, "signal_sharpness_and_contrast"
 
     try:
-        data_uri = image_to_data_uri(crop_rgb[0])
+        data_uri = image_to_data_uri(crop_rgb[0], max_dimension=768)
         sys_prompt = (
             "You are a strict image quality critic. Rate the anatomical and rendering quality "
             'of this image crop from 1.0 to 10.0. Reply ONLY with JSON: {"score": 8.0, "fix_hint": "..."}'
@@ -2285,7 +2331,19 @@ def _score_crop_with_vlm_or_signal(
                 ],
             },
         ]
-        MODEL_MANAGER.load(vlm_config, unload_comfy_models=False)
+        score_schema = build_json_schema_response_format(
+            "crop_quality_score",
+            {
+                "type": "object",
+                "properties": {
+                    "score": {"type": "number"},
+                    "fix_hint": {"type": "string"},
+                },
+                "required": ["score", "fix_hint"],
+            },
+        )
+        unload_comfy = getattr(vlm_config, "backend", "in_process_gguf") == "in_process_gguf"
+        MODEL_MANAGER.load(vlm_config, unload_comfy_models=unload_comfy)
         raw = MODEL_MANAGER.chat(
             messages=messages,
             max_tokens=128,
@@ -2294,8 +2352,18 @@ def _score_crop_with_vlm_or_signal(
             top_k=20,
             seed=42,
             enable_thinking=False,
+            response_format=score_schema,
         )
         cleaned = strip_thinking_tags(raw)
+        try:
+            parsed = json.loads(cleaned)
+            if isinstance(parsed, dict) and "score" in parsed:
+                vlm_s = float(max(1.0, min(10.0, float(parsed["score"]))))
+                hint = str(parsed.get("fix_hint", "")).strip()
+                blended = round(0.70 * vlm_s + 0.30 * sig_score, 2)
+                return blended, hint
+        except Exception:
+            pass
         m = re.search(r'"score"\s*:\s*([0-9]+(?:\.[0-9]+)?)', cleaned)
         if m:
             vlm_s = float(max(1.0, min(10.0, float(m.group(1)))))
@@ -2453,6 +2521,8 @@ class ZiggartClosedLoopSelfHealingDetailer(ZiggartDetailerKrea2):
         region_scores: list[float] = []
         audit_regions: list[dict[str, Any]] = []
 
+        # Pre-score all regions in one VLM session before unloading VLM for diffusion sampling
+        initial_evals: list[tuple[int, int, int, int, int, torch.Tensor, float, str]] = []
         try:
             for r_idx, rec in enumerate(records):
                 f_idx = min(max(0, int(rec["frame_index"])), batch_size - 1)
@@ -2460,11 +2530,19 @@ class ZiggartClosedLoopSelfHealingDetailer(ZiggartDetailerKrea2):
                 ch, cw = cy1 - cy0, cx1 - cx0
                 if ch <= 0 or cw <= 0:
                     continue
-
                 crop_orig = out_image[f_idx : f_idx + 1, cy0:cy1, cx0:cx1, :3].clone()
                 initial_score, init_note = _score_crop_with_vlm_or_signal(
                     crop_orig, vlm_config, detail_positive_prompt
                 )
+                initial_evals.append((r_idx, f_idx, cx0, cy0, cx1, cy1, crop_orig, initial_score, init_note))
+        finally:
+            if MODEL_MANAGER.is_loaded() and getattr(vlm_config, "backend", "in_process_gguf") == "in_process_gguf":
+                MODEL_MANAGER.unload()
+
+        try:
+            for r_idx, f_idx, cx0, cy0, cx1, cy1, crop_orig, initial_score, init_note in initial_evals:
+                ch, cw = cy1 - cy0, cx1 - cx0
+                rec = records[r_idx]
 
                 if initial_score >= float(target_score):
                     region_scores.append(initial_score)
@@ -2500,6 +2578,11 @@ class ZiggartClosedLoopSelfHealingDetailer(ZiggartDetailerKrea2):
                 best_score = initial_score if never_degrade else -1.0
                 best_iter = 0
                 iter_history: list[dict[str, Any]] = []
+                active_hint = (
+                    init_note
+                    if init_note and init_note not in ("signal_sharpness_and_contrast", "signal_fallback")
+                    else ""
+                )
 
                 scaled_feather = max(1, int(round(feather_mask * (target_w / float(max(1, cw))))))
                 latent_noise_mask = (
@@ -2513,16 +2596,27 @@ class ZiggartClosedLoopSelfHealingDetailer(ZiggartDetailerKrea2):
                     cur_denoise = float(max(0.05, min(0.92, base_denoise + (it - 1) * step_denoise_boost)))
                     cur_seed = (int(seed) + r_idx * 313 + it * 101) & 0xFFFFFFFFFFFFFFFF
 
-                    # Evict VLM before diffusion sampling to prevent dual-model VRAM contention
-                    if MODEL_MANAGER._model is not None:
+                    # Evict local GGUF VLM before diffusion sampling to prevent dual-model VRAM contention
+                    if MODEL_MANAGER.is_loaded() and getattr(vlm_config, "backend", "in_process_gguf") == "in_process_gguf":
                         MODEL_MANAGER.unload()
+
+                    iter_prompt = (
+                        f"{detail_positive_prompt}, {active_hint}"
+                        if active_hint
+                        else detail_positive_prompt
+                    )
+                    iter_pos_cond = (
+                        self._encode_single_prompt(clip, iter_prompt)
+                        if active_hint
+                        else pos_cond
+                    )
 
                     cand_high = self._execute_sampling(
                         model=model,
                         clip=clip,
                         vae=vae,
                         crop_tensor=crop_high,
-                        positive_prompt=detail_positive_prompt,
+                        positive_prompt=iter_prompt,
                         negative_prompt=detail_negative_prompt,
                         steps=steps,
                         cfg=cfg,
@@ -2530,7 +2624,7 @@ class ZiggartClosedLoopSelfHealingDetailer(ZiggartDetailerKrea2):
                         scheduler=scheduler,
                         denoise=cur_denoise,
                         seed=cur_seed,
-                        pos_cond=pos_cond,
+                        pos_cond=iter_pos_cond,
                         neg_cond=neg_cond,
                         noise_mask=latent_noise_mask,
                     )
@@ -2559,6 +2653,8 @@ class ZiggartClosedLoopSelfHealingDetailer(ZiggartDetailerKrea2):
                     cand_score, cand_note = _score_crop_with_vlm_or_signal(
                         cand_orig, vlm_config, detail_positive_prompt
                     )
+                    if cand_note and cand_note not in ("signal_sharpness_and_contrast", "signal_fallback"):
+                        active_hint = cand_note
                     iter_history.append(
                         {
                             "iteration": it,
@@ -2622,9 +2718,8 @@ class ZiggartClosedLoopSelfHealingDetailer(ZiggartDetailerKrea2):
                     }
                 )
         finally:
-            if MODEL_MANAGER._model is not None:
+            if MODEL_MANAGER.is_loaded() and getattr(vlm_config, "backend", "in_process_gguf") == "in_process_gguf":
                 MODEL_MANAGER.unload()
-                release_comfy_vram()
 
         final_avg_score = round(sum(region_scores) / max(1, len(region_scores)), 2) if region_scores else 0.0
         audit_payload = {

@@ -321,20 +321,34 @@ def create_animated_gif(
 
 def _get_output_3d_dir(subfolder: str = "ziggart_3d") -> Path:
     if folder_paths is not None and hasattr(folder_paths, "get_output_directory"):
-        base = Path(folder_paths.get_output_directory())
+        base = Path(folder_paths.get_output_directory()).resolve()
     else:
-        base = Path(tempfile.gettempdir()) / "comfyui_output"
-    target = base / subfolder if subfolder else base
+        base = (Path(tempfile.gettempdir()) / "comfyui_output").resolve()
+    clean_sub = str(subfolder or "").strip().replace("\\", "/").strip("/")
+    if clean_sub:
+        if "\x00" in clean_sub or ":" in clean_sub or any(p in (".", "..") for p in clean_sub.split("/") if p):
+            raise ValueError(f"Unsafe output subfolder rejected: {subfolder!r}")
+        target = (base / clean_sub).resolve()
+        if os.path.commonpath([os.path.normcase(str(base)), os.path.normcase(str(target))]) != os.path.normcase(str(base)):
+            raise ValueError(f"Output subfolder escapes base output directory: {subfolder!r}")
+    else:
+        target = base
     target.mkdir(parents=True, exist_ok=True)
     return target
 
 
 def _next_output_path(prefix: str, ext: str, output_dir: Path | None = None) -> Path:
+    raw_prefix = str(prefix or "ziggart_3d").strip()
+    if "\x00" in raw_prefix or ":" in raw_prefix:
+        raise ValueError(f"Unsafe output prefix rejected: {prefix!r}")
+    norm_prefix = raw_prefix.replace("\\", "/").strip("/")
+    if any(p in (".", "..") for p in norm_prefix.split("/") if p):
+        raise ValueError(f"Path traversal in output prefix rejected: {prefix!r}")
+
     if output_dir is not None:
-        out_dir = output_dir
-        file_prefix = prefix or "model_3d"
+        out_dir = output_dir.resolve()
+        file_prefix = norm_prefix.rsplit("/", 1)[-1] if "/" in norm_prefix else (norm_prefix or "model_3d")
     else:
-        norm_prefix = str(prefix or "ziggart_3d").replace("\\", "/")
         if "/" in norm_prefix:
             subfolder, file_prefix = norm_prefix.rsplit("/", 1)
             out_dir = _get_output_3d_dir(subfolder=subfolder)
@@ -1364,6 +1378,7 @@ def render_3d_view(
     resolution: int = 512,
     bg_color: tuple[float, float, float] = (0.12, 0.13, 0.16),
     point_radius: int = 2,
+    unlit: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Render a single (H, W, 3) RGB image and (H, W) alpha mask from either a 3D point/Gaussian
@@ -1420,14 +1435,17 @@ def render_3d_view(
 
     if faces is not None and len(faces) > 0:
         tris = np.asarray(faces, dtype=np.int32)
-        if normals is None or len(normals) != len(pts):
-            normals = compute_vertex_normals(centered, tris)
-        rot_normals = normals @ rot_mat.T
-        light_dir = np.array([0.45, 0.65, 0.61], dtype=np.float32)
-        light_dir /= np.linalg.norm(light_dir)
-        ndotl = np.clip(rot_normals @ light_dir, 0.0, 1.0)
-        shade = 0.32 + 0.68 * ndotl[:, None]
-        shaded_cols = np.clip(cols * shade, 0.0, 1.0)
+        if unlit:
+            shaded_cols = cols
+        else:
+            if normals is None or len(normals) != len(pts):
+                normals = compute_vertex_normals(centered, tris)
+            rot_normals = normals @ rot_mat.T
+            light_dir = np.array([0.45, 0.65, 0.61], dtype=np.float32)
+            light_dir /= np.linalg.norm(light_dir)
+            ndotl = np.clip(rot_normals @ light_dir, 0.0, 1.0)
+            shade = 0.32 + 0.68 * ndotl[:, None]
+            shaded_cols = np.clip(cols * shade, 0.0, 1.0)
 
         # Sample face centroids + vertices + edge midpoints for fast dense rasterization
         v0, v1, v2 = tris[:, 0], tris[:, 1], tris[:, 2]
@@ -1501,11 +1519,18 @@ def render_3d_view(
     offsets = [(0, 0)]
     if rad >= 2:
         offsets = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1), (0, 0)]
-    for dx, dy in offsets:
-        nx = np.clip(ix + dx, 0, res - 1)
-        ny = np.clip(iy + dy, 0, res - 1)
-        img[ny, nx] = scol
-        mask[ny, nx] = np.maximum(mask[ny, nx], sop)
+    if len(offsets) == 1:
+        img[iy, ix] = scol
+        mask[iy, ix] = np.maximum(mask[iy, ix], sop)
+    else:
+        all_nx = np.concatenate([np.clip(ix + dx, 0, res - 1) for dx, _ in offsets])
+        all_ny = np.concatenate([np.clip(iy + dy, 0, res - 1) for _, dy in offsets])
+        all_col = np.tile(scol, (len(offsets), 1))
+        all_op = np.tile(sop, len(offsets))
+        all_z = np.tile(sample_z[order][valid], len(offsets))
+        z_order = np.argsort(-all_z, kind="stable")
+        img[all_ny[z_order], all_nx[z_order]] = all_col[z_order]
+        mask[all_ny[z_order], all_nx[z_order]] = np.maximum(mask[all_ny[z_order], all_nx[z_order]], all_op[z_order])
 
     return np.clip(img, 0.0, 1.0), np.clip(mask, 0.0, 1.0)
 
@@ -1949,7 +1974,7 @@ def _install_zero_build_3d_shims(vendor_root: Path, auto_install: bool = True) -
                         timeout=180,
                         env=git_env,
                     )
-                except subprocess.TimeoutExpired:
+                except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
                     pass
             if repo_dir.is_dir() and str(repo_dir) not in sys.path:
                 sys.path.insert(0, str(repo_dir))
@@ -1991,7 +2016,7 @@ def _install_zero_build_3d_shims(vendor_root: Path, auto_install: bool = True) -
                 import importlib
 
                 importlib.invalidate_caches()
-            except subprocess.TimeoutExpired:
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
                 pass
 
     # 1a-bis. Pure-Python `pymeshlab` fallback shim if `pymeshlab` wheel is unavailable for the current Python/OS
@@ -2253,7 +2278,7 @@ def _ensure_backend_installed(package_name: str, auto_install: bool = True) -> b
                         text=True,
                         timeout=180,
                     )
-            except subprocess.TimeoutExpired:
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
                 pass
 
     if package_name in ("spar3d", "hy3dgen"):
@@ -2501,7 +2526,11 @@ class Ziggart3DModelManager:
 
                 shutil.copyfile(ply_candidates[0], output_ply_path)
                 input_pngs = sorted(out_dir.rglob("*_input.png"))
-                preprocessed = Image.open(input_pngs[0]).convert("RGBA") if input_pngs else pil_image
+                if input_pngs:
+                    with Image.open(input_pngs[0]) as in_pil:
+                        preprocessed = in_pil.convert("RGBA")
+                else:
+                    preprocessed = pil_image
                 if output_ply_path.is_file() and float(prune_opacity_threshold) > 0.0:
                     try:
                         s = load_gaussian_ply(output_ply_path)
@@ -2766,6 +2795,7 @@ class Ziggart3DModelManager:
                 if generate_texture:
                     # Sequential VRAM strategy: MUST unload Shape pipeline before loading Paint pipeline
                     self.unload()
+                    paint_pipe = None
                     try:
                         from hy3dgen.texgen import Hunyuan3DPaintPipeline  # type: ignore[import-not-found]
 
@@ -2773,12 +2803,15 @@ class Ziggart3DModelManager:
                         if hasattr(paint_pipe, "enable_model_cpu_offload"):
                             paint_pipe.enable_model_cpu_offload()
                         mesh_obj = paint_pipe(mesh=mesh_obj, image=rgba_image)
-                        del paint_pipe
-                        empty_accelerator_cache()
                     except ImportError as tex_exc:
                         raise Ziggart3DError(
                             f"Hunyuan3DPaintPipeline could not be imported for texture generation: {tex_exc}"
                         ) from tex_exc
+                    finally:
+                        if paint_pipe is not None:
+                            del paint_pipe
+                        gc.collect()
+                        empty_accelerator_cache()
 
                 mesh_arrays = _extract_trimesh_arrays(mesh_obj)
                 if hasattr(mesh_obj, "export"):
@@ -3870,6 +3903,13 @@ class Ziggart3DTurntableGifSaver:
                 mask_arr = np.asarray(mask, dtype=np.float32)
             while mask_arr.ndim < 3:
                 mask_arr = mask_arr[None, ...]
+            if mask_arr.ndim == 4:
+                if mask_arr.shape[-1] in (1, 3, 4):
+                    mask_arr = mask_arr[..., 0]
+                elif mask_arr.shape[1] == 1:
+                    mask_arr = mask_arr[:, 0, :, :]
+                else:
+                    mask_arr = mask_arr[:, ..., 0] if mask_arr.shape[-1] < mask_arr.shape[1] else mask_arr[:, 0, :, :]
 
         pil_frames: list[Image.Image] = []
         for idx in range(n_frames):
@@ -3916,7 +3956,12 @@ class Ziggart3DTurntableGifSaver:
         out_batch = np.stack(out_tensors, axis=0)
         output_tensor = torch.from_numpy(out_batch) if torch is not None else out_batch
 
-        subfolder = "ziggart_3d"
+        base_out_dir = _get_output_3d_dir("")
+        try:
+            rel_sub = saved_path.parent.resolve().relative_to(base_out_dir.resolve()).as_posix()
+            subfolder = "" if rel_sub == "." else rel_sub
+        except Exception:
+            subfolder = "ziggart_3d"
         relative_filename = saved_path.name
         ui_info = {
             "images": [

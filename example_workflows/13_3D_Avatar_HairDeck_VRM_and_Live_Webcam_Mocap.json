@@ -2,7 +2,7 @@
   "id": "b72e4591-9e12-4c88-a411-8899aabbcc13",
   "revision": 0,
   "last_node_id": 13,
-  "last_link_id": 14,
+  "last_link_id": 12,
   "nodes": [
     {
       "id": 1,
@@ -238,6 +238,7 @@
         false,
         40000,
         12345,
+        "randomize",
         "ziggart_avatar_body",
         true,
         true,
@@ -307,6 +308,7 @@
         0.35,
         true,
         42,
+        "randomize",
         "ziggart_hairdeck",
         ""
       ]
@@ -668,18 +670,102 @@
     }
   ],
   "links": [
-    [1, 3, 0, 4, 0, "IMAGE"],
-    [2, 4, 0, 5, 0, "IMAGE"],
-    [3, 4, 1, 6, 0, "IMAGE"],
-    [4, 4, 2, 6, 1, "MASK"],
-    [5, 5, 1, 7, 0, "ZIGGART_MESH"],
-    [6, 7, 0, 8, 0, "ZIGGART_RIGGED_MESH"],
-    [7, 8, 0, 9, 0, "ZIGGART_RIGGED_MESH"],
-    [8, 6, 0, 9, 1, "ZIGGART_HAIR"],
-    [9, 9, 0, 10, 0, "ZIGGART_AVATAR"],
-    [10, 10, 0, 11, 0, "ZIGGART_AVATAR"],
-    [11, 11, 0, 12, 0, "IMAGE"],
-    [12, 11, 4, 13, 0, "IMAGE"]
+    [
+      1,
+      3,
+      0,
+      4,
+      0,
+      "IMAGE"
+    ],
+    [
+      2,
+      4,
+      0,
+      5,
+      0,
+      "IMAGE"
+    ],
+    [
+      3,
+      4,
+      1,
+      6,
+      0,
+      "IMAGE"
+    ],
+    [
+      4,
+      4,
+      2,
+      6,
+      1,
+      "MASK"
+    ],
+    [
+      5,
+      5,
+      1,
+      7,
+      0,
+      "ZIGGART_MESH"
+    ],
+    [
+      6,
+      7,
+      0,
+      8,
+      0,
+      "ZIGGART_RIGGED_MESH"
+    ],
+    [
+      7,
+      8,
+      0,
+      9,
+      0,
+      "ZIGGART_RIGGED_MESH"
+    ],
+    [
+      8,
+      6,
+      0,
+      9,
+      1,
+      "ZIGGART_HAIR"
+    ],
+    [
+      9,
+      9,
+      0,
+      10,
+      0,
+      "ZIGGART_AVATAR"
+    ],
+    [
+      10,
+      10,
+      0,
+      11,
+      0,
+      "ZIGGART_AVATAR"
+    ],
+    [
+      11,
+      11,
+      0,
+      12,
+      0,
+      "IMAGE"
+    ],
+    [
+      12,
+      11,
+      4,
+      13,
+      0,
+      "IMAGE"
+    ]
   ],
   "groups": [],
   "config": {},

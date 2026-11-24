@@ -6,26 +6,23 @@ occlusion filter + Full-Prompt exclusion heuristics.
 """
 from __future__ import annotations
 
-import collections
 import json
 import os
-import random
 import re
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 KREA2_COMPILER_VERSION = "2.0.0"
 KREA2_LONG_PROMPT_CHARS = 1600
 KREA2_VERY_LONG_PROMPT_CHARS = 2000
 
-_WILDCARD_RE = re.compile(r"__[^_\r\n]+?__")
+_WILDCARD_RE = re.compile(r"__(?:(?!__)[^\r\n])+?__")
 _SPACE_RE = re.compile(r"\s+")
 _BEFORE_PUNCTUATION_RE = re.compile(r"\s+([,.;:])")
 _REPEATED_COMMA_RE = re.compile(r",{2,}")
 _REPEATED_DOT_RE = re.compile(r"\.{2,}")
-_TOKEN_RE = re.compile(r"KREA2V2TOKEN(\d+)END")
 
 # ---------------------------------------------------------------------------
 # 1. Full-Scene Prompt Exclusion Rules (Files & Multi-Pillar Line Heuristics)
@@ -327,30 +324,28 @@ def analyze_outfit_occlusion(outfit_text: str, outfit_wildcard_key: str = "") ->
     )
 
 
+_ZONE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("NIPPLES_AREOLAS", re.compile(r"\b(?:nipples?|areolas?|nipples-areolas)\b", re.I)),
+    ("INTIMATE_GENITALS", re.compile(r"\b(?:vulva|pussies|pussy|penis|intimate|genitals?|labia|clitoris)\b", re.I)),
+    ("BACK_SPINE", re.compile(r"\b(?:back-spine|dorsal-spines(?:-crests)?|spinal\s+furrow|lower\s+back|arched\s+back|toned\s+back|shoulder\s+blades?|scapulae|dimples\s+of\s+venus)\b", re.I)),
+    ("FEET_ANKLES", re.compile(r"\b(?:feet-ankles|paws-talons(?:-claws)?|malleolus|foot\s+arch|dancer\s+feet|petite\s+feet|toenails|metatarsal|soles\s+and\s+heels|instep)\b", re.I)),
+    ("ARMS_SHOULDERS", re.compile(r"\b(?:arms-shoulders|wings-appendages|extra-limbs|biceps|triceps|deltoids|forearms)\b", re.I)),
+    ("BREASTS_CHEST", re.compile(r"\b(?:breasts-chest|breast-shape|jffbreast|chest-torso|torso-carapace|breasts?|cleavage|bosom|bustline|decollet\w*|pectorals?)\b", re.I)),
+    ("WAIST_MIDRIFF", re.compile(r"\b(?:waist-midriff|hips-waist|abs-core|waist|midriff|navel|abdomen|abdominal|washboard|rectus|v-line|six-pack|obliques|hourglass)\b", re.I)),
+    ("LEGS_THIGHS", re.compile(r"\b(?:legs-thighs|legs-paws-hooves|dancer\s+legs|toned\s+legs|curvy\s+thighs|rounded\s+thighs|quadriceps?|quads|hamstrings|calves|achilles|shins)\b", re.I)),
+    ("BUTTOCKS_HIPS", re.compile(r"\b(?:buttocks|glutes|hips-pelvis|hips|pelvis|buttock|glutes-legs|tails-stingers|gluteal)\b", re.I)),
+)
+
+
 def classify_anatomy_wildcard_zone(wildcard_key_or_text: str) -> str | None:
     """
     Maps an anatomy wildcard key or anatomical text fragment to one of the 9 occludable body zones,
     or None if it is a head/face/hair/skin/build/age trait not occluded by body apparel.
     """
-    k = wildcard_key_or_text.lower()
-    if any(w in k for w in ("nipple", "areola", "nipples-areolas")):
-        return "NIPPLES_AREOLAS"
-    if any(w in k for w in ("vulva", "pussies", "pussy", "penis", "intimate", "genital", "labia", "clitoris")):
-        return "INTIMATE_GENITALS"
-    if any(w in k for w in ("back-spine", "dorsal-spines", "spinal furrow", "lower back", "arched back", "toned back", "shoulder blade", "scapulae", "dimples of venus")):
-        return "BACK_SPINE"
-    if any(w in k for w in ("feet-ankles", "paws-talons", "malleolus", "foot arch", "dancer feet", "petite feet", "toenails", "metatarsal", "soles and heels", "instep")):
-        return "FEET_ANKLES"
-    if any(w in k for w in ("arms-shoulders", "wings-appendages", "extra-limbs", "biceps", "triceps", "deltoids", "forearms")):
-        return "ARMS_SHOULDERS"
-    if any(w in k for w in ("breasts-chest", "breast-shape", "jffbreast", "chest-torso", "torso-carapace", "breast", "cleavage", "bosom", "bustline", "decollet", "pectoral")):
-        return "BREASTS_CHEST"
-    if any(w in k for w in ("waist-midriff", "hips-waist", "abs-core", "waist", "midriff", "navel", "abdomen", "abdominal", "washboard", "rectus", "v-line", "six-pack", "obliques", "hourglass")):
-        return "WAIST_MIDRIFF"
-    if any(w in k for w in ("legs-thighs", "legs-paws-hooves", "dancer legs", "toned legs", "curvy thighs", "rounded thighs", "quadricep", "quads", "hamstrings", "calves", "achilles", "shins")):
-        return "LEGS_THIGHS"
-    if any(w in k for w in ("buttocks", "glutes", "hips-pelvis", "hips", "pelvis", "buttock", "glutes-legs", "tails-stingers", "gluteal")):
-        return "BUTTOCKS_HIPS"
+    text = wildcard_key_or_text or ""
+    for zone_name, pat in _ZONE_PATTERNS:
+        if pat.search(text):
+            return zone_name
     return None
 
 
@@ -595,7 +590,7 @@ HEAD_TO_TOE_ANATOMY_SECTIONS: tuple[dict[str, Any], ...] = (
         "id": "hips_pelvis",
         "group": "body",
         "Female": "Collection/Anatomy/Female/Hips-Pelvis",
-        "Male": "Collection/Anatomy/Male/Hips-Waist",
+        "Male": None,
         "Creature": None,
         "zone": "BUTTOCKS_HIPS",
     },
@@ -603,7 +598,7 @@ HEAD_TO_TOE_ANATOMY_SECTIONS: tuple[dict[str, Any], ...] = (
         "id": "buttocks_glutes",
         "group": "body",
         "Female": "Collection/Anatomy/Female/Buttocks-Glutes",
-        "Male": "Collection/Anatomy/Male/Glutes-Legs",
+        "Male": None,
         "Creature": "Collection/Anatomy/Creature/Tails-Stingers",
         "zone": "BUTTOCKS_HIPS",
     },
@@ -761,6 +756,41 @@ def is_section_enabled_by_view_preset(section_id: str, view_preset: str) -> bool
     return section_id not in {"back_spine", "buttocks_glutes", "nipples_areolas", "intimate_anatomy"}
 
 
+def _split_clauses_outside_parens(text: str) -> list[str]:
+    """Splits `text` on commas or semicolons only when outside parentheses."""
+    clauses: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    for ch in text:
+        if ch in "([":
+            depth += 1
+            buf.append(ch)
+        elif ch in ")]":
+            depth = max(0, depth - 1)
+            buf.append(ch)
+        elif ch in ",;" and depth == 0:
+            part = "".join(buf).strip()
+            if part:
+                clauses.append(part)
+            buf = []
+        else:
+            buf.append(ch)
+    tail = "".join(buf).strip()
+    if tail:
+        clauses.append(tail)
+    return clauses
+
+
+_MALE_DISALLOWED_ANATOMY_RE = re.compile(
+    r"\b(?:vulva|labia|vagina|breasts?|c-cup|d-cup|b-cup|decolletage)\b",
+    re.I,
+)
+_FEMALE_DISALLOWED_ANATOMY_RE = re.compile(
+    r"\b(?:penis|testicles|scrotum|beard|mustache)\b",
+    re.I,
+)
+
+
 def filter_anatomy_text_by_occlusion(
     anatomy_text: str,
     occlusion: OutfitOcclusionReport,
@@ -768,28 +798,25 @@ def filter_anatomy_text_by_occlusion(
 ) -> str:
     """
     Filters a resolved or multi-clause anatomy description against `occlusion.allowed_zones`
-    and gender consistency so covered body parts are automatically removed.
+    and gender consistency so covered or mismatched body parts are automatically removed.
     """
     if not anatomy_text or not anatomy_text.strip():
         return ""
-    if occlusion.is_nude:
-        return anatomy_text.strip()
 
-    clauses = [c.strip() for c in re.split(r"[,;]\s*", anatomy_text) if c.strip()]
+    clauses = _split_clauses_outside_parens(anatomy_text)
     kept: list[str] = []
     g_low = gender.lower()
 
     for clause in clauses:
-        c_low = clause.lower()
-        # Gender sanity check
-        if g_low == "male" and any(w in c_low for w in ("vulva", "labia", "vagina", "breasts", "c-cup", "d-cup", "b-cup", "decolletage")):
+        if g_low == "male" and _MALE_DISALLOWED_ANATOMY_RE.search(clause):
             continue
-        if g_low == "female" and any(w in c_low for w in ("penis", "testicles", "scrotum", "beard", "mustache")):
+        if g_low == "female" and _FEMALE_DISALLOWED_ANATOMY_RE.search(clause):
             continue
 
-        zone = classify_anatomy_wildcard_zone(clause)
-        if zone is not None and not occlusion.allowed_zones.get(zone, True):
-            continue
+        if not occlusion.is_nude:
+            zone = classify_anatomy_wildcard_zone(clause)
+            if zone is not None and not occlusion.allowed_zones.get(zone, True):
+                continue
         kept.append(clause)
 
     return ", ".join(kept)
@@ -807,18 +834,30 @@ def clean_outfit_prefix(value: str) -> str:
 
 def get_theme_outfit_choices(catalog: dict[str, Any], character: dict[str, Any], mode: str) -> list[str]:
     """Ported from Wildcard-GPT `recipe_service.outfit_choices`: returns outfits for canonical, compatible, or free mode."""
-    mode_low = mode.lower()
+    if not isinstance(catalog, dict):
+        catalog = {}
+    if not isinstance(character, dict):
+        character = {}
+    mode_low = (mode or "").lower()
+    canonical = character.get("canonical_outfits") or []
+    all_outfits = catalog.get("outfits") or []
     if "canonical" in mode_low:
-        values = character.get("canonical_outfits", [])
+        values = list(canonical) if isinstance(canonical, list) else []
     elif "compatible" in mode_low:
-        pools = catalog.get("outfit_pools", {})
-        gender = str(character.get("gender", "Female")).capitalize()
-        values = list(pools.get(f"{gender}-Outfit", [])) + list(pools.get("Mixed-Outfit", []))
+        pools = catalog.get("outfit_pools") or {}
+        if not isinstance(pools, dict):
+            pools = {}
+        gender = str(character.get("gender", "Female") or "Female").capitalize()
+        g_pool = pools.get(f"{gender}-Outfit") or []
+        m_pool = pools.get("Mixed-Outfit") or []
+        values = (list(g_pool) if isinstance(g_pool, list) else []) + (list(m_pool) if isinstance(m_pool, list) else [])
         if not values:
-            values = list(character.get("canonical_outfits", [])) or list(catalog.get("outfits", []))
+            values = (list(canonical) if isinstance(canonical, list) else []) or (
+                list(all_outfits) if isinstance(all_outfits, list) else []
+            )
     else:
-        values = list(catalog.get("outfits", []))
-    return list(dict.fromkeys(clean_outfit_prefix(v) for v in values if v and str(v).strip()))
+        values = list(all_outfits) if isinstance(all_outfits, list) else []
+    return list(dict.fromkeys(clean_outfit_prefix(str(v)) for v in values if v is not None and str(v).strip()))
 
 
 def load_theme_bundle(theme_dir: str | Path) -> dict[str, Any]:
@@ -858,9 +897,12 @@ def load_theme_bundle(theme_dir: str | Path) -> dict[str, Any]:
         try:
             data = json.loads(manifest.read_text(encoding="utf-8-sig", errors="replace"))
             if isinstance(data, dict):
-                bundle["characters"] = data.get("characters", [])
-                bundle["outfit_pools"] = data.get("outfit_pools", {})
-                bundle["outfits"] = data.get("outfits", [])
+                chars = data.get("characters")
+                pools = data.get("outfit_pools")
+                outfits = data.get("outfits")
+                bundle["characters"] = list(chars) if isinstance(chars, list) else []
+                bundle["outfit_pools"] = dict(pools) if isinstance(pools, dict) else {}
+                bundle["outfits"] = list(outfits) if isinstance(outfits, list) else []
         except Exception:
             pass
 
@@ -879,7 +921,7 @@ def load_theme_bundle(theme_dir: str | Path) -> dict[str, Any]:
                 bundle["characters"].append({
                     "id": f"txt_{g_label}_{idx}",
                     "description": desc,
-                    "gender": "Female" if g_label == "Female" else ("Male" if g_label == "Male" else "Female"),
+                    "gender": g_label if g_label in ("Female", "Male", "Any") else "Any",
                     "canonical_outfits": [],
                 })
 
@@ -943,7 +985,24 @@ def load_universe_bundle(universe_dir: str | Path) -> dict[str, Any]:
                     if not isinstance(ch, dict):
                         continue
                     # Skip minor characters if age is explicitly minor to keep adult anatomy safe
-                    age = str(ch.get("age", "adult")).lower()
+                    age_raw = ch.get("age", "adult")
+                    age = str(age_raw or "adult").strip().lower()
+                    is_minor = any(
+                        tok in age
+                        for tok in ("minor", "child", "kid", "teen", "infant", "toddler", "underage", "youth", "juvenile", "young girl", "young boy")
+                    )
+                    if not is_minor:
+                        try:
+                            if isinstance(age_raw, (int, float)) and float(age_raw) < 18:
+                                is_minor = True
+                            else:
+                                num_m = re.match(r"^(\d+)(?:\s*(?:y|yo|yrs?|years?\s*old))?$", age)
+                                if num_m and int(num_m.group(1)) < 18:
+                                    is_minor = True
+                        except Exception:
+                            pass
+                    if is_minor:
+                        continue
                     name = str(ch.get("name", "")).strip()
                     traits = str(ch.get("traits", "")).strip()
                     variant = str(ch.get("variant", "")).strip()
@@ -968,68 +1027,86 @@ def load_universe_bundle(universe_dir: str | Path) -> dict[str, Any]:
         except Exception:
             pass
 
-    # Also scan direct or branch .txt files (e.g. Character-Female.txt, Outfit-Female.txt, Style.txt, Environment.txt)
+    # Two-pass scan across direct or branch .txt files so outfits load before characters
+    txt_files: list[tuple[str, Path]] = []
     for root, _dirs, files in os.walk(u_path):
         for fname in sorted(files):
-            if not fname.lower().endswith(".txt"):
-                continue
             low = fname.lower()
-            fp = Path(root) / fname
-            if low in ("all.txt", "scene-canonical.txt"):
+            if not low.endswith(".txt") or low in ("all.txt", "scene-canonical.txt"):
                 continue
-            lines = _read_lines(fp)
-            if not lines:
-                continue
-            if "style" in low:
-                for ln in lines:
-                    if ln not in bundle["styles"]:
-                        bundle["styles"].append(ln)
-            elif "environment" in low:
-                for ln in lines:
-                    if ln not in bundle["environments"]:
-                        bundle["environments"].append(ln)
-            elif "pose" in low:
-                for ln in lines:
-                    if ln not in bundle["poses"]:
-                        bundle["poses"].append(ln)
-            elif "outfit-female" in low or "female-outfit" in low:
-                for ln in lines:
-                    c_ln = clean_outfit_prefix(ln)
-                    if c_ln not in bundle["outfit_pools"]["Female-Outfit"]:
-                        bundle["outfit_pools"]["Female-Outfit"].append(c_ln)
-                    if c_ln not in bundle["outfits"]:
-                        bundle["outfits"].append(c_ln)
-            elif "outfit-male" in low or "male-outfit" in low:
-                for ln in lines:
-                    c_ln = clean_outfit_prefix(ln)
-                    if c_ln not in bundle["outfit_pools"]["Male-Outfit"]:
-                        bundle["outfit_pools"]["Male-Outfit"].append(c_ln)
-                    if c_ln not in bundle["outfits"]:
-                        bundle["outfits"].append(c_ln)
-            elif "character-female" in low or low == "female.txt":
-                if not bundle["characters"] or not any(c.get("gender") == "Female" for c in bundle["characters"]):
-                    f_outfits = bundle["outfit_pools"]["Female-Outfit"]
-                    for idx, ln in enumerate(lines):
-                        c_out = [f_outfits[idx]] if idx < len(f_outfits) else []
-                        bundle["characters"].append({
-                            "id": f"{u_path.name}:F:{idx}",
-                            "description": ln,
-                            "gender": "Female",
-                            "age": "adult",
-                            "canonical_outfits": c_out,
-                        })
-            elif "character-male" in low or low == "male.txt":
-                if not any(c.get("gender") == "Male" for c in bundle["characters"]):
-                    m_outfits = bundle["outfit_pools"]["Male-Outfit"]
-                    for idx, ln in enumerate(lines):
-                        c_out = [m_outfits[idx]] if idx < len(m_outfits) else []
-                        bundle["characters"].append({
-                            "id": f"{u_path.name}:M:{idx}",
-                            "description": ln,
-                            "gender": "Male",
-                            "age": "adult",
-                            "canonical_outfits": c_out,
-                        })
+            txt_files.append((low, Path(root) / fname))
+
+    # Pass 1: Styles, Environments, Poses, and Outfit pools
+    for low, fp in txt_files:
+        lines = _read_lines(fp)
+        if not lines:
+            continue
+        if "style" in low:
+            for ln in lines:
+                if ln not in bundle["styles"]:
+                    bundle["styles"].append(ln)
+        elif "environment" in low:
+            for ln in lines:
+                if ln not in bundle["environments"]:
+                    bundle["environments"].append(ln)
+        elif "pose" in low:
+            for ln in lines:
+                if ln not in bundle["poses"]:
+                    bundle["poses"].append(ln)
+        elif "outfit-female" in low or "female-outfit" in low:
+            for ln in lines:
+                c_ln = clean_outfit_prefix(ln)
+                if c_ln and c_ln not in bundle["outfit_pools"]["Female-Outfit"]:
+                    bundle["outfit_pools"]["Female-Outfit"].append(c_ln)
+                if c_ln and c_ln not in bundle["outfits"]:
+                    bundle["outfits"].append(c_ln)
+        elif "outfit-male" in low or "male-outfit" in low:
+            for ln in lines:
+                c_ln = clean_outfit_prefix(ln)
+                if c_ln and c_ln not in bundle["outfit_pools"]["Male-Outfit"]:
+                    bundle["outfit_pools"]["Male-Outfit"].append(c_ln)
+                if c_ln and c_ln not in bundle["outfits"]:
+                    bundle["outfits"].append(c_ln)
+
+    # Pass 2: Characters (paired with outfits from Pass 1, deduplicated by gender+description)
+    seen_chars: set[tuple[str, str]] = {
+        (str(c.get("gender", "")).lower(), str(c.get("description", "")).strip().lower())
+        for c in bundle["characters"]
+    }
+    for low, fp in txt_files:
+        lines = _read_lines(fp)
+        if not lines:
+            continue
+        if "character-female" in low or low == "female.txt":
+            f_outfits = bundle["outfit_pools"]["Female-Outfit"]
+            for idx, ln in enumerate(lines):
+                key = ("female", ln.strip().lower())
+                if key in seen_chars:
+                    continue
+                seen_chars.add(key)
+                c_out = [f_outfits[idx]] if idx < len(f_outfits) else []
+                bundle["characters"].append({
+                    "id": f"{u_path.name}:{fp.parent.name}:F:{idx}",
+                    "description": ln,
+                    "gender": "Female",
+                    "age": "adult",
+                    "canonical_outfits": c_out,
+                })
+        elif "character-male" in low or low == "male.txt":
+            m_outfits = bundle["outfit_pools"]["Male-Outfit"]
+            for idx, ln in enumerate(lines):
+                key = ("male", ln.strip().lower())
+                if key in seen_chars:
+                    continue
+                seen_chars.add(key)
+                c_out = [m_outfits[idx]] if idx < len(m_outfits) else []
+                bundle["characters"].append({
+                    "id": f"{u_path.name}:{fp.parent.name}:M:{idx}",
+                    "description": ln,
+                    "gender": "Male",
+                    "age": "adult",
+                    "canonical_outfits": c_out,
+                })
 
     return bundle
 
@@ -1067,76 +1144,8 @@ DUO_INTERACTIONS_BANK: dict[str, list[str]] = {
 
 
 # ---------------------------------------------------------------------------
-# 5. Deterministic Krea2 Compiler v2 (9-Block IR + Scoped / Balanced / Compact / Rich)
+# 5. Deterministic Krea2 Compiler Helpers
 # ---------------------------------------------------------------------------
-
-_FRAMING_KEYWORDS = {
-    "shot", "angle", "view", "close-up", "closeup", "portrait", "wide-angle", "wide angle",
-    "macro", "telephoto", "cinematic shot", "full body", "medium shot", "establishing shot",
-    "dutch angle", "eye-level", "low angle", "high angle", "overhead", "panoramic",
-    "depth of field", "bokeh", "composition", "centered", "upper body", "cowboy shot",
-    "profile", "dynamic angle", "isometric", "front view", "side view", "back view",
-}
-
-_LIGHTING_KEYWORDS = {
-    "light", "lighting", "lit", "illumination", "illuminated", "neon", "glow", "glowing",
-    "shadow", "shadows", "dark", "bright", "sunlight", "moonlight", "golden hour", "blue hour",
-    "palette", "radiant", "diffuse", "rim light", "volumetric", "god rays", "specular",
-    "sunbeams", "sun rays", "haze", "reflections", "backlit", "highlights", "soft light", "hard light",
-}
-
-_STYLE_KEYWORDS = {
-    "animation", "cel animation", "pixel art", "pixel-art", "comic", "stop-motion", "tokusatsu",
-    "style", "aesthetic", "aesthetics", "digital art", "illustration", "painting", "photograph", "photo",
-    "oil painting", "watercolor", "concept art", "anime", "manga", "render", "rendering", "octane render",
-    "unreal engine", "cinematic", "photorealistic", "vintage", "retro", "hyperrealistic",
-    "realism", "photorealism", "grain", "texture", "textures", "cel-shaded", "classic ova", "ova look", "gritty",
-    "linework", "contours", "contour", "hatching", "cross-hatching", "crosshatching", "brushwork", "brushstrokes",
-    "impasto", "gouache", "woodblock", "ukiyo-e", "sumi-e", "ink wash", "airbrush", "airbrushing", "halftone",
-    "screentone", "chiaroscuro", "tenebrism", "cinematography", "anamorphic", "film stock", "glaze", "glazes",
-    "glazing", "washes", "stippled", "draftsmanship", "draughtsmanship", "shading", "sprites", "low-polygon",
-    "1-bit", "dithered", "monochrome", "pastel", "charcoal", "graphite", "acrylic", "fresco", "tempera",
-    "lithograph", "chromolithograph", "engraving", "etching", "ligne claire", "bande dessinee", "seinen",
-    "shojo", "shonen", "giallo", "technicolor", "kodachrome", "ektachrome", "bleach-bypass", "skip-bleach",
-}
-
-_PRIMARY_MEDIUM_ANCHORS = {
-    "animation", "cel animation", "pixel art", "pixel-art", "stop-motion", "tokusatsu",
-    "style", "aesthetic", "aesthetics", "digital art", "illustration", "painting",
-    "oil painting", "watercolor", "concept art", "anime", "manga", "render", "rendering",
-    "cinematography", "photography", "linework", "brushwork", "brushstrokes", "impasto",
-    "gouache", "woodblock", "ukiyo-e", "sumi-e", "ink wash", "airbrush", "airbrushing",
-    "cross-hatching", "crosshatching", "hatching", "draftsmanship", "draughtsmanship",
-    "ligne claire", "bande dessinee", "1-bit", "dithered", "lithograph", "chromolithograph",
-    "engraving", "etching", "fresco", "tempera", "woodcut", "linocut",
-}
-
-_CONSTRAINT_KEYWORDS = {
-    "masterpiece", "best quality", "highly detailed", "sharp focus", "hyper-detailed",
-    "8k", "4k", "uhd", "trending on artstation", "award winning",
-}
-
-_APPAREL_KEYWORDS = {
-    "jacket", "armor", "robe", "robes", "dress", "suit", "coat", "cloak", "hood",
-    "boots", "gloves", "hat", "helmet", "skirt", "pants", "shirt", "apron",
-    "trench coat", "vest", "outfit", "costume", "garment", "kimono", "uniform", "wearing", "bikini", "lingerie",
-}
-
-_FEATURE_KEYWORDS = {
-    "face", "hair", "eyes", "eye", "skin", "cheek", "cheeks", "cheekbones",
-    "tattoos", "tattoo", "runes", "scars", "scar", "beard", "mustache", "wings",
-    "horns", "tail", "body", "expression", "gaze", "breasts", "cleavage", "waist", "hips",
-}
-
-_ACTION_RE = re.compile(
-    r"\b(walking|standing|sitting|flying|holding|looking|running|smiling|posing|fighting|casting|tending|kneeling|riding|leaping|swimming|reading|gazing|floating|smoking|wielding|carrying|repairing|fixing|crafting|building|dancing|working|operating|driving|piloting|embracing|kissing|arching|leaning)\b",
-    re.I,
-)
-_ENV_PREP_RE = re.compile(r"\b(in|on|at|inside|outside|amidst|under|surrounded by)\b", re.I)
-_ENV_NOUN_RE = re.compile(
-    r"\b(background|city|forest|room|sky|mountain|street|backstreet|terrace|greenhouse|bar|blizzard|snowstorm|cathedral|ruins|landscape|temple|dungeon|desert|ocean|sea|indoor|outdoor|interior|exterior|foliage|trees|garden|hangar|station|ship|starship|castle|bridge|alley|laboratory|lab|geodesic|palace|courtyard|beach|boudoir|bedroom|studio)\b",
-    re.I,
-)
 
 
 def estimate_qwen_tokens(text: str) -> int:
@@ -1351,6 +1360,27 @@ def _compute_instance_anchor(
     return ""
 
 
+def _wrap_parens(text: str) -> str:
+    """Wraps `text` in a single outer pair of parentheses without double-wrapping existing matching parens."""
+    s = text.strip()
+    if not s:
+        return ""
+    if s.startswith("(") and s.endswith(")"):
+        depth = 0
+        enclosed_whole = True
+        for i, ch in enumerate(s):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0 and i < len(s) - 1:
+                    enclosed_whole = False
+                    break
+        if enclosed_whole and depth == 0:
+            return s
+    return f"({s})"
+
+
 def assemble_krea2_structured_prompt(
     *,
     char1: CharacterSlotData | None,
@@ -1387,8 +1417,14 @@ def assemble_krea2_structured_prompt(
     is_compact = "compact" in pol_low
     is_rich = "rich" in pol_low
 
-    has_c2 = bool(char2 and (char2.character_desc.strip() or char2.outfit_desc.strip() or char2.anatomy_desc.strip()))
-    has_c3 = bool(char3 and (char3.character_desc.strip() or char3.outfit_desc.strip() or char3.anatomy_desc.strip()))
+    def _has_slot(slot: CharacterSlotData | None) -> bool:
+        return bool(slot and (slot.character_desc.strip() or slot.outfit_desc.strip() or slot.anatomy_desc.strip()))
+
+    has_c1 = _has_slot(char1)
+    has_c2 = _has_slot(char2)
+    has_c3 = _has_slot(char3)
+    active_chars = [c for c in (char1, char2, char3) if _has_slot(c)]
+    multi_char = len(active_chars) >= 2
     prop_str = companion_or_prop.strip().rstrip(".,")
     layout_str = spatial_layout_hint.strip().rstrip(".,")
 
@@ -1399,23 +1435,24 @@ def assemble_krea2_structured_prompt(
     stage_action = (stage.action_desc.strip().rstrip(".") if stage and stage.action_desc else "")
 
     # Determine action string for Solo vs Duo/Trio
-    if has_c2 or has_c3:
+    if multi_char:
         if stage_action:
             action_str = stage_action
         else:
             acts = [
                 a.strip().rstrip(".")
                 for a in (
-                    char1.individual_action if char1 else "",
-                    char2.individual_action if char2 else "",
-                    char3.individual_action if char3 else "",
+                    char1.individual_action if has_c1 and char1 else "",
+                    char2.individual_action if has_c2 and char2 else "",
+                    char3.individual_action if has_c3 and char3 else "",
                 )
                 if a and a.strip()
             ]
             action_str = ", ".join(acts)
     else:
-        c1_act = char1.individual_action.strip().rstrip(".") if char1 and char1.individual_action else ""
-        action_str = c1_act or stage_action
+        only_c = active_chars[0] if active_chars else None
+        solo_act = only_c.individual_action.strip().rstrip(".") if only_c and only_c.individual_action else ""
+        action_str = solo_act or stage_action
 
     if is_compact and env_str:
         env_str = env_str.split(",")[0].strip()
@@ -1428,117 +1465,119 @@ def assemble_krea2_structured_prompt(
     anchor = _compute_instance_anchor(char1, char2, char3) if include_count_anchor else ""
 
     def _append_char_chunks(target_chunks: list[str], slot: CharacterSlotData | None) -> None:
-        if not slot or not (slot.character_desc.strip() or slot.outfit_desc.strip() or slot.anatomy_desc.strip()):
+        if not _has_slot(slot) or slot is None:
             return
         if separate_parentheses_per_facet:
             if slot.character_desc.strip():
-                target_chunks.append(f"({slot.character_desc.strip().rstrip('.,')})")
+                target_chunks.append(_wrap_parens(slot.character_desc.strip().rstrip(".,")))
             if slot.anatomy_desc.strip():
-                target_chunks.append(f"({slot.anatomy_desc.strip().rstrip('.,')})")
+                target_chunks.append(_wrap_parens(slot.anatomy_desc.strip().rstrip(".,")))
             if slot.outfit_desc.strip():
                 c_out = clean_outfit_prefix(slot.outfit_desc)
                 if c_out:
                     prefix_w = "" if _NUDE_OUTFIT_RE.search(c_out) else "wearing "
-                    target_chunks.append(f"({prefix_w}{c_out})")
+                    target_chunks.append(_wrap_parens(f"{prefix_w}{c_out}"))
         else:
             c_block = slot.format_character_block(encapsulate_subparts=False)
             if c_block:
-                target_chunks.append(f"({c_block})")
+                target_chunks.append(_wrap_parens(c_block))
 
     if is_scoped:
         chunks: list[str] = []
         if custom_prefix.strip():
-            chunks.append(f"({custom_prefix.strip().rstrip('.')})")
+            chunks.append(_wrap_parens(custom_prefix.strip().rstrip(".")))
 
         # 1. (style)
         if style_str:
             if not re.match(r"^render\s+style\s*:", style_str, flags=re.I):
-                chunks.append(f"(Render Style: {style_str})")
+                chunks.append(_wrap_parens(f"Render Style: {style_str}"))
             else:
-                chunks.append(f"({style_str})")
+                chunks.append(_wrap_parens(style_str))
 
-        # 2. Character 1 blocks
-        _append_char_chunks(chunks, char1)
-
-        # 3. Solo Action OR Character 2 / Character 3 / Prop + Shared Action
-        if not has_c2 and not has_c3:
+        # 2. Character blocks
+        if len(active_chars) <= 1:
+            if active_chars:
+                _append_char_chunks(chunks, active_chars[0])
             if prop_str:
-                chunks.append(f"(accompanied by {prop_str})")
+                chunks.append(_wrap_parens(f"accompanied by {prop_str}"))
             if action_str:
-                chunks.append(f"({action_str})")
+                chunks.append(_wrap_parens(action_str))
         else:
-            if has_c2:
-                _append_char_chunks(chunks, char2)
-            if has_c3:
-                _append_char_chunks(chunks, char3)
+            for c_slot in active_chars:
+                _append_char_chunks(chunks, c_slot)
             if prop_str:
-                chunks.append(f"(accompanied by {prop_str})")
+                chunks.append(_wrap_parens(f"accompanied by {prop_str}"))
             if layout_str:
-                chunks.append(f"({layout_str})")
+                chunks.append(_wrap_parens(layout_str))
             if action_str:
-                chunks.append(f"({action_str})")
+                chunks.append(_wrap_parens(action_str))
 
         # 4. (environment)
         if env_formatted:
-            chunks.append(f"({env_formatted})")
+            chunks.append(_wrap_parens(env_formatted))
 
         # 5. (lighting)
         if light_str:
-            chunks.append(f"({light_str})")
+            chunks.append(_wrap_parens(light_str))
 
         # 6. (camera)
         if cam_str:
-            chunks.append(f"({cam_str})")
+            chunks.append(_wrap_parens(cam_str))
 
         if custom_suffix.strip():
-            chunks.append(f"({custom_suffix.strip().rstrip('.')})")
+            chunks.append(_wrap_parens(custom_suffix.strip().rstrip(".")))
 
         body = " ".join(chunks)
         final_prompt = f"{anchor}, {body}" if (anchor and body) else (body or anchor)
     else:
         # Linear Krea2CompilerV2 ordering (balanced, compact, rich)
+        # Deduplicate stage clauses separately so shared traits across distinct characters are preserved.
         linear_parts: list[str] = []
         if custom_prefix.strip():
             linear_parts.append(custom_prefix.strip().rstrip(".,"))
         if anchor:
             linear_parts.append(anchor)
-        if char1:
-            c1_b = char1.format_character_block(encapsulate_subparts=False)
-            if c1_b:
-                linear_parts.append(c1_b)
-        if has_c2 and char2:
-            c2_b = char2.format_character_block(encapsulate_subparts=False)
-            if c2_b:
-                linear_parts.append(f"accompanied by {c2_b}")
-        if has_c3 and char3:
-            c3_b = char3.format_character_block(encapsulate_subparts=False)
-            if c3_b:
-                linear_parts.append(f"and {c3_b}")
-        if prop_str:
-            linear_parts.append(f"with {prop_str}")
-        if layout_str:
-            linear_parts.append(layout_str)
-        if action_str:
-            linear_parts.append(action_str)
-        if cam_str:
-            linear_parts.append(cam_str)
-        if env_formatted:
-            linear_parts.append(env_formatted)
-        if style_str:
-            linear_parts.append(style_str)
-        if light_str:
-            linear_parts.append(light_str)
-        if is_rich:
-            linear_parts.append("masterpiece, ultra-detailed, sharp focus, high dynamic range")
-        if custom_suffix.strip():
-            linear_parts.append(custom_suffix.strip().rstrip(".,"))
+        for idx, c_slot in enumerate(active_chars):
+            c_block = _deduplicate_comma_clauses(c_slot.format_character_block(encapsulate_subparts=False))
+            if not c_block:
+                continue
+            if idx == 0:
+                linear_parts.append(c_block)
+            elif idx == 1:
+                linear_parts.append(f"accompanied by {c_block}")
+            else:
+                linear_parts.append(f"and {c_block}")
 
-        final_prompt = _deduplicate_comma_clauses(", ".join(p for p in linear_parts if p))
+        stage_parts: list[str] = []
+        if prop_str:
+            stage_parts.append(f"with {prop_str}")
+        if layout_str:
+            stage_parts.append(layout_str)
+        if action_str:
+            stage_parts.append(action_str)
+        if cam_str:
+            stage_parts.append(cam_str)
+        if env_formatted:
+            stage_parts.append(env_formatted)
+        if style_str:
+            stage_parts.append(style_str)
+        if light_str:
+            stage_parts.append(light_str)
+        if is_rich:
+            stage_parts.append("masterpiece, ultra-detailed, sharp focus, high dynamic range")
+        if custom_suffix.strip():
+            stage_parts.append(custom_suffix.strip().rstrip(".,"))
+
+        dedup_stage = _deduplicate_comma_clauses(", ".join(p for p in stage_parts if p))
+        if dedup_stage:
+            linear_parts.append(dedup_stage)
+        final_prompt = ", ".join(p for p in linear_parts if p)
 
     # Normalize spacing and terminating punctuation (match Krea2CompilerV2: append period if not ending in . ! ? ")
     final_prompt = _SPACE_RE.sub(" ", unicodedata.normalize("NFC", final_prompt)).strip()
     final_prompt = _BEFORE_PUNCTUATION_RE.sub(r"\1", final_prompt)
     final_prompt = _REPEATED_COMMA_RE.sub(",", final_prompt)
+    final_prompt = _REPEATED_DOT_RE.sub(".", final_prompt)
     if final_prompt and not final_prompt.endswith((".", "!", "?", '"')):
         final_prompt += "."
 

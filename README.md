@@ -1,9 +1,9 @@
-# Ziggart Nodes for ComfyUI (`v1.9.0`)
+# Ziggart Nodes for ComfyUI (`v1.10.0`)
 
-A complete collection of **62 local, in-process ComfyUI nodes** combining:
+A complete collection of **64 local, in-process & API-hybrid ComfyUI nodes** combining:
 - **Zero-Freeze 700+ MB Wildcard & Canonical Theme Engines** (Way A + Way C architectures + **`🎲 Pre-Generate Prompt (Test Without Queue)`** UI button + Token Inspector/Compressor)
 - **Krea2 (`Qwen3VL-4B` CLIP) Prompt Director & Regional Conditioning Suite** (Modular & All-in-One Theme/Universe context, Trio/Ensemble Director, Interactive 2D Spatial Layout BBox Designer, Regional Conditioning Composer, Head-to-Toe 28-Section Anatomy Character Creator with per-section `[None]` & View Presets, 1:1 Character-Outfit linking, and automatic 9-zone Outfit $\rightarrow$ Anatomy occlusion filtering)
-- **GGUF Vision-Language Models (VLMs)** via `llama-cpp-python` with **Prefix KV-Cached Batch Vision (`LlamaRAMCache` & `chat_batch`)**, **Interactive Vision Prompt Review & Multi-Turn Chat Gate** (pauses workflow so you can discuss missed details with the VLM, refine the prompt over unlimited turns, manually edit/undo, and continue), **Iterative Vision Prompt Reviser & Gate**, **Folder Image Batch & Queue Loader** (1-click `"▶️ Queue All Remaining Images (1-by-1)"`), **Vision Single-Line TXT & Wildcard Saver** (`1 prompt = 1 line`, `0 empty lines`), and **Dataset Caption Curator & Trigger Injector** (LoRA trigger injection, VLM boilerplate stripping, token budget QA & visual contact sheet)
+- **GGUF & OpenAI-Compatible Vision-Language Models (VLMs)** via `llama-cpp-python` (multimodal VLMs or `[None (Text-Only LLM)]` mode, `kv_cache_type` `f16`/`q8_0`/`q4_0`, `n_batch`, **Prefix KV-Cached Batch Vision**, and JSON-schema `response_format` reliability) or **OpenAI-Compatible HTTP Endpoints** (`ZiggartOpenAIVLMLoader` for Ollama, LM Studio, `llama-server`, vLLM, and OpenAI APIs), **Streaming Interactive Vision Prompt Review & Multi-Turn Chat Gate** (live token streaming, **Stop**, **Reset Context**, **Diff**, and **Region-Pinning** crop zoom), **Single-Load Batch Folder Vision Captioner** (`ZiggartBatchFolderVisionCaptioner` with presets, verbosity & `.ziggart_batch_manifest.json` resume), **Iterative Vision Prompt Reviser & Gate**, **Folder Image Batch & Queue Loader** (1-click `"▶️ Queue All Remaining Images (1-by-1)"`), **Vision Single-Line TXT & Wildcard Saver** (`1 prompt = 1 line`, `0 empty lines`), and **Dataset Caption Curator & Trigger Injector** (LoRA trigger injection, VLM boilerplate stripping, token budget QA & visual contact sheet)
 - **WeVisOne-VL Open-Vocabulary Visual Grounding & Contour Silhouette Matting**
 - **Krea 2 Turbo** High-Resolution Detailing, **Autonomous Closed-Loop Self-Healing Detailer**, **Reinhard Color & Frequency Matcher**, and **Tiled Upscaling**
 - **RTX 3070 Ti (8GB–16GB VRAM) 3D Generation Suite**: **`speridlabs/idol` Image-to-Gaussian Splat (`.ply`)**, **Gaussian-to-Mesh (`.glb`/`.obj`)**, **SPAR3D**, **Hunyuan3D-2mini**, and **360° Turntable Rendering**
@@ -13,7 +13,7 @@ A complete collection of **62 local, in-process ComfyUI nodes** combining:
 
 ---
 
-## Included Nodes (62 Nodes)
+## Included Nodes (64 Nodes)
 
 | Display Name | Internal Class | Category | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -40,8 +40,10 @@ A complete collection of **62 local, in-process ComfyUI nodes** combining:
 | **Ziggart Closed-Loop Self-Healing Detailer (Iterative Krea2)** | `ZiggartClosedLoopSelfHealingDetailer` | `Ziggart/Detailer` | Autonomous `1..max_iterations` self-healing loop: scores each crop (`1–10`), skips crops already `>= target_score`, iteratively resamples failing crops with contour matting & color lock, and retains the highest-scoring pass. |
 | **Ziggart Color & Frequency Matcher (Reinhard Tone Lock)** | `ZiggartColorAndFrequencyMatcher` | `Ziggart/Detailer` | Eliminates skin-tone shifts and lighting seams after high-denoise passes using perceptual Reinhard color transfer and frequency-separated detail blending. |
 | **Krea2 VLM Smart Tile Upscaler** | `ZiggartSmartTileUpscaler` | `Ziggart/Detailer` | Overlapping tiled upscaler (1.0×–4.0×) with optional per-tile VLM captioning (preventing background hallucinations) or fast pure-Krea2 tiled upscaling. |
-| **GGUF Vision Prompt** | `ZiggartGGUFVisionPrompt` | `Ziggart/LLM` | Multimodal prompt generation, image analysis, specialist passes (Composition, Subject, Style), and `vision_session` export for interactive review. |
-| **GGUF VLM Loader** | `ZiggartGGUFVLMLoader` | `Ziggart/LLM` | Reusable `GGUF_VL_MODEL` configuration node shared across all Ziggart VLM & Detailer nodes. |
+| **GGUF Vision Prompt** | `ZiggartGGUFVisionPrompt` | `Ziggart/LLM` | Multimodal prompt generation, image analysis (`caption_preset`, `verbosity`), specialist passes (Composition, Subject, Style), and `vision_session` export for interactive review. |
+| **GGUF VLM Loader** | `ZiggartGGUFVLMLoader` | `Ziggart/LLM` | Reusable `GGUF_VL_MODEL` configuration node shared across all Ziggart VLM & Detailer nodes, with `[None (Text-Only LLM)]` mode, `kv_cache_type` quantization (`f16`/`q8_0`/`q4_0`), `n_batch`, and prefix caching. |
+| **Ziggart OpenAI-Compatible VLM Loader (API / Ollama / LM Studio)** | `ZiggartOpenAIVLMLoader` | `Ziggart/LLM` | Builds a drop-in `GGUF_VL_MODEL` handle pointing to any OpenAI-compatible HTTP endpoint (Ollama, LM Studio, `llama-server`, vLLM, OpenAI API) with SSE streaming and JSON schema support. |
+| **Ziggart Batch Folder Vision Captioner** | `ZiggartBatchFolderVisionCaptioner` | `Ziggart/LLM` | Captions an entire folder of images in one single execution pass without reloading the model (`chat_batch`), supporting `caption_preset`, `verbosity`, atomic `.txt` sidecars, master `.txt`, and `.ziggart_batch_manifest.json` resume. |
 | **GGUF Vision Prompt Review & Chat** | `ZiggartGGUFVisionPromptChatGate` | `Ziggart/LLM` | Pauses workflow execution after Vision Prompt with an inline + expandable modal UI to **Ask / Discuss** details with the VLM, **Refine Prompt** over unlimited turns, manually edit & **Undo** versions, and release VRAM on **Continue**. |
 | **GGUF Vision Prompt Reviser** | `ZiggartGGUFVisionPromptReviser` | `Ziggart/LLM` | Compares `original_image` vs `generated_image` against `current_prompt`, diagnoses discrepancies, and outputs a corrected `revised_prompt`, `diff_report`, `fidelity_score`, and `needs_revision` gate. |
 | **Ziggart Prompt Revision Gate** | `ZiggartPromptRevisionGate` | `Ziggart/LLM` | Loop helper that selects `revised_prompt` while `needs_revision` is `True` (or locks in `current_prompt` once converged) and accumulates `diff_report` history across passes. |
@@ -108,7 +110,7 @@ A complete collection of **62 local, in-process ComfyUI nodes** combining:
    - [16. Krea2 VLM Smart Tile Upscaler](#16-krea2-vlm-smart-tile-upscaler)
    - [17. WeVisOne-VL Detector](#17-wevisone-vl-detector)
    - [18. BBox Crop & BBox Feathered Stitch](#18-bbox-crop--bbox-feathered-stitch)
-   - [19. GGUF Vision Prompt & GGUF VLM Loader](#19-gguf-vision-prompt--gguf-vlm-loader)
+   - [19. GGUF Vision Prompt, GGUF VLM Loader, OpenAI-Compatible VLM Loader & Batch Folder Captioner](#19-gguf-vision-prompt-gguf-vlm-loader-openai-compatible-vlm-loader--batch-folder-captioner)
    - [19A. Ziggart Folder Image Batch & Queue Loader](#19a-ziggart-folder-image-batch--queue-loader)
    - [19B. Ziggart Vision Prompt TXT & Wildcard Line Saver](#19b-ziggart-vision-prompt-txt--wildcard-line-saver)
    - [19C. Ziggart Dataset Caption Curator & Trigger Injector (LoRA / Krea2)](#19c-ziggart-dataset-caption-curator--trigger-injector-lora--krea2)
@@ -724,12 +726,14 @@ Decouples Ziggart's mod-8 padded cropping and Gaussian feathered compositing so 
 
 ---
 
-### 19. GGUF Vision Prompt & GGUF VLM Loader
+### 19. GGUF Vision Prompt, GGUF VLM Loader, OpenAI-Compatible VLM Loader & Batch Folder Captioner
 
-*Classes: `ZiggartGGUFVisionPrompt` & `ZiggartGGUFVLMLoader` | Category: `Ziggart/LLM`*
+*Classes: `ZiggartGGUFVisionPrompt`, `ZiggartGGUFVLMLoader`, `ZiggartOpenAIVLMLoader`, `ZiggartBatchFolderVisionCaptioner` | Category: `Ziggart/LLM`*
 
-- **GGUF Vision Prompt (`ZiggartGGUFVisionPrompt`)**: Sends images (`image`, optional `detail_crop`, optional `reference_image`) to a local vision-capable GGUF model (e.g. Qwen2.5-VL, Qwen3-VL) with custom system/user instructions, independent **Composition**, **Subject**, and **Style** specialist passes, and a `vision_session` (`ZIGGART_VISION_SESSION`) output for interactive multi-turn review.
-- **GGUF VLM Loader (`ZiggartGGUFVLMLoader`)**: Outputs a `GGUF_VL_MODEL` (`vlm_config`) pin that can be wired into any Ziggart VLM or Detailer node so you only configure model paths, `context_size`, `gpu_layers`, and `flash_attention` in one place.
+- **GGUF Vision Prompt (`ZiggartGGUFVisionPrompt`)**: Sends images (`image`, optional `detail_crop`, optional `reference_image`) to a local or remote VLM with custom system/user instructions, built-in **`caption_preset`** templates & **`verbosity`** levels (`short`, `medium`, `detailed`), independent **Composition**, **Subject**, and **Style** specialist passes, and a `vision_session` (`ZIGGART_VISION_SESSION`) output for interactive multi-turn review.
+- **GGUF VLM Loader (`ZiggartGGUFVLMLoader`)**: Outputs a `GGUF_VL_MODEL` (`vlm_config`) pin shared across any Ziggart VLM or Detailer node; supports `[None (Text-Only LLM)]` mode, `kv_cache_type` (`f16`, `q8_0`, `q4_0`), `n_batch`, `enable_prefix_cache`, and `prefix_cache_mb`.
+- **OpenAI-Compatible VLM Loader (`ZiggartOpenAIVLMLoader`)**: Outputs a compatible `GGUF_VL_MODEL` handle targeting Ollama, LM Studio, `llama-server`, vLLM, or OpenAI-compatible HTTP endpoints with non-streaming and SSE streaming responses.
+- **Batch Folder Vision Captioner (`ZiggartBatchFolderVisionCaptioner`)**: Captions an entire folder of images in one node pass using `MODEL_MANAGER.chat_batch` without reloading weights between images, writing atomic per-image `.txt` sidecars, optional master `.txt`, and a `.ziggart_batch_manifest.json` checkpoint for interrupt-safe resume.
 
 ---
 
@@ -787,12 +791,12 @@ Batch Dataset Caption Curator, Trigger Word Injector, and Token Budget QA Inspec
     - `write_in_place_atomic`: Atomically updates `.txt` sidecar files next to each image via temporary file replacement.
     - `export_to_output_folder`: Writes curated `.txt` sidecar files into `output_folder_override`.
   - `trigger_word_prefix` & `trigger_word_suffix` (`STRING`): LoRA / concept trigger tokens injected idempotently at the start or end of each caption (never duplicated if already present).
-  - `format_mode` (`COMBO`): `natural_prose_single_line`, `booru_tag_normalized`, or `keep_original`.
+  - `format_mode` (`COMBO`): `keep_original`, `natural_prose`, or `normalized_tags`.
   - `strip_vlm_boilerplate` (`BOOLEAN`, default `True`): Automatically removes VLM conversational prefixes (`"In this image, we see..."`, `"Here is a detailed description:"`, `"The image shows..."`).
   - `clean_markdown` (`BOOLEAN`, default `True`): Strips Markdown headers, bold/italic markers, and bullet lists into clean single-line prose.
   - `find_and_replace_rules` (`STRING`): Multi-line `old_phrase -> new_phrase` replacement rules (`->`, `=>`, or `=`).
   - `banned_phrases` (`STRING`): Comma- or newline-separated phrases to strip from every caption.
-  - `max_token_budget` (`INT`, default `512`): Target CLIP / Qwen3VL / T5 token ceiling used to flag over-budget captions in the QA report and contact sheet.
+  - `max_token_budget` (`INT`, default `225`): Target CLIP / Qwen3VL / T5 token ceiling used to flag over-budget captions in the QA report and contact sheet.
   - `include_subfolders`, `output_folder_override`, `default_caption_if_missing`, `max_preview_tiles`.
 - **Outputs**:
   - `qa_contact_sheet` (`IMAGE`): Visual contact sheet of dataset thumbnails with color-coded status badges (`OK` green, `HIGH` amber, `OVER` red, `MISSING TXT` crimson) and caption snippets.
@@ -846,8 +850,9 @@ Image ─► GGUF Vision Prompt ─(answer + vision_session)─► GGUF Vision P
 ```
 
 - **Interactive UI (`web/ziggart_vision_chat.js`)**:
-  - **Inline Panel + `⤢ Expand` Modal**: Compact review panel directly inside the ComfyUI node plus a full-size side-by-side modal showing a thumbnail preview of the source image, large prompt editor, and scrollable conversation history.
-  - **`✨ Refine Prompt` (`Ctrl+Enter`)**: Sends your correction/instruction to the VLM (with the original image(s) and conversation history), generates an updated complete prompt, and records a new version (`v2`, `v3`, ...).
+  - **Inline Panel + `⤢ Expand` Modal**: Compact review panel directly inside the ComfyUI node plus a full-size side-by-side modal showing a zoomable thumbnail preview of the source image (drag a box on the thumbnail to pin a **`focus_box`** crop on the next VLM turn!), large prompt editor, word-level **`📊 Diff`** viewer, and scrollable conversation history.
+  - **Live Token Streaming + `⏹ Stop` + `🧹 Reset Context`**: Watch VLM tokens stream in real time (`chat_stream` + `ziggart-vision-chat-delta`), abort generation mid-stream with **Stop**, or reset discussion history cleanly without losing edited prompt versions.
+  - **`✨ Refine Prompt` (`Ctrl+Enter`)**: Sends your correction/instruction to the VLM (with the original image(s), optional pinned `focus_box` region crop, and context-budget-trimmed history), generates an updated complete prompt, and records a new version (`v2`, `v3`, ...).
   - **`💬 Ask / Discuss` (`Ctrl+Shift+Enter`)**: Asks the VLM a factual question about the image without overwriting your current prompt; the Q&A stays in context for any later **Refine Prompt** pass.
   - **Manual Editing + Version History (`↩ Undo` & Version Selector)**: Edit the prompt directly in the text box at any time and roll back to any previous version if an LLM pass moves away from what you wanted.
   - **`▶ Continue Workflow` & `✖ Cancel`**: Approves the active prompt (and automatically frees VLM VRAM when `free_vram_on_continue = True`) or cleanly aborts execution via ComfyUI's interrupt mechanism.
@@ -1064,7 +1069,7 @@ A complete monocular video-to-mocap and live webcam animation pipeline built on 
 
 ### Ready-to-Load Example Workflows (`example_workflows/`)
 
-All **62 Ziggart nodes** and their distinct operating modes are provided as **17 ready-to-load ComfyUI workflow JSON files** inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
+All **64 Ziggart nodes** and their distinct operating modes are provided as **18 ready-to-load ComfyUI workflow JSON files** inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
 
 | Workflow File | Featured Ziggart Nodes | Covered Usage Modes |
 | :--- | :--- | :--- |
@@ -1076,7 +1081,7 @@ All **62 Ziggart nodes** and their distinct operating modes are provided as **17
 | [`06_Smart_Tile_Upscaler_VLM_vs_Fast_Mode.json`](./example_workflows/06_Smart_Tile_Upscaler_VLM_vs_Fast_Mode.json) | `ZiggartSmartTileUpscaler`, `ZiggartGGUFVLMLoader`, `ZiggartWildcardRecipeSaver` | **Mode A** (`enable_vlm_tile_prompts = True` anti-hallucination per-tile VLM captioning) vs. **Mode B** (`enable_vlm_tile_prompts = False` fast pure-Krea2 tiled upscaling). |
 | [`07_Multimodal_VLM_Studio_VisionPrompt_and_Reference_Harmonizer.json`](./example_workflows/07_Multimodal_VLM_Studio_VisionPrompt_and_Reference_Harmonizer.json) | `ZiggartGGUFVisionPrompt`, `ZiggartWeVisOneDetector`, `ZiggartWildcardVLMEnhancer`, `ZiggartGGUFVLMLoader`, `ZiggartWildcardRecipeSaver` | Single-pass Image-to-Prompt, Multi-pass Specialist Analysis (`analyze_composition`, `analyze_subject`, `analyze_style`) with `detail_crop` + `reference_image`, and reference-guided wildcard harmonization. |
 | [`08_Master_All_18_Nodes_Complete_Showcase.json`](./example_workflows/08_Master_All_18_Nodes_Complete_Showcase.json) | **All 18 Core 2D/VLM Ziggart Nodes** | Complete 5-column master architecture pipeline connecting the 18 Wildcard, VLM, Detector, and Detailer nodes. |
-| [`09_3D_Generation_Idol_Gaussian_To_Mesh_SPAR3D_and_Hunyuan3D.json`](./example_workflows/09_3D_Generation_Idol_Gaussian_To_Mesh_SPAR3D_and_Hunyuan3D.json) | `ZiggartIdolImageToGaussian`, `ZiggartGaussianToMesh`, `ZiggartSPAR3DImageToMesh`, `ZiggartHunyuan3DImageToMesh`, `Ziggart3DTurntableRenderer` | Complete 3D showcase: **Path A** (Idol `.ply` Gaussian Splat $\rightarrow$ `.glb` Mesh + 360° Turntable), **Path B** (SPAR3D 7GB Low-VRAM Textured `.glb`), and **Path C** (Hunyuan3D-2mini 6GB `.glb`). |
+| [`09_3D_Generation_Idol_Gaussian_To_Mesh_SPAR3D_and_Hunyuan3D.json`](./example_workflows/09_3D_Generation_Idol_Gaussian_To_Mesh_SPAR3D_and_Hunyuan3D.json) | `Ziggart3DModelDownloader`, `ZiggartIdolPreprocess`, `ZiggartIdolInputCamera`, `ZiggartIdolPruneSplat`, `ZiggartIdolImageToGaussian`, `ZiggartGaussianToMesh`, `ZiggartSPAR3DImageToMesh`, `ZiggartHunyuan3DImageToMesh`, `Ziggart3DTurntableRenderer`, `Ziggart3DTurntableGifSaver` | Complete 3D showcase: **Path A** (3D model caching + Idol preprocessing $\rightarrow$ Idol `.ply` Gaussian Splat + camera extraction + floater pruning $\rightarrow$ `.glb` Mesh + 360° Turntable + Discord GIF), **Path B** (SPAR3D 7GB Low-VRAM Textured `.glb`), and **Path C** (Hunyuan3D-2mini 6GB `.glb`). |
 | [`10_Krea2_Prompt_Director_Modular_and_Master_Suite.json`](./example_workflows/10_Krea2_Prompt_Director_Modular_and_Master_Suite.json) | `ZiggartThemeUniverseContext`, `ZiggartCharacterUnitBuilder`, `ZiggartAnatomyCharacterCreator`, `ZiggartSceneStageAtmosphere`, `ZiggartKrea2PromptAssembler`, `ZiggartKrea2MasterPromptDirector` | **Pipeline A (Modular 4-Node Chain)**: Theme/Universe Context $\rightarrow$ Primary & Secondary Character Unit Builders (1:1 Canonical Outfit Link + Auto 9-Zone Anatomy Occlusion) $\rightarrow$ Scene Stage (with `ziggart/Env/*`) $\rightarrow$ Krea2 Assembler (`Qwen3VL-4B` `scoped`); **Pipeline B (Head-to-Toe Anatomy Character Creator with per-section `[None]` & View Presets)**; **Pipeline C (All-in-One Master Prompt Director)**. |
 | [`11_Trio_Ensemble_Spatial_Layout_and_Regional_Conditioning.json`](./example_workflows/11_Trio_Ensemble_Spatial_Layout_and_Regional_Conditioning.json) | `ZiggartKrea2TrioEnsembleDirector`, `ZiggartSpatialLayoutDesigner`, `ZiggartRegionalConditioningComposer`, `ZiggartPromptTokenInspectorAndCompressor`, `ZiggartAttentionSelector` | 3-Character Trio/Ensemble compilation, interactive 2D Bounding Box layout design, feathered multi-character regional conditioning, token budget inspection/compression, and dynamic model attention selection. |
 | [`12_Self_Healing_Detailer_Contour_Matting_and_Color_Lock.json`](./example_workflows/12_Self_Healing_Detailer_Contour_Matting_and_Color_Lock.json) | `ZiggartContourMaskRefiner`, `ZiggartClosedLoopSelfHealingDetailer`, `ZiggartColorAndFrequencyMatcher`, `ZiggartWeVisOneDetector` | Contour silhouette mask extraction from rectangular detections, autonomous `1..N` iterative self-healing detailer loop, and Reinhard perceptual color + frequency-separated detail matching. |
@@ -1084,7 +1089,8 @@ All **62 Ziggart nodes** and their distinct operating modes are provided as **17
 | [`14_3D_FlowHMR_Video_and_Webcam_Mocap_to_VRM_Avatar.json`](./example_workflows/14_3D_FlowHMR_Video_and_Webcam_Mocap_to_VRM_Avatar.json) | `ZiggartFlowHMRModelLoader`, `ZiggartFlowHMRWebcamCapture`, `ZiggartFlowHMRVideoExtractor`, `ZiggartMocapRetargetVRM`, `ZiggartAvatarMocapDrive`, `ZiggartMocapExporter`, `ZiggartVRMPoseAndMocapStudio` | End-to-end FlowHMR video/webcam motion capture to VRM 3D Avatar pipeline with SMPL-H ➔ VRM 25-bone retargeting, ground contact locking, multi-pass video conditioning generation (`RGB`, `MASK`, `DEPTH`, `NORMAL`, `OPENPOSE`), and `.bvh` / `.npz` / `.json` export. |
 | [`15_Folder_Image_Batch_Queue_to_Vision_and_SingleLine_TXT_Saver.json`](./example_workflows/15_Folder_Image_Batch_Queue_to_Vision_and_SingleLine_TXT_Saver.json) | `ZiggartFolderImageQueueLoader`, `ZiggartGGUFVLMLoader`, `ZiggartGGUFVisionPrompt`, `ZiggartVisionPromptTxtSaver`, `ZiggartDatasetCaptionCuratorAndTriggerInjector` | Automated 1-by-1 folder image scanning & queueing (`🔍 Scan Folder & Count Queues` + `▶️ Queue All Remaining Images (1-by-1)` + `skip_existing_txt`) into **GGUF Vision Prompt**, single-line consolidation (`flatten_to_single_line = True`, `clean_markdown_formatting = True`, `0 empty lines`) into `all_prompts_krea2.txt` + per-image `.txt` sidecars, and batch dataset curation / LoRA trigger injection + visual QA Contact Sheet inspection. |
 | [`16_Vision_Prompt_Iterative_Revision_Loop.json`](./example_workflows/16_Vision_Prompt_Iterative_Revision_Loop.json) | `ZiggartGGUFVLMLoader`, `ZiggartGGUFVisionPrompt`, `ZiggartGGUFVisionPromptReviser`, `ZiggartPromptRevisionGate` | Iterative **Vision → Generate → Compare & Revise** loop comparing the original target image against the generated image and current prompt, outputting `revised_prompt`, `diff_report`, `fidelity_score`, and `needs_revision` through the revision gate for multi-pass refinement. |
-| [`17_Interactive_Vision_Prompt_Review_and_Chat.json`](./example_workflows/17_Interactive_Vision_Prompt_Review_and_Chat.json) | `ZiggartGGUFVLMLoader`, `ZiggartGGUFVisionPrompt`, `ZiggartGGUFVisionPromptChatGate` | Interactive **Image → Vision Prompt → Pause, Discuss & Refine → Generate** workflow: pauses after initial VLM output so you can **Ask / Discuss**, **Refine Prompt** across unlimited turns, manually edit / **Undo** versions, open the **Expand** modal, and release VRAM on **Continue Workflow**. |
+| [`17_Interactive_Vision_Prompt_Review_and_Chat.json`](./example_workflows/17_Interactive_Vision_Prompt_Review_and_Chat.json) | `ZiggartGGUFVLMLoader`, `ZiggartGGUFVisionPrompt`, `ZiggartGGUFVisionPromptChatGate` | Interactive **Image → Vision Prompt → Pause, Discuss & Refine → Generate** workflow: pauses after initial VLM output so you can **Ask / Discuss** with live streaming + **Stop**, **Refine Prompt** with thumbnail region pinning + word **Diff**, **Reset Context**, edit / **Undo** versions, and release VRAM on **Continue Workflow**. |
+| [`18_OpenAI_API_and_Batch_Folder_Captioner.json`](./example_workflows/18_OpenAI_API_and_Batch_Folder_Captioner.json) | `ZiggartOpenAIVLMLoader`, `ZiggartBatchFolderVisionCaptioner`, `ZiggartDatasetCaptionCuratorAndTriggerInjector` | High-speed batch folder captioning using either a local GGUF model or an OpenAI-compatible HTTP endpoint (Ollama, LM Studio, `llama-server`, vLLM, OpenAI API) in a single pass with `caption_preset`, `verbosity`, atomic `.txt` sidecars, `.ziggart_batch_manifest.json` resume, and dataset curation. |
 
 ### Workflow A: Krea2 (`Qwen3VL-4B`) Modular Prompt Director + Multi-Character Detailing
 

@@ -2,7 +2,7 @@
   "id": "b71e9421-8c34-4a52-91d0-9f1a204080ff",
   "revision": 0,
   "last_node_id": 8,
-  "last_link_id": 8,
+  "last_link_id": 7,
   "nodes": [
     {
       "id": 1,
@@ -20,7 +20,7 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "Guide \u2014 Ziggart Krea2 (Qwen3VL-4B) Prompt Director Suite (Modular Pipeline, Head-to-Toe Anatomy Creator & All-in-One Master Director)",
+      "title": "Guide — Ziggart Krea2 (Qwen3VL-4B) Prompt Director Suite (Modular Pipeline, Head-to-Toe Anatomy Creator & All-in-One Master Director)",
       "properties": {
         "Node name for S&R": "Note"
       },
@@ -87,6 +87,7 @@
         "[Any / No Filter]",
         true,
         42,
+        "randomize",
         "",
         ""
       ]
@@ -150,6 +151,7 @@
         "[Random From Category]",
         "[None]",
         42,
+        "randomize",
         "",
         "",
         "",
@@ -215,6 +217,7 @@
         "[Random From Category]",
         "[None]",
         43,
+        "randomize",
         "",
         "",
         "",
@@ -293,6 +296,7 @@
         "[Random From Category]",
         "[Random From Category]",
         42,
+        "randomize",
         "",
         "",
         "",
@@ -452,6 +456,7 @@
         "",
         "populate",
         42,
+        "randomize",
         "",
         "",
         ""
@@ -517,7 +522,7 @@
       "widgets_values": [
         "Primary",
         "Female",
-        "Full Body \u2014 Front / 3-Quarter View",
+        "Full Body — Front / 3-Quarter View",
         "[Auto (From View Preset)]",
         "[Auto (From View Preset)]",
         "[Auto (From View Preset)]",
@@ -555,6 +560,7 @@
         true,
         "[None]",
         42,
+        "randomize",
         "",
         "",
         ""

@@ -12,13 +12,28 @@ const WILDCARD_PREVIEW_NODES = new Set([
     "ZiggartKrea2MasterPromptDirector",
 ]);
 
+function findNodeByAnyId(graph, rawId) {
+    if (!graph || rawId === undefined || rawId === null) return null;
+    const key = String(rawId);
+    const direct = graph._nodes_by_id?.[key] || graph.getNodeById?.(+key);
+    if (direct) return direct;
+    const nodes = graph._nodes || [];
+    for (const n of nodes) {
+        if (n && String(n.id) === key) return n;
+        const sg = n?.subgraph;
+        if (sg) {
+            const subHit = findNodeByAnyId(sg, rawId);
+            if (subHit) return subHit;
+        }
+    }
+    return null;
+}
+
 // Listen for backend WebSocket feedback when Queue is clicked or a node finishes executing
 api.addEventListener("ziggart-node-feedback", (event) => {
     const detail = event.detail;
     if (!detail || detail.node_id === undefined) return;
-    const node =
-        app.graph?._nodes_by_id?.[detail.node_id] ||
-        app.graph?.getNodeById?.(+detail.node_id);
+    const node = findNodeByAnyId(app.graph, detail.node_id);
     if (!node || !Array.isArray(node.widgets)) return;
 
     const w = node.widgets.find((widget) => widget.name === detail.widget_name);
@@ -135,27 +150,65 @@ app.registerExtension({
                 };
 
                 const presetWidget = getW("layout_preset");
+                let isApplyingPreset = false;
                 if (presetWidget) {
                     const origPresetCb = presetWidget.callback;
                     presetWidget.callback = function (val) {
                         if (origPresetCb) origPresetCb.apply(this, arguments);
                         const specs = LAYOUT_PRESETS_MAP[val];
                         if (Array.isArray(specs) && specs.length > 0) {
-                            if (getW("active_regions")) getW("active_regions").value = specs.length;
-                            specs.forEach((reg, idx) => {
-                                const p = `r${idx + 1}_`;
-                                if (getW(p + "label")) getW(p + "label").value = reg.label;
-                                if (getW(p + "weight")) getW(p + "weight").value = reg.weight;
-                                setRegionBox(idx + 1, reg.x1, reg.y1, reg.x2, reg.y2);
-                            });
+                            isApplyingPreset = true;
+                            try {
+                                if (getW("active_regions")) getW("active_regions").value = specs.length;
+                                specs.forEach((reg, idx) => {
+                                    const p = `r${idx + 1}_`;
+                                    if (getW(p + "label")) getW(p + "label").value = reg.label;
+                                    if (getW(p + "weight")) getW(p + "weight").value = reg.weight;
+                                    setRegionBox(idx + 1, reg.x1, reg.y1, reg.x2, reg.y2);
+                                });
+                            } finally {
+                                isApplyingPreset = false;
+                            }
                             app.graph?.setDirtyCanvas?.(true, true);
                         }
                     };
                 }
 
+                // Switch layout_preset to Custom when the user manually tweaks any region slider
+                for (let idx = 1; idx <= 4; idx++) {
+                    for (const field of ["x1", "y1", "x2", "y2", "weight", "label"]) {
+                        const rw = getW(`r${idx}_${field}`);
+                        if (!rw) continue;
+                        const origRwCb = rw.callback;
+                        rw.callback = function () {
+                            if (origRwCb) origRwCb.apply(this, arguments);
+                            if (!isApplyingPreset && presetWidget && presetWidget.value !== "Custom (Use Sliders / Canvas)") {
+                                presetWidget.value = "Custom (Use Sliders / Canvas)";
+                                if (presetWidget.inputEl) {
+                                    presetWidget.inputEl.value = presetWidget.value;
+                                }
+                            }
+                        };
+                    }
+                }
+
+                const onWindowPointerUp = () => {
+                    if (activeDrag) {
+                        activeDrag = null;
+                        app.graph?.setDirtyCanvas?.(true, true);
+                    }
+                };
+                window.addEventListener("pointerup", onWindowPointerUp);
+                const origOnRemoved = this.onRemoved;
+                this.onRemoved = function () {
+                    window.removeEventListener("pointerup", onWindowPointerUp);
+                    if (origOnRemoved) origOnRemoved.apply(this, arguments);
+                };
+
                 const layoutWidget = {
                     name: "ziggart_spatial_canvas",
                     type: "custom_canvas",
+                    serialize: false,
                     y: 0,
                     computeSize: (width) => [width, 190],
                     draw: function (ctx, _node, widgetWidth, y) {
@@ -236,6 +289,10 @@ app.registerExtension({
                                 }
                             }
                         } else if (event.type === "pointermove" && activeDrag) {
+                            if (event.buttons !== undefined && event.buttons === 0) {
+                                activeDrag = null;
+                                return false;
+                            }
                             if (presetWidget && presetWidget.value !== "Custom (Use Sliders / Canvas)") {
                                 presetWidget.value = "Custom (Use Sliders / Canvas)";
                             }
@@ -295,32 +352,50 @@ app.registerExtension({
             }
 
             let lastPreGeneratedSeed = null;
+            let previewReqSeq = 0;
+
+            const toBigIntSeed = (raw) => {
+                try {
+                    const s = String(raw ?? "0").trim();
+                    if (/^-?\d+$/.test(s)) return BigInt(s);
+                } catch (_e) {
+                    // fallback below
+                }
+                const n = Number(raw);
+                return Number.isFinite(n) ? BigInt(Math.trunc(n)) : 0n;
+            };
 
             const refreshPopulatedPreview = async (advanceSeedOnClick = false) => {
                 if (!populatedTextWidget) return;
                 if (!advanceSeedOnClick && modeWidget && modeWidget.value === "fixed") return;
 
-                let currentSeed = seedWidget ? Number(seedWidget.value) || 0 : 0;
+                let currentSeedBig = seedWidget ? toBigIntSeed(seedWidget.value) : 0n;
                 if (advanceSeedOnClick && seedWidget) {
                     const controlWidget = node.widgets?.find(
                         (w) => w.name === "control_after_generate"
                     );
                     const ctrlMode = controlWidget?.value || "randomize";
-                    if (lastPreGeneratedSeed === currentSeed) {
+                    if (lastPreGeneratedSeed === currentSeedBig.toString()) {
                         if (ctrlMode === "increment") {
-                            currentSeed += 1;
+                            currentSeedBig = currentSeedBig + 1n;
                         } else if (ctrlMode === "decrement") {
-                            currentSeed = Math.max(0, currentSeed - 1);
+                            currentSeedBig = currentSeedBig > 0n ? currentSeedBig - 1n : 0n;
                         } else if (ctrlMode !== "fixed") {
-                            currentSeed = Math.floor(Math.random() * 2147483647);
+                            currentSeedBig = BigInt(Math.floor(Math.random() * 2147483647));
                         }
-                        seedWidget.value = currentSeed;
+                        const maxSafe = BigInt(Number.MAX_SAFE_INTEGER);
+                        const nextVal = currentSeedBig <= maxSafe ? Number(currentSeedBig) : currentSeedBig.toString();
+                        seedWidget.value = nextVal;
+                        if (seedWidget.inputEl) {
+                            seedWidget.inputEl.value = currentSeedBig.toString();
+                        }
                     }
-                    lastPreGeneratedSeed = currentSeed;
+                    lastPreGeneratedSeed = currentSeedBig.toString();
                 }
 
                 const inputs = collectNodeWidgetInputs(node);
                 const text = wildcardTextWidget ? wildcardTextWidget.value || "" : "";
+                const mySeq = ++previewReqSeq;
 
                 try {
                     const res = await api.fetchApi("/ziggart/wildcards/process", {
@@ -329,12 +404,14 @@ app.registerExtension({
                         body: JSON.stringify({
                             class_type: nodeName,
                             text,
-                            seed: currentSeed,
+                            seed: currentSeedBig.toString(),
                             inputs,
                         }),
                     });
+                    if (mySeq !== previewReqSeq) return;
                     if (res.ok) {
                         const data = await res.json();
+                        if (mySeq !== previewReqSeq) return;
                         if (data.populated_text !== undefined) {
                             populatedTextWidget.value = data.populated_text;
                             if (populatedTextWidget.inputEl) {

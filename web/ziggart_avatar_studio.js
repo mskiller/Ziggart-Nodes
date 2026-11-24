@@ -139,6 +139,7 @@ app.registerExtension({
                 offscreenTrackCanvas: document.createElement("canvas"),
                 offscreenRenderCanvas: document.createElement("canvas"),
                 animFrameId: null,
+                lastPhysicsMs: performance.now(),
             };
             studioState.offscreenTrackCanvas.width = 96;
             studioState.offscreenTrackCanvas.height = 72;
@@ -146,14 +147,15 @@ app.registerExtension({
             studioState.offscreenRenderCanvas.height = 512;
 
             // Listen for backend VRM path notifications
-            api.addEventListener("ziggart-avatar-loaded", (ev) => {
+            const onAvatarLoaded = (ev) => {
                 const detail = ev.detail || {};
                 const sess = getW("session_id")?.value || "default";
                 if (!detail.session_id || detail.session_id === sess) {
                     studioState.vrmLoadedPath = detail.vrm_path || "";
                     app.graph?.setDirtyCanvas?.(true, true);
                 }
-            });
+            };
+            api.addEventListener("ziggart-avatar-loaded", onAvatarLoaded);
 
             // Sync current pose + expressions + snapshot (+ optional recorded take frames) to Python backend
             const syncToBackend = async (recordedFrames = null) => {
@@ -298,22 +300,30 @@ app.registerExtension({
                 studioState.expressions.blink = tBlink < 0.14 ? Math.sin((tBlink / 0.14) * Math.PI) : 0.0;
             };
 
+            let viewportWidget = null;
+
             // Step Verlet Spring-Bone Hair Physics & Render 3D Avatar Scene
-            const renderAvatarScene = (ctx, width, height) => {
+            function renderAvatarScene(ctx, width, height) {
+                const nowMs = performance.now();
+                const dt = Math.min(0.05, Math.max(0.001, (nowMs - (studioState.lastPhysicsMs || nowMs)) / 1000.0));
+                studioState.lastPhysicsMs = nowMs;
+                const physicsScale = dt / (1.0 / 60.0);
+
                 const bgMode = getW("background_mode")?.value || "dark_studio";
                 const azDeg = parseFloat(getW("camera_azimuth")?.value ?? 12.0);
                 const elDeg = parseFloat(getW("camera_elevation")?.value ?? 10.0);
 
                 // Read manual widget sliders when not overridden by live webcam
                 if (!studioState.liveWebcamActive) {
-                    const hy = parseFloat(getW("head_yaw")?.value ?? 0.0);
-                    const hp = parseFloat(getW("head_pitch")?.value ?? 0.0);
-                    const hr = parseFloat(getW("head_roll")?.value ?? 0.0);
+                    const clampVal = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+                    const hy = clampVal(parseFloat(getW("head_yaw")?.value ?? 0.0) || 0.0, -65.0, 65.0);
+                    const hp = clampVal(parseFloat(getW("head_pitch")?.value ?? 0.0) || 0.0, -45.0, 45.0);
+                    const hr = clampVal(parseFloat(getW("head_roll")?.value ?? 0.0) || 0.0, -45.0, 45.0);
                     studioState.rotations.head = [hp, hy, hr];
-                    studioState.expressions.aa = parseFloat(getW("mouth_open_aa")?.value ?? 0.0);
-                    studioState.expressions.blink = parseFloat(getW("eye_blink")?.value ?? 0.0);
-                    studioState.expressions.happy = parseFloat(getW("emotion_happy")?.value ?? 0.5);
-                    studioState.expressions.chibi_big_head = parseFloat(getW("chibi_scale")?.value ?? 0.0);
+                    studioState.expressions.aa = clampVal(parseFloat(getW("mouth_open_aa")?.value ?? 0.0) || 0.0, 0.0, 1.0);
+                    studioState.expressions.blink = clampVal(parseFloat(getW("eye_blink")?.value ?? 0.0) || 0.0, 0.0, 1.0);
+                    studioState.expressions.happy = clampVal(parseFloat(getW("emotion_happy")?.value ?? 0.0) || 0.0, 0.0, 1.0);
+                    studioState.expressions.chibi_big_head = clampVal(parseFloat(getW("chibi_scale")?.value ?? 0.0) || 0.0, 0.0, 1.0);
                 }
 
                 ctx.save();
@@ -421,9 +431,10 @@ app.registerExtension({
                         for (let k = 1; k < strand.pts.length; k++) {
                             const cur = strand.pts[k];
                             const prev = strand.prevPts[k];
-                            const vx = (cur[0] - prev[0]) * 0.82;
-                            const vy = (cur[1] - prev[1]) * 0.82 - 0.0045; // Gravity
-                            const vz = (cur[2] - prev[2]) * 0.82;
+                            const damping = Math.pow(0.82, physicsScale);
+                            const vx = (cur[0] - prev[0]) * damping;
+                            const vy = (cur[1] - prev[1]) * damping - 0.0045 * physicsScale; // Gravity
+                            const vz = (cur[2] - prev[2]) * damping;
                             strand.prevPts[k] = [...cur];
 
                             // Desired rest target relative to parent joint
@@ -556,10 +567,10 @@ app.registerExtension({
                 drawStrandLayer(true);
 
                 // 7. Interactive Bone Gizmo Handles
-                this._boneScreenMap = {};
+                const screenMap = {};
                 for (const bName of ["head", "chest", "leftLowerArm", "rightLowerArm", "hips"]) {
                     const sp = project3D(worldBones[bName]);
-                    this._boneScreenMap[bName] = sp;
+                    screenMap[bName] = sp;
                     const isSel = studioState.selectedBone === bName;
                     ctx.beginPath();
                     ctx.arc(sp[0], sp[1], isSel ? 6 : 4, 0, Math.PI * 2);
@@ -568,6 +579,9 @@ app.registerExtension({
                     ctx.strokeStyle = "#10141f";
                     ctx.lineWidth = 1.5;
                     ctx.stroke();
+                }
+                if (viewportWidget) {
+                    viewportWidget._boneScreenMap = screenMap;
                 }
 
                 // 8. Floating Fun Emote Particles
@@ -588,7 +602,7 @@ app.registerExtension({
                 }
 
                 ctx.restore();
-            };
+            }
 
             // Animation loop when Live Webcam or Pop-Out Broadcast Window is active
             const startLiveLoop = () => {
@@ -740,9 +754,10 @@ app.registerExtension({
             }
 
             // Add Embedded Interactive 3D Viewport Canvas Widget
-            const viewportWidget = {
+            viewportWidget = {
                 name: "ziggart_vrm_viewport",
                 type: "custom_canvas",
+                serialize: false,
                 y: 0,
                 computeSize: (width) => [width, 250],
                 draw: function (ctx, _node, widgetWidth, y) {
@@ -760,7 +775,7 @@ app.registerExtension({
                     ctx.clip();
                     ctx.translate(ox, oy);
 
-                    renderAvatarScene.call(this, ctx, cw, ch);
+                    renderAvatarScene(ctx, cw, ch);
 
                     // HUD Status Overlay
                     ctx.fillStyle = "rgba(15, 18, 28, 0.78)";
@@ -818,15 +833,20 @@ app.registerExtension({
                                 cur[2],
                             ];
                             if (b === "head") {
-                                if (getW("head_pitch")) getW("head_pitch").value = Math.round(studioState.rotations.head[0]);
-                                if (getW("head_yaw")) getW("head_yaw").value = Math.round(studioState.rotations.head[1]);
+                                if (getW("head_pitch")) getW("head_pitch").value = Math.max(-45, Math.min(45, Math.round(studioState.rotations.head[0])));
+                                if (getW("head_yaw")) getW("head_yaw").value = Math.max(-65, Math.min(65, Math.round(studioState.rotations.head[1])));
                             }
                             app.graph?.setDirtyCanvas?.(true, false);
                             return true;
                         } else if (studioState.orbitDragging) {
                             const azW = getW("camera_azimuth");
                             const elW = getW("camera_elevation");
-                            if (azW) azW.value = Math.round(((parseFloat(azW.value) || 0) + dx * 0.8) % 360);
+                            if (azW) {
+                                let nextAz = Math.round((parseFloat(azW.value) || 0) + dx * 0.8);
+                                while (nextAz > 180) nextAz -= 360;
+                                while (nextAz < -180) nextAz += 360;
+                                azW.value = nextAz;
+                            }
                             if (elW) elW.value = Math.max(-60, Math.min(60, Math.round((parseFloat(elW.value) || 0) + dy * 0.5)));
                             app.graph?.setDirtyCanvas?.(true, false);
                             return true;
@@ -849,9 +869,24 @@ app.registerExtension({
                 this.addCustomWidget(viewportWidget);
             }
 
+            const onWindowPointerUp = () => {
+                if (studioState.draggingBone || studioState.orbitDragging) {
+                    studioState.draggingBone = false;
+                    studioState.orbitDragging = false;
+                    const offCtx = studioState.offscreenRenderCanvas.getContext("2d");
+                    renderAvatarScene(offCtx, 512, 512);
+                    syncToBackend();
+                }
+            };
+            window.addEventListener("pointerup", onWindowPointerUp);
+
             const origOnRemoved = this.onRemoved;
             this.onRemoved = function () {
                 studioState.liveWebcamActive = false;
+                window.removeEventListener("pointerup", onWindowPointerUp);
+                if (typeof api.removeEventListener === "function") {
+                    api.removeEventListener("ziggart-avatar-loaded", onAvatarLoaded);
+                }
                 if (studioState.recordingTimer) {
                     clearInterval(studioState.recordingTimer);
                     studioState.recordingTimer = null;

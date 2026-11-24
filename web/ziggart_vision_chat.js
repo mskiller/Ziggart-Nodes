@@ -263,6 +263,75 @@ function ensureStyles() {
         .zvc-btn.cancel:hover:not(:disabled) {
             background: #782732;
         }
+        .zvc-btn.stop {
+            background: #6b4214;
+            border-color: #c27821;
+            color: #fef3c7;
+        }
+        .zvc-btn.stop:hover:not(:disabled) {
+            background: #8a561a;
+        }
+        .zvc-msg.streaming {
+            background: #182334;
+            border-color: #3b6fb5;
+            color: #dbeafe;
+            align-self: flex-start;
+            max-width: 96%;
+        }
+        .zvc-diff-box {
+            display: none;
+            max-height: 140px;
+            overflow-y: auto;
+            padding: 7px 9px;
+            background: #0c1018;
+            border: 1px solid #2b354d;
+            border-radius: 6px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 11px;
+            line-height: 1.45;
+            white-space: pre-wrap;
+        }
+        .zvc-diff-add {
+            background: rgba(34, 197, 94, 0.22);
+            color: #86efac;
+            border-radius: 3px;
+            padding: 0 2px;
+        }
+        .zvc-diff-del {
+            background: rgba(239, 68, 68, 0.22);
+            color: #fca5a5;
+            text-decoration: line-through;
+            border-radius: 3px;
+            padding: 0 2px;
+        }
+        .zvc-thumb-stage {
+            position: relative;
+            display: inline-block;
+            max-width: 100%;
+            max-height: 204px;
+            cursor: crosshair;
+            user-select: none;
+        }
+        .zvc-focus-rect {
+            position: absolute;
+            border: 2px solid #fbbf24;
+            background: rgba(251, 191, 36, 0.18);
+            pointer-events: none;
+            display: none;
+            border-radius: 3px;
+        }
+        .zvc-focus-chip {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            gap: 6px;
+            padding: 3px 8px;
+            border-radius: 5px;
+            background: rgba(251, 191, 36, 0.16);
+            border: 1px solid rgba(251, 191, 36, 0.45);
+            color: #fde68a;
+            font-size: 11px;
+        }
 
         /* Expandable Modal Overlay */
         .zvc-modal-backdrop {
@@ -392,9 +461,62 @@ function formatBadge(state) {
     return { cls: "idle", text: "Idle · Queue workflow to review" };
 }
 
-function renderChatLogInto(container, chatLog) {
+function renderWordDiffInto(container, prevText, currText) {
     container.innerHTML = "";
-    if (!Array.isArray(chatLog) || chatLog.length === 0) {
+    const a = String(prevText || "").split(/(\s+)/);
+    const b = String(currText || "").split(/(\s+)/);
+    const m = a.length;
+    const n = b.length;
+    if (m * n > 250000) {
+        container.textContent = currText;
+        return;
+    }
+    const dp = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1));
+    for (let i = m - 1; i >= 0; i--) {
+        for (let j = n - 1; j >= 0; j--) {
+            dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+        }
+    }
+    let i = 0;
+    let j = 0;
+    while (i < m && j < n) {
+        if (a[i] === b[j]) {
+            container.appendChild(document.createTextNode(a[i]));
+            i++;
+            j++;
+        } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+            const sp = document.createElement("span");
+            sp.className = "zvc-diff-del";
+            sp.textContent = a[i];
+            container.appendChild(sp);
+            i++;
+        } else {
+            const sp = document.createElement("span");
+            sp.className = "zvc-diff-add";
+            sp.textContent = b[j];
+            container.appendChild(sp);
+            j++;
+        }
+    }
+    while (i < m) {
+        const sp = document.createElement("span");
+        sp.className = "zvc-diff-del";
+        sp.textContent = a[i++];
+        container.appendChild(sp);
+    }
+    while (j < n) {
+        const sp = document.createElement("span");
+        sp.className = "zvc-diff-add";
+        sp.textContent = b[j++];
+        container.appendChild(sp);
+    }
+}
+
+function renderChatLogInto(container, chatLog, streamingState = null) {
+    container.innerHTML = "";
+    const hasLog = Array.isArray(chatLog) && chatLog.length > 0;
+    const isStreaming = Boolean(streamingState?.active);
+    if (!hasLog && !isStreaming) {
         const empty = document.createElement("div");
         empty.className = "zvc-empty";
         empty.textContent =
@@ -403,30 +525,48 @@ function renderChatLogInto(container, chatLog) {
         return;
     }
 
-    for (const item of chatLog) {
-        const role = item.role || "system";
-        const mode = item.mode || "";
-        const div = document.createElement("div");
-        div.className = `zvc-msg ${role} ${mode}`.trim();
+    if (hasLog) {
+        for (const item of chatLog) {
+            const role = item.role || "system";
+            const mode = item.mode || "";
+            const div = document.createElement("div");
+            div.className = `zvc-msg ${role} ${mode}`.trim();
 
-        const head = document.createElement("div");
-        head.className = "zvc-msg-head";
-        let label = role === "user" ? "You" : role === "assistant" ? "VLM" : "System";
-        if (mode === "initial") label += " · Initial Prompt";
-        else if (mode === "refine") label += role === "user" ? " · Refine Request" : " · Updated Prompt";
-        else if (mode === "discuss") label += role === "user" ? " · Question" : " · Answer";
-        else if (mode === "undo") label += " · History";
-        else if (mode === "error") label += " · Error";
-        if (item.version) label += ` (v${item.version})`;
-        head.textContent = label;
+            const head = document.createElement("div");
+            head.className = "zvc-msg-head";
+            let label = role === "user" ? "You" : role === "assistant" ? "VLM" : "System";
+            if (mode === "initial") label += " · Initial Prompt";
+            else if (mode === "refine") label += role === "user" ? " · Refine Request" : " · Updated Prompt";
+            else if (mode === "discuss") label += role === "user" ? " · Question" : " · Answer";
+            else if (mode === "undo") label += " · History";
+            else if (mode === "stop") label += " · Stopped";
+            else if (mode === "error") label += " · Error";
+            if (item.version) label += ` (v${item.version})`;
+            head.textContent = label;
 
-        const body = document.createElement("div");
-        body.textContent = item.content || "";
+            const body = document.createElement("div");
+            body.textContent = item.content || "";
 
-        div.appendChild(head);
-        div.appendChild(body);
-        container.appendChild(div);
+            div.appendChild(head);
+            div.appendChild(body);
+            container.appendChild(div);
+        }
     }
+
+    if (isStreaming) {
+        const sDiv = document.createElement("div");
+        sDiv.className = "zvc-msg streaming";
+        sDiv.dataset.zvcStreaming = "1";
+        const sHead = document.createElement("div");
+        sHead.className = "zvc-msg-head";
+        sHead.textContent = streamingState.mode === "discuss" ? "VLM · Streaming Answer..." : "VLM · Streaming Prompt...";
+        const sBody = document.createElement("div");
+        sBody.className = "zvc-streaming-body";
+        sBody.textContent = streamingState.text || "…";
+        sDiv.append(sHead, sBody);
+        container.appendChild(sDiv);
+    }
+
     container.scrollTop = container.scrollHeight;
 }
 
@@ -475,6 +615,9 @@ function createVisionChatController(node) {
     let draftReply = "";
     let modalRefs = null;
     let escHandler = null;
+    let showDiff = false;
+    let focusBox = null; // [x0, y0, x1, y1] normalized 0..1
+    const streamingState = { active: false, mode: "", text: "" };
 
     // Build inline DOM panel
     const root = document.createElement("div");
@@ -501,13 +644,19 @@ function createVisionChatController(node) {
     undoBtn.textContent = "↩ Undo";
     undoBtn.title = "Revert to previous prompt version";
 
+    const resetCtxBtn = document.createElement("button");
+    resetCtxBtn.type = "button";
+    resetCtxBtn.className = "zvc-btn small";
+    resetCtxBtn.textContent = "🧹 Reset";
+    resetCtxBtn.title = "Reset chat context back to original image + active prompt";
+
     const expandBtn = document.createElement("button");
     expandBtn.type = "button";
     expandBtn.className = "zvc-btn small";
     expandBtn.textContent = "⤢ Expand";
     expandBtn.title = "Open large review & chat modal";
 
-    tools.append(versionSelect, undoBtn, expandBtn);
+    tools.append(versionSelect, undoBtn, resetCtxBtn, expandBtn);
     header.append(badgeEl, tools);
 
     const promptLabel = document.createElement("div");
@@ -548,6 +697,12 @@ function createVisionChatController(node) {
     discussBtn.textContent = "💬 Ask / Discuss";
     discussBtn.title = "Ask the VLM a question about the image without overwriting the current prompt (Ctrl+Shift+Enter)";
 
+    const stopBtn = document.createElement("button");
+    stopBtn.type = "button";
+    stopBtn.className = "zvc-btn stop";
+    stopBtn.textContent = "⏹ Stop";
+    stopBtn.title = "Stop the active VLM generation without aborting the workflow";
+
     const cancelBtn = document.createElement("button");
     cancelBtn.type = "button";
     cancelBtn.className = "zvc-btn cancel";
@@ -560,7 +715,7 @@ function createVisionChatController(node) {
     continueBtn.textContent = "▶ Continue Workflow";
     continueBtn.title = "Approve the current prompt and resume downstream nodes";
 
-    actionsRow.append(refineBtn, discussBtn, cancelBtn, continueBtn);
+    actionsRow.append(refineBtn, discussBtn, stopBtn, cancelBtn, continueBtn);
     root.append(header, promptLabel, promptBox, errorBar, chatLabel, chatLogEl, replyBox, actionsRow);
 
     async function sendAction(action, extra = {}) {
@@ -630,6 +785,23 @@ function createVisionChatController(node) {
         await sendAction("update_prompt", { prompt: promptBox.value });
     }
 
+    function updateFocusOverlay() {
+        if (!modalRefs?.focusRect || !modalRefs?.focusChip) return;
+        if (!focusBox) {
+            modalRefs.focusRect.style.display = "none";
+            modalRefs.focusChip.style.display = "none";
+            return;
+        }
+        const [x0, y0, x1, y1] = focusBox;
+        modalRefs.focusRect.style.display = "block";
+        modalRefs.focusRect.style.left = `${(x0 * 100).toFixed(2)}%`;
+        modalRefs.focusRect.style.top = `${(y0 * 100).toFixed(2)}%`;
+        modalRefs.focusRect.style.width = `${((x1 - x0) * 100).toFixed(2)}%`;
+        modalRefs.focusRect.style.height = `${((y1 - y0) * 100).toFixed(2)}%`;
+        modalRefs.focusChip.style.display = "flex";
+        modalRefs.focusChipText.textContent = `🎯 Region pinned [${x0.toFixed(2)}, ${y0.toFixed(2)} → ${x1.toFixed(2)}, ${y1.toFixed(2)}]`;
+    }
+
     async function handleReply(mode) {
         const msg = draftReply.trim();
         if (!msg) {
@@ -638,13 +810,28 @@ function createVisionChatController(node) {
         }
         const currentPromptVal = promptBox.value;
         localPromptDirty = false;
-        const result = await sendAction(mode, {
+        const extraPayload = {
             message: msg,
             prompt: currentPromptVal,
-        });
+        };
+        if (focusBox) {
+            extraPayload.focus_box = focusBox;
+        }
+        const result = await sendAction(mode, extraPayload);
         if (result?.ok) {
             syncReplyFromInput("", null);
+            focusBox = null;
+            updateFocusOverlay();
         }
+    }
+
+    async function handleStop() {
+        await sendAction("stop");
+    }
+
+    async function handleResetContext() {
+        localPromptDirty = false;
+        await sendAction("reset_context");
     }
 
     async function handleContinue() {
@@ -664,7 +851,7 @@ function createVisionChatController(node) {
         }
     }
 
-    function bindInputHandlers(pBox, rBox, vSel, uBtn, refBtn, discBtn, contBtn, cancBtn) {
+    function bindInputHandlers(pBox, rBox, vSel, uBtn, rstBtn, refBtn, discBtn, stpBtn, contBtn, cancBtn) {
         pBox.addEventListener("input", () => syncPromptFromInput(pBox.value, pBox));
         pBox.addEventListener("blur", () => {
             commitManualEditIfDirty();
@@ -684,8 +871,10 @@ function createVisionChatController(node) {
             localPromptDirty = false;
             await sendAction("undo");
         });
+        rstBtn.addEventListener("click", () => handleResetContext());
         refBtn.addEventListener("click", () => handleReply("refine"));
         discBtn.addEventListener("click", () => handleReply("discuss"));
+        stpBtn.addEventListener("click", () => handleStop());
         contBtn.addEventListener("click", () => handleContinue());
         cancBtn.addEventListener("click", () => handleCancel());
     }
@@ -695,8 +884,10 @@ function createVisionChatController(node) {
         replyBox,
         versionSelect,
         undoBtn,
+        resetCtxBtn,
         refineBtn,
         discussBtn,
+        stopBtn,
         continueBtn,
         cancelBtn
     );
@@ -707,19 +898,37 @@ function createVisionChatController(node) {
         refs.badgeEl.textContent = badge.text;
 
         const isWaiting = state.status === "waiting";
-        const isActive = isWaiting || state.status === "thinking";
+        const isThinking = state.status === "thinking";
+        const isActive = isWaiting || isThinking;
         const canReplyNow = isWaiting && Boolean(state.can_reply);
 
         refs.promptBox.disabled = !isWaiting;
         refs.replyBox.disabled = !canReplyNow;
         refs.refineBtn.disabled = !canReplyNow;
         refs.discussBtn.disabled = !canReplyNow;
+        refs.stopBtn.disabled = !isThinking;
+        refs.resetCtxBtn.disabled = !isWaiting;
         refs.continueBtn.disabled = !isWaiting;
         refs.cancelBtn.disabled = !isActive;
         refs.undoBtn.disabled = !isWaiting || !state.can_undo;
 
         populateVersionSelect(refs.versionSelect, state);
-        renderChatLogInto(refs.chatLogEl, state.chat_log);
+        renderChatLogInto(refs.chatLogEl, state.chat_log, streamingState);
+
+        if (refs.diffBox) {
+            const versions = Array.isArray(state.versions) ? state.versions : [];
+            const activeIdx = Number(state.active_version_index ?? 0);
+            if (showDiff && activeIdx > 0 && versions[activeIdx - 1]?.prompt !== undefined) {
+                refs.diffBox.style.display = "block";
+                renderWordDiffInto(
+                    refs.diffBox,
+                    versions[activeIdx - 1].prompt || "",
+                    state.current_prompt || ""
+                );
+            } else {
+                refs.diffBox.style.display = "none";
+            }
+        }
 
         if (refs.thumbWrap && refs.thumbImg) {
             if (state.thumbnail_uri) {
@@ -745,14 +954,17 @@ function createVisionChatController(node) {
             replyBox,
             versionSelect,
             undoBtn,
+            resetCtxBtn,
             refineBtn,
             discussBtn,
+            stopBtn,
             continueBtn,
             cancelBtn,
             chatLogEl,
         });
         if (modalRefs) {
             renderTarget(modalRefs);
+            updateFocusOverlay();
         }
 
         if (state.error) {
@@ -767,15 +979,40 @@ function createVisionChatController(node) {
         }
     }
 
+    function applyServerDelta(deltaPayload) {
+        if (!deltaPayload || typeof deltaPayload !== "object") return;
+        if (deltaPayload.session_token && state.session_token && deltaPayload.session_token !== state.session_token) {
+            return;
+        }
+        streamingState.active = true;
+        streamingState.mode = deltaPayload.mode || "refine";
+        streamingState.text = String(deltaPayload.partial_text || "");
+        for (const el of [chatLogEl, modalRefs?.chatLogEl]) {
+            if (!el) continue;
+            let sBody = el.querySelector("[data-zvc-streaming='1'] .zvc-streaming-body");
+            if (!sBody) {
+                renderChatLogInto(el, state.chat_log, streamingState);
+            } else {
+                sBody.textContent = streamingState.text;
+                el.scrollTop = el.scrollHeight;
+            }
+        }
+    }
+
     function applyServerState(incoming, opts = {}) {
         if (!incoming || typeof incoming !== "object") return;
         const tokenChanged =
             incoming.session_token && incoming.session_token !== state.session_token;
         Object.assign(state, incoming);
+        if (state.status !== "thinking") {
+            streamingState.active = false;
+            streamingState.text = "";
+        }
         if (tokenChanged || opts.forcePromptSync) {
             localPromptDirty = false;
         }
         if (state.status === "approved" || state.status === "cancelled") {
+            focusBox = null;
             closeModal();
         }
         renderAll(Boolean(tokenChanged || opts.forcePromptSync));
@@ -784,6 +1021,7 @@ function createVisionChatController(node) {
 
     function closeModal() {
         if (!modalRefs) return;
+        modalRefs.cleanupThumbDrag?.();
         if (escHandler) {
             window.removeEventListener("keydown", escHandler);
             escHandler = null;
@@ -824,26 +1062,90 @@ function createVisionChatController(node) {
         mUndoBtn.type = "button";
         mUndoBtn.className = "zvc-btn small";
         mUndoBtn.textContent = "↩ Undo";
+        const mResetBtn = document.createElement("button");
+        mResetBtn.type = "button";
+        mResetBtn.className = "zvc-btn small";
+        mResetBtn.textContent = "🧹 Reset";
+        mResetBtn.title = "Reset chat context to original image + active prompt";
+        const mDiffBtn = document.createElement("button");
+        mDiffBtn.type = "button";
+        mDiffBtn.className = "zvc-btn small";
+        mDiffBtn.textContent = "📊 Diff";
+        mDiffBtn.title = "Toggle word-level diff against previous prompt version";
+        mDiffBtn.addEventListener("click", () => {
+            showDiff = !showDiff;
+            renderAll(false);
+        });
         const mCloseBtn = document.createElement("button");
         mCloseBtn.type = "button";
         mCloseBtn.className = "zvc-btn small";
         mCloseBtn.textContent = "✕ Collapse";
         mCloseBtn.addEventListener("click", closeModal);
-        mTools.append(mVersionSel, mUndoBtn, mCloseBtn);
+        mTools.append(mVersionSel, mUndoBtn, mResetBtn, mDiffBtn, mCloseBtn);
         mHeader.append(mTitle, mTools);
 
         const mBody = document.createElement("div");
         mBody.className = "zvc-modal-body";
 
-        // Left column: thumbnail + editable prompt
+        // Left column: thumbnail (with region-pinning drag) + editable prompt + diff
         const leftCol = document.createElement("div");
         leftCol.className = "zvc-modal-col";
 
         const thumbWrap = document.createElement("div");
         thumbWrap.className = "zvc-thumb-wrap";
+        const thumbStage = document.createElement("div");
+        thumbStage.className = "zvc-thumb-stage";
+        thumbStage.title = "Drag a box on the preview to pin a focus region for the next Refine / Discuss pass";
         const thumbImg = document.createElement("img");
         thumbImg.alt = "Vision input preview";
-        thumbWrap.appendChild(thumbImg);
+        thumbImg.draggable = false;
+        const focusRect = document.createElement("div");
+        focusRect.className = "zvc-focus-rect";
+        thumbStage.append(thumbImg, focusRect);
+        thumbWrap.appendChild(thumbStage);
+
+        const focusChip = document.createElement("div");
+        focusChip.className = "zvc-focus-chip";
+        const focusChipText = document.createElement("span");
+        const focusClearBtn = document.createElement("button");
+        focusClearBtn.type = "button";
+        focusClearBtn.className = "zvc-btn small";
+        focusClearBtn.textContent = "Clear Region";
+        focusClearBtn.addEventListener("click", () => {
+            focusBox = null;
+            updateFocusOverlay();
+        });
+        focusChip.append(focusChipText, focusClearBtn);
+
+        let dragStart = null;
+        thumbStage.addEventListener("mousedown", (e) => {
+            if (!state.has_source_image || e.button !== 0) return;
+            const rect = thumbImg.getBoundingClientRect();
+            if (rect.width <= 4 || rect.height <= 4) return;
+            const nx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            const ny = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+            dragStart = { nx, ny, rect };
+            focusBox = [nx, ny, nx, ny];
+            updateFocusOverlay();
+        });
+        const onThumbMove = (e) => {
+            if (!dragStart) return;
+            const { nx, ny, rect } = dragStart;
+            const cx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            const cy = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+            focusBox = [Math.min(nx, cx), Math.min(ny, cy), Math.max(nx, cx), Math.max(ny, cy)];
+            updateFocusOverlay();
+        };
+        const onThumbUp = () => {
+            if (!dragStart) return;
+            dragStart = null;
+            if (focusBox && ((focusBox[2] - focusBox[0]) < 0.02 || (focusBox[3] - focusBox[1]) < 0.02)) {
+                focusBox = null;
+                updateFocusOverlay();
+            }
+        };
+        window.addEventListener("mousemove", onThumbMove);
+        window.addEventListener("mouseup", onThumbUp);
 
         const mPromptLabel = document.createElement("div");
         mPromptLabel.className = "zvc-label-row";
@@ -853,10 +1155,13 @@ function createVisionChatController(node) {
         mPromptBox.className = "zvc-textarea zvc-prompt-box";
         mPromptBox.placeholder = "Generated vision prompt...";
 
+        const mDiffBox = document.createElement("div");
+        mDiffBox.className = "zvc-diff-box";
+
         const mErrorBar = document.createElement("div");
         mErrorBar.className = "zvc-error-bar";
 
-        leftCol.append(thumbWrap, mPromptLabel, mPromptBox, mErrorBar);
+        leftCol.append(thumbWrap, focusChip, mPromptLabel, mPromptBox, mDiffBox, mErrorBar);
 
         // Right column: chat log + reply controls
         const rightCol = document.createElement("div");
@@ -887,6 +1192,11 @@ function createVisionChatController(node) {
         mDiscussBtn.className = "zvc-btn discuss";
         mDiscussBtn.textContent = "💬 Ask / Discuss";
 
+        const mStopBtn = document.createElement("button");
+        mStopBtn.type = "button";
+        mStopBtn.className = "zvc-btn stop";
+        mStopBtn.textContent = "⏹ Stop";
+
         const mCancelBtn = document.createElement("button");
         mCancelBtn.type = "button";
         mCancelBtn.className = "zvc-btn cancel";
@@ -897,7 +1207,7 @@ function createVisionChatController(node) {
         mContinueBtn.className = "zvc-btn continue";
         mContinueBtn.textContent = "▶ Continue Workflow";
 
-        mActions.append(mRefineBtn, mDiscussBtn, mCancelBtn, mContinueBtn);
+        mActions.append(mRefineBtn, mDiscussBtn, mStopBtn, mCancelBtn, mContinueBtn);
         rightCol.append(mChatLabel, mChatLog, mReplyBox, mActions);
 
         mBody.append(leftCol, rightCol);
@@ -912,14 +1222,24 @@ function createVisionChatController(node) {
             replyBox: mReplyBox,
             versionSelect: mVersionSel,
             undoBtn: mUndoBtn,
+            resetCtxBtn: mResetBtn,
             refineBtn: mRefineBtn,
             discussBtn: mDiscussBtn,
+            stopBtn: mStopBtn,
             continueBtn: mContinueBtn,
             cancelBtn: mCancelBtn,
             chatLogEl: mChatLog,
+            diffBox: mDiffBox,
             errorBar: mErrorBar,
             thumbWrap,
             thumbImg,
+            focusRect,
+            focusChip,
+            focusChipText,
+            cleanupThumbDrag: () => {
+                window.removeEventListener("mousemove", onThumbMove);
+                window.removeEventListener("mouseup", onThumbUp);
+            },
         };
 
         bindInputHandlers(
@@ -927,8 +1247,10 @@ function createVisionChatController(node) {
             mReplyBox,
             mVersionSel,
             mUndoBtn,
+            mResetBtn,
             mRefineBtn,
             mDiscussBtn,
+            mStopBtn,
             mContinueBtn,
             mCancelBtn
         );
@@ -967,6 +1289,7 @@ function createVisionChatController(node) {
     return {
         root,
         applyServerState,
+        applyServerDelta,
         hydrateFromServer,
         destroy() {
             closeModal();
@@ -981,6 +1304,16 @@ api.addEventListener("ziggart-vision-chat-state", (event) => {
     const ctrl = activeNodeControllers.get(key);
     if (ctrl) {
         ctrl.applyServerState(detail);
+    }
+});
+
+api.addEventListener("ziggart-vision-chat-delta", (event) => {
+    const detail = event?.detail;
+    if (!detail || detail.node_id === undefined) return;
+    const key = String(detail.node_id);
+    const ctrl = activeNodeControllers.get(key);
+    if (ctrl) {
+        ctrl.applyServerDelta(detail);
     }
 });
 

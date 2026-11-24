@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -12,15 +10,8 @@ import torch
 import torch.nn.functional as F
 
 try:
-    import folder_paths
-except ImportError:
-    folder_paths = None
-
-try:
     import comfy.sample
     import comfy.samplers
-    import comfy.utils
-    import comfy.model_management
     SAMPLER_NAMES = comfy.samplers.KSampler.SAMPLERS
     SCHEDULER_NAMES = comfy.samplers.KSampler.SCHEDULERS
 except Exception:
@@ -59,7 +50,13 @@ except Exception:
     ]
 
 try:
-    import nodes as comfy_nodes
+    import nodes as _comfy_nodes_mod
+
+    comfy_nodes = (
+        _comfy_nodes_mod
+        if (hasattr(_comfy_nodes_mod, "KSampler") and hasattr(_comfy_nodes_mod, "CLIPTextEncode"))
+        else None
+    )
 except ImportError:
     comfy_nodes = None
 
@@ -67,11 +64,11 @@ from .embedded_model import (
     MODEL_MANAGER,
     EmbeddedLlamaError,
     ModelConfig,
+    build_json_schema_response_format,
     default_vlm_threads,
-    release_comfy_vram,
     strip_thinking_tags,
 )
-from .nodes import _gguf_files, _resolve_gguf, image_to_data_uri, NO_MODEL, NO_MMPROJ
+from .nodes import _gguf_files, _resolve_gguf, image_to_data_uri
 
 
 def _infer_coord_scales(
@@ -95,6 +92,37 @@ def _infer_coord_scales(
     return 1.0, 1.0
 
 
+def _safe_float(raw: str) -> float | None:
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_interpolate_nhwc(
+    tensor: torch.Tensor,
+    size: tuple[int, int],
+    mode: str = "bicubic",
+) -> torch.Tensor:
+    """Safely resizes [B, H, W, C] tensors even when CPU fp16/bf16 bicubic is unsupported."""
+    orig_dtype = tensor.dtype
+    nchw = tensor.permute(0, 3, 1, 2)
+    if mode == "bicubic" and nchw.device.type == "cpu" and orig_dtype in (torch.float16, torch.bfloat16):
+        nchw = nchw.float()
+    out = F.interpolate(nchw, size=size, mode=mode, align_corners=False)
+    return out.permute(0, 2, 3, 1).to(dtype=orig_dtype).clamp(0.0, 1.0)
+
+
+def _ensure_rgb_tensor(tensor: torch.Tensor) -> torch.Tensor:
+    """Ensures [..., C] tensor has at least 3 channels (expands 1-channel grayscale to RGB)."""
+    c = int(tensor.shape[-1])
+    if c >= 3:
+        return tensor[..., :3]
+    if c == 1:
+        return tensor.repeat(*([1] * (tensor.ndim - 1)), 3)
+    return F.pad(tensor, (0, 3 - c))
+
+
 def parse_bounding_boxes(text: str, img_w: int, img_h: int) -> list[tuple[int, int, int, int]]:
     """
     Extracts bounding boxes (x0, y0, x1, y1) in image pixel coordinates from VLM response text.
@@ -104,7 +132,7 @@ def parse_bounding_boxes(text: str, img_w: int, img_h: int) -> list[tuple[int, i
     3. Point-pair syntax: (x0, y0), (x1, y1) or <box>(x0, y0), (x1, y1)</box>
     4. Bracketed sequences: [x0, y0, x1, y1] normalized to 1000, 1.0, or raw pixels.
     """
-    cleaned_text = strip_thinking_tags(text)
+    cleaned_text = strip_thinking_tags(text or "")
     boxes: list[tuple[int, int, int, int]] = []
 
     def _append_scaled(
@@ -134,7 +162,10 @@ def parse_bounding_boxes(text: str, img_w: int, img_h: int) -> list[tuple[int, i
     )
     if box_2d_matches:
         for y0_s, x0_s, y1_s, x1_s in box_2d_matches:
-            y0, x0, y1, x1 = float(y0_s), float(x0_s), float(y1_s), float(x1_s)
+            vals = (_safe_float(x0_s), _safe_float(y0_s), _safe_float(x1_s), _safe_float(y1_s))
+            if any(v is None for v in vals):
+                continue
+            x0, y0, x1, y1 = vals  # type: ignore[misc]
             scale_x, scale_y = _infer_coord_scales(
                 (x0, y0, x1, y1), (x0_s, y0_s, x1_s, y1_s), img_w, img_h
             )
@@ -149,8 +180,14 @@ def parse_bounding_boxes(text: str, img_w: int, img_h: int) -> list[tuple[int, i
     )
     if token_matches:
         for x0_s, y0_s, x1_s, y1_s in token_matches:
-            x0, y0, x1, y1 = float(x0_s), float(y0_s), float(x1_s), float(y1_s)
-            _append_scaled(x0, y0, x1, y1, img_w / 1000.0, img_h / 1000.0)
+            vals = (_safe_float(x0_s), _safe_float(y0_s), _safe_float(x1_s), _safe_float(y1_s))
+            if any(v is None for v in vals):
+                continue
+            x0, y0, x1, y1 = vals  # type: ignore[misc]
+            scale_x, scale_y = _infer_coord_scales(
+                (x0, y0, x1, y1), (x0_s, y0_s, x1_s, y1_s), img_w, img_h
+            )
+            _append_scaled(x0, y0, x1, y1, scale_x, scale_y)
         if boxes:
             return boxes
 
@@ -161,7 +198,10 @@ def parse_bounding_boxes(text: str, img_w: int, img_h: int) -> list[tuple[int, i
     )
     if pair_matches:
         for x0_s, y0_s, x1_s, y1_s in pair_matches:
-            x0, y0, x1, y1 = float(x0_s), float(y0_s), float(x1_s), float(y1_s)
+            vals = (_safe_float(x0_s), _safe_float(y0_s), _safe_float(x1_s), _safe_float(y1_s))
+            if any(v is None for v in vals):
+                continue
+            x0, y0, x1, y1 = vals  # type: ignore[misc]
             scale_x, scale_y = _infer_coord_scales(
                 (x0, y0, x1, y1), (x0_s, y0_s, x1_s, y1_s), img_w, img_h
             )
@@ -175,7 +215,10 @@ def parse_bounding_boxes(text: str, img_w: int, img_h: int) -> list[tuple[int, i
         cleaned_text,
     )
     for a_s, b_s, c_s, d_s in bracket_matches:
-        a, b, c, d = float(a_s), float(b_s), float(c_s), float(d_s)
+        vals = (_safe_float(a_s), _safe_float(b_s), _safe_float(c_s), _safe_float(d_s))
+        if any(v is None for v in vals):
+            continue
+        a, b, c, d = vals  # type: ignore[misc]
         scale_x, scale_y = _infer_coord_scales(
             (a, b, c, d), (a_s, b_s, c_s, d_s), img_w, img_h
         )
@@ -238,17 +281,21 @@ def create_feathered_mask(
     Creates a 2D float tensor [crop_h, crop_w] with smooth alpha falloff near the boundaries
     to ensure seamless inpainting blends.
     """
-    if feather_radius <= 0 or crop_w <= feather_radius * 2 or crop_h <= feather_radius * 2:
+    if feather_radius <= 0 or crop_w < 3 or crop_h < 3:
         return torch.ones((crop_h, crop_w), dtype=torch.float32)
 
+    eff_radius = min(int(feather_radius), max(1, (min(crop_w, crop_h) - 1) // 2))
     mask_img = Image.new("L", (crop_w, crop_h), 0)
     draw = ImageDraw.Draw(mask_img)
-    pad = max(1, feather_radius)
+    pad = max(1, eff_radius)
     draw.rectangle([pad, pad, crop_w - pad - 1, crop_h - pad - 1], fill=255)
 
-    blurred = mask_img.filter(ImageFilter.GaussianBlur(radius=feather_radius))
+    blurred = mask_img.filter(ImageFilter.GaussianBlur(radius=eff_radius))
     arr = np.array(blurred, dtype=np.float32) / 255.0
-    max_val = arr.max()
+    edge_min = float(min(arr[0, :].min(), arr[-1, :].min(), arr[:, 0].min(), arr[:, -1].min()))
+    if edge_min > 0.0:
+        arr = np.maximum(0.0, arr - edge_min)
+    max_val = float(arr.max())
     if max_val > 0.0:
         arr = arr / max_val
     return torch.from_numpy(arr)
@@ -277,14 +324,7 @@ def standardize_and_batch_crops(crop_list: list[torch.Tensor]) -> torch.Tensor:
         if c.shape[1] == max_h and c.shape[2] == max_w:
             standardized.append(c)
         else:
-            c_perm = c.permute(0, 3, 1, 2)
-            c_res = F.interpolate(
-                c_perm,
-                size=(max_h, max_w),
-                mode="bicubic",
-                align_corners=False,
-            ).clamp(0.0, 1.0)
-            standardized.append(c_res.permute(0, 2, 3, 1))
+            standardized.append(_safe_interpolate_nhwc(c, size=(max_h, max_w), mode="bicubic"))
 
     return torch.cat(standardized, dim=0)
 
@@ -295,13 +335,15 @@ def draw_boxes_on_image(
     label: str = "detected",
 ) -> torch.Tensor:
     """
-    Draws bounding boxes and text tags on an image tensor [H, W, 3] or [1, H, W, 3].
+    Draws bounding boxes and text tags on an image tensor [H, W, C] or [1, H, W, C].
     Returns [1, H, W, 3] float tensor in range [0, 1].
     """
     if image_tensor.ndim == 4:
         image_tensor = image_tensor[0]
 
-    np_img = (np.clip(image_tensor.detach().cpu().float().numpy(), 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
+    rgb_t = _ensure_rgb_tensor(image_tensor.detach().cpu().float())
+    np_clean = np.nan_to_num(rgb_t.numpy(), nan=0.0, posinf=1.0, neginf=0.0)
+    np_img = (np.clip(np_clean, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
     pil_img = Image.fromarray(np_img)
     draw = ImageDraw.Draw(pil_img)
     font = ImageFont.load_default()
@@ -359,11 +401,12 @@ def detect_objects_with_vlm(
             mmproj_on_gpu=True,
         )
     )
-    MODEL_MANAGER.load(config, unload_comfy_models=True)
+    unload_comfy = getattr(config, "backend", "in_process_gguf") == "in_process_gguf"
+    MODEL_MANAGER.load(config, unload_comfy_models=unload_comfy)
 
     system_instruction = (
         "You are an expert visual grounding AI. Locate the requested objects precisely in the image. "
-        "Return bounding box coordinates [x0, y0, x1, y1] normalized to 1000."
+        'Return JSON {"boxes": [[x0, y0, x1, y1], ...]} with coordinates normalized to 1000.'
     )
     user_instruction = (
         f"Detect and locate: '{detection_prompt}'.\n"
@@ -381,24 +424,42 @@ def detect_objects_with_vlm(
             ],
         },
     ]
+    det_schema = build_json_schema_response_format(
+        "wevisone_detection",
+        {
+            "type": "object",
+            "properties": {
+                "boxes": {
+                    "type": "array",
+                    "items": {"type": "array", "items": {"type": "number"}},
+                }
+            },
+            "required": ["boxes"],
+        },
+    )
+    det_max_tokens = max(256, min(1024, max(1, int(max_detections)) * 48))
 
     try:
         raw_response = MODEL_MANAGER.chat(
             messages,
-            max_tokens=256,
+            max_tokens=det_max_tokens,
             temperature=0.1,
             top_p=0.9,
             top_k=20,
             seed=42,
             enable_thinking=False,
+            response_format=det_schema,
         )
+    except EmbeddedLlamaError as exc:
+        raise RuntimeError(f"VLM object detection failed: {exc}") from exc
     finally:
         if unload_detector_before_sampling:
             MODEL_MANAGER.unload()
-            release_comfy_vram()
 
     if hasattr(frame_image, "shape"):
-        h, w = frame_image.shape[0], frame_image.shape[1]
+        h, w = int(frame_image.shape[0]), int(frame_image.shape[1])
+    elif hasattr(frame_image, "size"):
+        w, h = int(frame_image.size[0]), int(frame_image.size[1])
     else:
         h, w = 1024, 1024
 
@@ -563,11 +624,11 @@ class ZiggartDetailerKrea2:
                 ),
                 "gpu_layers": (
                     "INT",
-                    {"default": -1, "min": -1, "max": 256, "tooltip": "Detector GPU layers (-1 for all)."},
+                    {"default": -1, "min": -1, "max": 999, "tooltip": "Detector GPU layers (-1 for all)."},
                 ),
                 "context_size": (
                     "INT",
-                    {"default": 4096, "min": 1024, "max": 32768, "tooltip": "Detector context size."},
+                    {"default": 4096, "min": 1024, "max": 262144, "step": 1024, "tooltip": "Detector context size."},
                 ),
                 "use_latent_mask": (
                     "BOOLEAN",
@@ -599,6 +660,21 @@ class ZiggartDetailerKrea2:
             },
         }
 
+    def _encode_single_prompt(self, clip: Any, text: str) -> Any:
+        if comfy_nodes is not None:
+            return comfy_nodes.CLIPTextEncode().encode(clip=clip, text=text)[0]
+        tokens = clip.tokenize(text)
+        if hasattr(clip, "encode_from_tokens"):
+            try:
+                cond, pooled = clip.encode_from_tokens(tokens, return_pooled=True)
+                return [[cond, {"pooled_output": pooled}]]
+            except TypeError:
+                pass
+        if hasattr(clip, "encode_from_tokens_scheduled"):
+            return clip.encode_from_tokens_scheduled(tokens)
+        cond, pooled = clip.encode_from_tokens(tokens, return_pooled=True)
+        return [[cond, {"pooled_output": pooled}]]
+
     def _encode_prompts(
         self,
         clip: Any,
@@ -606,20 +682,10 @@ class ZiggartDetailerKrea2:
         negative_prompt: str,
     ) -> tuple[Any, Any]:
         """Encodes positive and negative prompts once per Detailer execution."""
-        if comfy_nodes is not None:
-            clip_encoder = comfy_nodes.CLIPTextEncode()
-            pos_cond = clip_encoder.encode(clip=clip, text=positive_prompt)[0]
-            neg_cond = clip_encoder.encode(clip=clip, text=negative_prompt)[0]
-            return pos_cond, neg_cond
-
-        tokens_pos = clip.tokenize(positive_prompt)
-        cond_pos, pooled_pos = clip.encode_from_tokens(tokens_pos, return_pooled=True)
-        pos_cond = [[cond_pos, {"pooled_output": pooled_pos}]]
-
-        tokens_neg = clip.tokenize(negative_prompt)
-        cond_neg, pooled_neg = clip.encode_from_tokens(tokens_neg, return_pooled=True)
-        neg_cond = [[cond_neg, {"pooled_output": pooled_neg}]]
-        return pos_cond, neg_cond
+        return (
+            self._encode_single_prompt(clip, positive_prompt),
+            self._encode_single_prompt(clip, negative_prompt),
+        )
 
     def _execute_sampling(
         self,
@@ -643,7 +709,7 @@ class ZiggartDetailerKrea2:
         if pos_cond is None or neg_cond is None:
             pos_cond, neg_cond = self._encode_prompts(clip, positive_prompt, negative_prompt)
 
-        rgb_crop = crop_tensor[:, :, :, :3]
+        rgb_crop = _ensure_rgb_tensor(crop_tensor)
         if comfy_nodes is not None:
             vae_encoder = comfy_nodes.VAEEncode()
             latent_crop = dict(vae_encoder.encode(vae=vae, pixels=rgb_crop)[0])
@@ -741,7 +807,15 @@ class ZiggartDetailerKrea2:
             model_path = _resolve_gguf(detector_model, detector_model_override, "detector_model")
             mmproj_path = _resolve_gguf(detector_mmproj, detector_mmproj_override, "detector_mmproj")
 
-        batch_size, img_h, img_w, channels = image.shape
+        batch_size, img_h, img_w, _channels = image.shape
+        if batch_size == 0:
+            empty_img = torch.zeros((0, img_h, img_w, 3), dtype=torch.float32)
+            empty_mask = torch.zeros((0, img_h, img_w), dtype=torch.float32)
+            empty_crops = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
+            latent_channels = int(getattr(vae, "latent_channels", 16))
+            downscale = max(1, int(getattr(vae, "downscale_ratio", 8)))
+            empty_lat = {"samples": torch.zeros((0, latent_channels, max(1, img_h // downscale), max(1, img_w // downscale)))}
+            return (empty_img, empty_crops, empty_crops, empty_img, empty_mask, empty_lat)
         final_images: list[torch.Tensor] = []
         detection_previews: list[torch.Tensor] = []
         all_masks: list[torch.Tensor] = []
@@ -768,9 +842,8 @@ class ZiggartDetailerKrea2:
                 batch_boxes.append(boxes)
                 detection_previews.append(draw_boxes_on_image(frame_3d, boxes, label=detection_prompt))
         finally:
-            if free_vram_after and MODEL_MANAGER._model is not None:
+            if free_vram_after and MODEL_MANAGER.is_loaded():
                 MODEL_MANAGER.unload()
-                release_comfy_vram()
 
         # Phase 2: Encode static CLIP prompts once if any detections exist
         any_detections = any(len(boxes) > 0 for boxes in batch_boxes)
@@ -785,7 +858,7 @@ class ZiggartDetailerKrea2:
         # Phase 3: Resample and blend all detected crops with Krea 2 Turbo
         for b in range(batch_size):
             frame = image[b : b + 1]
-            out_frame = frame.clone()
+            out_frame = frame.clone() if frame.shape[-1] >= 3 else _ensure_rgb_tensor(frame).clone()
             full_mask = torch.zeros((img_h, img_w), dtype=torch.float32)
             boxes = batch_boxes[b]
 
@@ -813,21 +886,15 @@ class ZiggartDetailerKrea2:
                 if target_h == ch and target_w == cw:
                     crop_high = crop_orig.clone()
                 else:
-                    crop_perm = crop_orig.permute(0, 3, 1, 2)
-                    crop_high = F.interpolate(
-                        crop_perm,
-                        size=(target_h, target_w),
-                        mode="bicubic",
-                        align_corners=False,
-                    )
-                    crop_high = crop_high.permute(0, 2, 3, 1).clamp(0.0, 1.0)
+                    crop_high = _safe_interpolate_nhwc(crop_orig, size=(target_h, target_w), mode="bicubic")
 
-                cropped_base_list.append(crop_high[:, :, :, :3].clone())
+                cropped_base_list.append(_ensure_rgb_tensor(crop_high).clone())
 
                 # Prepare latent noise mask at target resolution if enabled
                 latent_noise_mask = None
                 if use_latent_mask and feather_mask > 0:
-                    scaled_feather = max(1, int(round(feather_mask * (target_w / float(max(1, cw))))))
+                    scale_m = min(target_w / float(max(1, cw)), target_h / float(max(1, ch)))
+                    scaled_feather = max(1, int(round(feather_mask * scale_m)))
                     latent_noise_mask = create_feathered_mask(
                         target_w, target_h, feather_radius=scaled_feather
                     ).unsqueeze(0)
@@ -851,20 +918,13 @@ class ZiggartDetailerKrea2:
                     neg_cond=neg_cond,
                     noise_mask=latent_noise_mask,
                 )
-                cropped_refined_list.append(refined_high.clone())
+                cropped_refined_list.append(_ensure_rgb_tensor(refined_high).clone())
 
                 # Step 5: Resize refined crop back to original crop size
                 if refined_high.shape[1] == ch and refined_high.shape[2] == cw:
                     refined_orig = refined_high.clamp(0.0, 1.0)
                 else:
-                    refined_perm = refined_high.permute(0, 3, 1, 2)
-                    refined_orig = F.interpolate(
-                        refined_perm,
-                        size=(ch, cw),
-                        mode="bicubic",
-                        align_corners=False,
-                    )
-                    refined_orig = refined_orig.permute(0, 2, 3, 1).clamp(0.0, 1.0)
+                    refined_orig = _safe_interpolate_nhwc(refined_high, size=(ch, cw), mode="bicubic")
 
                 refined_orig = refined_orig.to(device=out_frame.device, dtype=out_frame.dtype)
 
@@ -876,7 +936,7 @@ class ZiggartDetailerKrea2:
 
                 # Composite RGB channels back into image (preserving alpha if RGBA)
                 current_rgb = out_frame[:, cy0:cy1, cx0:cx1, :3]
-                refined_rgb = refined_orig[:, :, :, :3]
+                refined_rgb = _ensure_rgb_tensor(refined_orig)
                 blended_rgb = refined_rgb * feather_4d + current_rgb * (1.0 - feather_4d)
                 out_frame[:, cy0:cy1, cx0:cx1, :3] = blended_rgb
 
@@ -898,20 +958,22 @@ class ZiggartDetailerKrea2:
 
         # Encode final composited image to latent
         latent_channels = int(getattr(vae, "latent_channels", 16))
+        downscale = max(1, int(getattr(vae, "downscale_ratio", 8)))
         if encode_final_latent:
             try:
+                rgb_final = _ensure_rgb_tensor(final_image_tensor)
                 if comfy_nodes is not None:
                     vae_encoder = comfy_nodes.VAEEncode()
-                    final_latent = vae_encoder.encode(vae=vae, pixels=final_image_tensor[:, :, :, :3])[0]
+                    final_latent = vae_encoder.encode(vae=vae, pixels=rgb_final)[0]
                 else:
-                    final_latent = {"samples": vae.encode(final_image_tensor[:, :, :, :3])}
+                    final_latent = {"samples": vae.encode(rgb_final)}
             except Exception:
                 final_latent = {
-                    "samples": torch.zeros((batch_size, latent_channels, max(1, img_h // 8), max(1, img_w // 8)))
+                    "samples": torch.zeros((batch_size, latent_channels, max(1, img_h // downscale), max(1, img_w // downscale)))
                 }
         else:
             final_latent = {
-                "samples": torch.zeros((batch_size, latent_channels, max(1, img_h // 8), max(1, img_w // 8)))
+                "samples": torch.zeros((batch_size, latent_channels, max(1, img_h // downscale), max(1, img_w // downscale)))
             }
 
         return (
@@ -995,11 +1057,11 @@ class ZiggartWeVisOneDetector:
                 ),
                 "gpu_layers": (
                     "INT",
-                    {"default": -1, "min": -1, "max": 256, "tooltip": "Detector GPU layers (-1 for all)."},
+                    {"default": -1, "min": -1, "max": 999, "tooltip": "Detector GPU layers (-1 for all)."},
                 ),
                 "context_size": (
                     "INT",
-                    {"default": 4096, "min": 1024, "max": 32768, "tooltip": "Detector context size."},
+                    {"default": 4096, "min": 1024, "max": 262144, "step": 1024, "tooltip": "Detector context size."},
                 ),
                 "vlm_config": (
                     "GGUF_VL_MODEL",
@@ -1036,6 +1098,11 @@ class ZiggartWeVisOneDetector:
             mmproj_path = _resolve_gguf(detector_mmproj, detector_mmproj_override, "detector_mmproj")
 
         batch_size, img_h, img_w, _ = image.shape
+        if batch_size == 0:
+            empty_img = torch.zeros((0, img_h, img_w, 3), dtype=torch.float32)
+            empty_mask = torch.zeros((0, img_h, img_w), dtype=torch.float32)
+            empty_crops = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
+            return (empty_img, empty_mask, empty_crops, "[]")
         previews: list[torch.Tensor] = []
         masks: list[torch.Tensor] = []
         all_crops: list[torch.Tensor] = []
@@ -1065,7 +1132,7 @@ class ZiggartWeVisOneDetector:
 
                 for i, box in enumerate(boxes):
                     cx0, cy0, cx1, cy1 = crop_with_padding(box, img_w, img_h, crop_factor=crop_factor)
-                    crop_patch = frame[cy0:cy1, cx0:cx1, :].unsqueeze(0)
+                    crop_patch = _ensure_rgb_tensor(frame[cy0:cy1, cx0:cx1, :]).unsqueeze(0)
                     all_crops.append(crop_patch)
 
                     # Fill mask consistently over the detected bounding box region
@@ -1087,9 +1154,8 @@ class ZiggartWeVisOneDetector:
                 masks.append(full_mask.unsqueeze(0))
                 all_bboxes_data.append({"frame_index": b, "detections": frame_bboxes})
         finally:
-            if free_vram_after and MODEL_MANAGER._model is not None:
+            if free_vram_after and MODEL_MANAGER.is_loaded():
                 MODEL_MANAGER.unload()
-                release_comfy_vram()
 
         preview_tensor = torch.cat(previews, dim=0)
         mask_tensor = torch.cat(masks, dim=0)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import glob
 import json
 import logging
@@ -7,6 +8,7 @@ import math
 import os
 import random
 import re
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -93,11 +95,29 @@ _NUMERIC_RE = re.compile(r"^-?(?:\d+\.?\d*|\.\d+)$")
 
 
 def normalize_wildcard_key(key: str) -> str:
-    """Normalizes a wildcard key to forward-slash, lowercase, trimmed format."""
-    cleaned = key.strip().replace("\\", "/")
+    """Normalizes a wildcard key to forward-slash, lowercase, trimmed format, rejecting traversal/drive paths."""
+    raw = str(key or "").strip()
+    if not raw or "\x00" in raw or ":" in raw:
+        return ""
+    if raw.startswith(("/", "\\")):
+        return ""
+    cleaned = raw.replace("\\", "/")
     while "//" in cleaned:
         cleaned = cleaned.replace("//", "/")
+    parts = [p.strip() for p in cleaned.split("/") if p.strip()]
+    if any(p in (".", "..") for p in parts):
+        return ""
     return cleaned.strip("/_ ").lower()
+
+
+def _is_path_within_dir(base_dir: str | Path, candidate_path: str | Path) -> bool:
+    """Returns True only if `candidate_path` resolves inside `base_dir` (Windows case-safe)."""
+    try:
+        base_abs = os.path.normcase(os.path.abspath(str(base_dir)))
+        cand_abs = os.path.normcase(os.path.abspath(str(candidate_path)))
+        return os.path.commonpath([base_abs, cand_abs]) == base_abs
+    except Exception:
+        return False
 
 
 def _is_numeric(val: str) -> bool:
@@ -108,8 +128,8 @@ def discover_default_wildcard_dirs() -> list[str]:
     """
     Automatically finds wildcard directories without modifying any external folders:
     1. Ziggart-Nodes/wildcards (if present)
-    2. ComfyUI/wildcards (if present)
-    3. ComfyUI/custom_nodes/ComfyUI-Impact-Pack/wildcards (sibling or E:/Comfy fallback)
+    2. ComfyUI/custom_nodes/ComfyUI-Impact-Pack/wildcards (sibling if present)
+    3. ComfyUI/wildcards (if present)
     """
     candidates: list[Path] = []
     here = Path(__file__).resolve().parent
@@ -124,9 +144,6 @@ def discover_default_wildcard_dirs() -> list[str]:
         base = Path(folder_paths.base_path)
         candidates.append(base / "wildcards")
         candidates.append(base / "custom_nodes" / "ComfyUI-Impact-Pack" / "wildcards")
-
-    dev_impact = Path(r"E:\Comfy\ComfyUI\custom_nodes\ComfyUI-Impact-Pack\wildcards")
-    candidates.append(dev_impact)
 
     seen: set[str] = set()
     valid_dirs: list[str] = []
@@ -406,7 +423,8 @@ class ZiggartWildcardIndex:
                                 continue
                             stem = os.path.splitext(entry.name)[0]
                             norm_k = normalize_wildcard_key(stem)
-                            self._curated_txt_map[norm_k] = entry.path
+                            if norm_k:
+                                self._curated_txt_map.setdefault(norm_k, entry.path)
                             self.pillars["mixed_other"].append(f"__{stem}__")
 
                 # 2. Subdirectories
@@ -414,15 +432,17 @@ class ZiggartWildcardIndex:
                     if not entry.is_dir():
                         continue
                     if entry.name.lower() == "collection":
-                        self._scan_collection_structure(Path(entry.path), base_path, disk_cache)
+                        if self._scan_collection_structure(Path(entry.path), base_path, disk_cache):
+                            cache_dirty = True
                     else:
-                        self._scan_into_bucket(
+                        if self._scan_into_bucket(
                             Path(entry.path),
                             base_path,
                             self.pillars["mixed_other"],
                             disk_cache,
                             max_files=2000,
-                        )
+                        ):
+                            cache_dirty = True
 
             # Route YAML keys into their matching Collection Pillars and build parent rollups
             custom_yaml_top_tokens: list[str] = []
@@ -492,11 +512,29 @@ class ZiggartWildcardIndex:
             self._populate_pure_facets()
 
             if cache_dirty:
+                tmp_fd, tmp_path = None, None
                 try:
-                    with open(cache_file, "w", encoding="utf-8") as cf:
+                    tmp_fd, tmp_path = tempfile.mkstemp(
+                        prefix="wildcard_yaml_offsets_",
+                        suffix=".tmp",
+                        dir=str(cache_file.parent),
+                    )
+                    with os.fdopen(tmp_fd, "w", encoding="utf-8") as cf:
+                        tmp_fd = None
                         json.dump(disk_cache, cf)
+                    os.replace(tmp_path, cache_file)
+                    tmp_path = None
                 except Exception:
-                    pass
+                    if tmp_fd is not None:
+                        try:
+                            os.close(tmp_fd)
+                        except OSError:
+                            pass
+                    if tmp_path and os.path.exists(tmp_path):
+                        try:
+                            os.unlink(tmp_path)
+                        except OSError:
+                            pass
 
             self._dropdown_items = all_combined
             self._initialized = True
@@ -519,7 +557,8 @@ class ZiggartWildcardIndex:
             }
             dirty = True
         for k, (b_start, b_end) in offsets.items():
-            self._yaml_offsets[k] = (yaml_path, b_start, b_end)
+            if k:
+                self._yaml_offsets.setdefault(k, (yaml_path, b_start, b_end))
         return dirty
 
     def _scan_into_bucket(
@@ -529,15 +568,17 @@ class ZiggartWildcardIndex:
         bucket: list[str],
         disk_cache: dict[str, Any],
         max_files: int = 350,
-    ) -> None:
+    ) -> bool:
         count = 0
+        dirty = False
         try:
             for r, _dirs, files in os.walk(folder):
                 for fname in sorted(files):
                     lower = fname.lower()
                     full_p = os.path.join(r, fname)
                     if lower.endswith((".yaml", ".yml")):
-                        self._index_single_yaml(full_p, disk_cache)
+                        if self._index_single_yaml(full_p, disk_cache):
+                            dirty = True
                     elif lower.endswith(".txt"):
                         try:
                             if os.path.getsize(full_p) == 0:
@@ -547,31 +588,36 @@ class ZiggartWildcardIndex:
                         rel = os.path.relpath(full_p, root_dir).replace("\\", "/")
                         stem = os.path.splitext(rel)[0]
                         norm_k = normalize_wildcard_key(stem)
-                        self._curated_txt_map[norm_k] = full_p
+                        if norm_k:
+                            self._curated_txt_map.setdefault(norm_k, full_p)
                         bucket.append(f"__{stem}__")
                         count += 1
                         if count >= max_files:
-                            return
+                            return dirty
         except OSError:
             pass
+        return dirty
 
     def _scan_collection_structure(
         self,
         collection_dir: Path,
         root_dir: Path,
         disk_cache: dict[str, Any],
-    ) -> None:
+    ) -> bool:
+        dirty = False
         # 1. Scan the 4 structured Collection pillars
         for pillar_key, folder_names in self.PILLAR_FOLDERS.items():
             for fname in folder_names:
                 sub = collection_dir / fname
                 if sub.is_dir():
-                    self._scan_into_bucket(sub, root_dir, self.pillars[pillar_key], disk_cache, max_files=250)
+                    if self._scan_into_bucket(sub, root_dir, self.pillars[pillar_key], disk_cache, max_files=250):
+                        dirty = True
 
         # 2. Scan Collection/Index into mixed_other
         idx_dir = collection_dir / "Index"
         if idx_dir.is_dir():
-            self._scan_into_bucket(idx_dir, root_dir, self.pillars["mixed_other"], disk_cache, max_files=200)
+            if self._scan_into_bucket(idx_dir, root_dir, self.pillars["mixed_other"], disk_cache, max_files=200):
+                dirty = True
 
         # 3. Fast single-level scandir of Collection/Combos (avoiding 41k subfile walk)
         combos_dir = collection_dir / "Combos"
@@ -581,14 +627,18 @@ class ZiggartWildcardIndex:
                     if entry.is_file() and entry.name.lower().endswith(".txt"):
                         rel = os.path.relpath(entry.path, root_dir).replace("\\", "/")
                         stem = os.path.splitext(rel)[0]
-                        self._curated_txt_map[normalize_wildcard_key(stem)] = entry.path
+                        norm_k = normalize_wildcard_key(stem)
+                        if norm_k:
+                            self._curated_txt_map.setdefault(norm_k, entry.path)
                         self.pillars["macro_yaml_themes"].append(f"__{stem}__")
                     elif entry.is_dir():
                         all_txt = os.path.join(entry.path, "ALL.txt")
                         if os.path.isfile(all_txt):
                             rel = os.path.relpath(all_txt, root_dir).replace("\\", "/")
                             stem = os.path.splitext(rel)[0]
-                            self._curated_txt_map[normalize_wildcard_key(stem)] = all_txt
+                            norm_k = normalize_wildcard_key(stem)
+                            if norm_k:
+                                self._curated_txt_map.setdefault(norm_k, all_txt)
                             self.pillars["macro_yaml_themes"].append(f"__{stem}__")
             except OSError:
                 pass
@@ -599,7 +649,7 @@ class ZiggartWildcardIndex:
             try:
                 for entry in sorted(os.scandir(themes_dir), key=lambda e: e.name.lower()):
                     if entry.is_dir():
-                        self.theme_folders[entry.name] = entry.path
+                        self.theme_folders.setdefault(entry.name, entry.path)
                         rel_all = f"Collection/Themes/{entry.name}/ALL"
                         self.pillars["macro_yaml_themes"].append(f"__{rel_all}__")
             except OSError:
@@ -613,7 +663,7 @@ class ZiggartWildcardIndex:
                     for entry in sorted(os.scandir(m_dir), key=lambda e: e.name.lower()):
                         if entry.is_dir():
                             if macro_sub == "Universes":
-                                self.universe_folders[entry.name] = entry.path
+                                self.universe_folders.setdefault(entry.name, entry.path)
                             self.pillars["mixed_other"].append(f"__Collection/{macro_sub}/{entry.name}/ALL__")
                         elif entry.is_file() and entry.name.lower().endswith(".txt"):
                             rel = os.path.relpath(entry.path, root_dir).replace("\\", "/")
@@ -636,6 +686,7 @@ class ZiggartWildcardIndex:
                         )
             except OSError:
                 pass
+        return dirty
 
     def _populate_pure_facets(self) -> None:
         """
@@ -659,14 +710,11 @@ class ZiggartWildcardIndex:
             # Reconstruct readable relative stem
             token = f"__{norm_k}__"
             for base_d in self._dirs:
-                try:
-                    if os.path.normcase(full_path).startswith(os.path.normcase(base_d)):
-                        rel = os.path.relpath(full_path, base_d).replace("\\", "/")
-                        stem = os.path.splitext(rel)[0]
-                        token = f"__{stem}__"
-                        break
-                except ValueError:
-                    continue
+                if _is_path_within_dir(base_d, full_path):
+                    rel = os.path.relpath(full_path, base_d).replace("\\", "/")
+                    stem = os.path.splitext(rel)[0]
+                    token = f"__{stem}__"
+                    break
 
             k_low = norm_k.lower()
             base_name = k_low.rsplit("/", 1)[-1]
@@ -749,13 +797,15 @@ class ZiggartWildcardIndex:
                 _add_facet("camera", token)
 
     def get_dropdown_list(self, extra_dir: str = "") -> list[str]:
-        self.ensure_loaded(extra_dir=extra_dir)
-        return [SELECT_PLACEHOLDER] + self._dropdown_items
+        with self._lock:
+            self.ensure_loaded(extra_dir=extra_dir)
+            return [SELECT_PLACEHOLDER] + list(self._dropdown_items)
 
     def get_pillar_dropdown(self, pillar_key: str, placeholder: str = NONE_OPTION, extra_dir: str = "") -> list[str]:
-        self.ensure_loaded(extra_dir=extra_dir)
-        items = self.pillars.get(pillar_key, [])
-        return [placeholder] + (items if items else [SELECT_PLACEHOLDER])
+        with self._lock:
+            self.ensure_loaded(extra_dir=extra_dir)
+            items = list(self.pillars.get(pillar_key, []))
+            return [placeholder] + (items if items else [SELECT_PLACEHOLDER])
 
     def get_facet_dropdown(
         self,
@@ -765,60 +815,73 @@ class ZiggartWildcardIndex:
         extra_dir: str = "",
     ) -> list[str]:
         """Returns dropdown choices for a pure component facet (`styles`, `characters`, `anatomy`, `outfits`, `poses_actions`, `environments`, `lighting`, `camera`)."""
-        self.ensure_loaded(extra_dir=extra_dir)
-        header: list[str] = [NONE_OPTION]
-        if include_context_option:
-            header.append(FROM_CONTEXT_OPTION)
-        if include_random_option:
-            header.append(RANDOM_POOL_OPTION)
-        items = self.facets.get(facet_key, [])
-        return header + items
+        with self._lock:
+            self.ensure_loaded(extra_dir=extra_dir)
+            header: list[str] = [NONE_OPTION]
+            if include_context_option:
+                header.append(FROM_CONTEXT_OPTION)
+            if include_random_option:
+                header.append(RANDOM_POOL_OPTION)
+            items = list(self.facets.get(facet_key, []))
+            return header + items
 
     def get_theme_list(self, extra_dir: str = "") -> list[str]:
-        self.ensure_loaded(extra_dir=extra_dir)
-        names = sorted(self.theme_folders.keys())
-        return [RANDOM_THEME_OPTION] + names
+        with self._lock:
+            self.ensure_loaded(extra_dir=extra_dir)
+            names = sorted(self.theme_folders.keys())
+            return [RANDOM_THEME_OPTION] + names
 
     def get_universe_list(self, extra_dir: str = "") -> list[str]:
-        self.ensure_loaded(extra_dir=extra_dir)
-        names = sorted(self.universe_folders.keys())
-        return [RANDOM_UNIVERSE_OPTION] + names
+        with self._lock:
+            self.ensure_loaded(extra_dir=extra_dir)
+            names = sorted(self.universe_folders.keys())
+            return [RANDOM_UNIVERSE_OPTION] + names
 
     def search_wildcards(self, query: str, limit: int = 100, extra_dir: str = "") -> list[str]:
         """Searches across YAML keys, Collection pillars, and Theme folders matching `query`."""
-        self.ensure_loaded(extra_dir=extra_dir)
-        q = normalize_wildcard_key(query.strip("_ "))
-        if not q:
-            return self._dropdown_items[:limit]
+        with self._lock:
+            self.ensure_loaded(extra_dir=extra_dir)
+            q = normalize_wildcard_key(query.strip("_ "))
+            if not q:
+                return list(self._dropdown_items[:limit])
 
-        results: list[str] = []
-        seen: set[str] = set()
+            results: list[str] = []
+            seen: set[str] = set()
 
-        for item in self._dropdown_items:
-            if q in item.lower():
-                results.append(item)
-                seen.add(item.lower())
-                if len(results) >= limit:
-                    return results
+            for item in self._dropdown_items:
+                if q in item.lower():
+                    results.append(item)
+                    seen.add(item.lower())
+                    if len(results) >= limit:
+                        return results
 
-        for t_name in self.theme_folders:
-            if q in t_name.lower():
-                for suffix in ("ALL", "Character", "Outfit", "Environment", "PoseAction", "Style", "Creature", "Vehicle"):
-                    candidate = f"__Collection/Themes/{t_name}/{suffix}__"
-                    if candidate.lower() not in seen:
-                        seen.add(candidate.lower())
-                        results.append(candidate)
-                        if len(results) >= limit:
-                            return results
+            for t_name in self.theme_folders:
+                if q in t_name.lower():
+                    for suffix in ("ALL", "Character", "Outfit", "Environment", "PoseAction", "Style", "Creature", "Vehicle"):
+                        candidate = f"__Collection/Themes/{t_name}/{suffix}__"
+                        if candidate.lower() not in seen:
+                            seen.add(candidate.lower())
+                            results.append(candidate)
+                            if len(results) >= limit:
+                                return results
 
-        return results
+            return results
 
     def _remember_cache(self, key: str, items: list[str]) -> list[str]:
-        if len(self._options_cache) >= self._max_cached_keys:
-            oldest = next(iter(self._options_cache))
-            self._options_cache.pop(oldest, None)
-        self._options_cache[key] = items
-        return items
+        with self._lock:
+            if len(self._options_cache) >= self._max_cached_keys:
+                oldest = next(iter(self._options_cache))
+                self._options_cache.pop(oldest, None)
+            self._options_cache[key] = items
+            return items
+
+    def _remember_glob_cache(self, key: str, paths: list[str]) -> list[str]:
+        with self._lock:
+            if len(self._glob_files_cache) >= 512:
+                oldest = next(iter(self._glob_files_cache))
+                self._glob_files_cache.pop(oldest, None)
+            self._glob_files_cache[key] = paths
+            return paths
 
     def _read_txt_file(self, path: str) -> list[str]:
         try:
@@ -836,166 +899,171 @@ class ZiggartWildcardIndex:
         Resolves a wildcard key (e.g. 'Ziggart/scenes/all', 'Collection/formats-wild/.../Female-*',
         'krea2-grok/wallpaper', or 'jff/animals/*') in O(1) time without walking 78,000 files on boot.
         """
-        self.ensure_loaded()
-        norm_key = normalize_wildcard_key(raw_key)
-        if not norm_key:
+        raw_str = str(raw_key or "").strip()
+        if not raw_str or "\x00" in raw_str or ":" in raw_str or raw_str.startswith(("/", "\\")):
             return None
+        with self._lock:
+            self.ensure_loaded()
+            norm_key = normalize_wildcard_key(raw_str)
+            if not norm_key:
+                return None
 
-        # 0. Glob / wildcard `*` pattern match (YAML, direct filesystem glob, and curated map)
-        if "*" in norm_key:
-            exact_pat = "^" + re.escape(norm_key).replace(r"\*", ".*") + "$"
-            suffix_pat = r"(?:^|/)" + re.escape(norm_key).replace(r"\*", ".*") + "$"
-            cre_exact = re.compile(exact_pat)
-            cre_suffix = re.compile(suffix_pat)
+            # 0. Glob / wildcard `*` pattern match (YAML, direct filesystem glob, and curated map)
+            if "*" in norm_key:
+                exact_pat = "^" + re.escape(norm_key).replace(r"\*", ".*") + "$"
+                suffix_pat = r"(?:^|/)" + re.escape(norm_key).replace(r"\*", ".*") + "$"
+                cre_exact = re.compile(exact_pat)
+                cre_suffix = re.compile(suffix_pat)
 
-            matched_yaml = [k for k in self._yaml_offsets if cre_exact.match(k)]
-            if not matched_yaml:
-                matched_yaml = [k for k in self._yaml_offsets if cre_suffix.search(k)]
-            if matched_yaml:
-                chosen = rng.choice(matched_yaml)
-                return self.resolve_key_options(chosen, rng)
+                matched_yaml = [k for k in self._yaml_offsets if cre_exact.match(k)]
+                if not matched_yaml:
+                    matched_yaml = [k for k in self._yaml_offsets if cre_suffix.search(k)]
+                if matched_yaml:
+                    chosen = rng.choice(matched_yaml)
+                    return self.resolve_key_options(chosen, rng)
 
-            matched_files = self._glob_files_cache.get(norm_key)
-            if matched_files is None:
-                clean_rel = raw_key.strip().replace("\\", "/").strip("/_ ")
-                found_paths: list[str] = []
-                seen_paths: set[str] = set()
+                matched_files = self._glob_files_cache.get(norm_key)
+                if matched_files is None:
+                    clean_rel = raw_str.replace("\\", "/").strip("/_ ")
+                    found_paths: list[str] = []
+                    seen_paths: set[str] = set()
 
-                def _add_glob_hits(pattern: str) -> None:
-                    for hit in sorted(glob.glob(pattern)):
-                        try:
-                            if os.path.isfile(hit) and hit.lower().endswith(".txt") and os.path.getsize(hit) > 0:
-                                norm_p = os.path.normcase(os.path.abspath(hit))
-                                if norm_p not in seen_paths:
-                                    seen_paths.add(norm_p)
-                                    found_paths.append(hit)
-                            elif os.path.isdir(hit):
-                                all_p = os.path.join(hit, "ALL.txt")
-                                if os.path.isfile(all_p) and os.path.getsize(all_p) > 0:
-                                    norm_p = os.path.normcase(os.path.abspath(all_p))
+                    def _add_glob_hits(base_root: str, pattern: str) -> None:
+                        for hit in sorted(glob.glob(pattern)):
+                            try:
+                                if not _is_path_within_dir(base_root, hit):
+                                    continue
+                                if os.path.isfile(hit) and hit.lower().endswith(".txt") and os.path.getsize(hit) > 0:
+                                    norm_p = os.path.normcase(os.path.abspath(hit))
                                     if norm_p not in seen_paths:
                                         seen_paths.add(norm_p)
-                                        found_paths.append(all_p)
-                        except OSError:
-                            continue
-
-                for base_dir in self._dirs:
-                    for rel_variant in (clean_rel, norm_key):
-                        _add_glob_hits(os.path.join(base_dir, f"{rel_variant}.txt"))
-                        _add_glob_hits(os.path.join(base_dir, rel_variant))
-                        _add_glob_hits(os.path.join(base_dir, "jff", f"{rel_variant}.txt"))
-                        if "/" in rel_variant:
-                            base_part = os.path.basename(rel_variant)
-                            if "*" in base_part:
-                                _add_glob_hits(os.path.join(base_dir, "jff", f"{base_part}.txt"))
-
-                if not found_paths:
-                    for k, path in self._curated_txt_map.items():
-                        if cre_exact.match(k) or cre_suffix.search(k):
-                            try:
-                                if os.path.isfile(path) and os.path.getsize(path) > 0:
-                                    found_paths.append(path)
+                                        found_paths.append(hit)
+                                elif os.path.isdir(hit):
+                                    all_p = os.path.join(hit, "ALL.txt")
+                                    if _is_path_within_dir(base_root, all_p) and os.path.isfile(all_p) and os.path.getsize(all_p) > 0:
+                                        norm_p = os.path.normcase(os.path.abspath(all_p))
+                                        if norm_p not in seen_paths:
+                                            seen_paths.add(norm_p)
+                                            found_paths.append(all_p)
                             except OSError:
                                 continue
 
-                if not found_paths and norm_key in self.LEGACY_GLOB_ALIAS_MAP:
-                    alias_glob = self.LEGACY_GLOB_ALIAS_MAP[norm_key]
-                    return self.resolve_key_options(alias_glob, rng)
+                    for base_dir in self._dirs:
+                        for rel_variant in (clean_rel, norm_key):
+                            _add_glob_hits(base_dir, os.path.join(base_dir, f"{rel_variant}.txt"))
+                            _add_glob_hits(base_dir, os.path.join(base_dir, rel_variant))
+                            _add_glob_hits(base_dir, os.path.join(base_dir, "jff", f"{rel_variant}.txt"))
+                            if "/" in rel_variant:
+                                base_part = os.path.basename(rel_variant)
+                                if "*" in base_part:
+                                    _add_glob_hits(base_dir, os.path.join(base_dir, "jff", f"{base_part}.txt"))
 
-                matched_files = found_paths
-                self._glob_files_cache[norm_key] = matched_files
+                    if not found_paths:
+                        for k, path in self._curated_txt_map.items():
+                            if cre_exact.match(k) or cre_suffix.search(k):
+                                try:
+                                    if os.path.isfile(path) and os.path.getsize(path) > 0:
+                                        found_paths.append(path)
+                                except OSError:
+                                    continue
 
-            if matched_files:
-                chosen_file = rng.choice(matched_files)
-                items = self._read_txt_file(chosen_file)
+                    if not found_paths and norm_key in self.LEGACY_GLOB_ALIAS_MAP:
+                        alias_glob = self.LEGACY_GLOB_ALIAS_MAP[norm_key]
+                        return self.resolve_key_options(alias_glob, rng)
+
+                    matched_files = self._remember_glob_cache(norm_key, found_paths)
+
+                if matched_files:
+                    chosen_file = rng.choice(matched_files)
+                    items = self._read_txt_file(chosen_file)
+                    if items:
+                        return items
+                return None
+
+            if norm_key in self._options_cache:
+                return self._options_cache[norm_key]
+
+            # 1. Exact YAML key match (via byte-offset slice!)
+            if norm_key in self._yaml_offsets:
+                yaml_path, b_start, b_end = self._yaml_offsets[norm_key]
+                items = read_yaml_slice_items(yaml_path, b_start, b_end)
+                if items:
+                    return self._remember_cache(norm_key, items)
+
+            # 2. Parent YAML key match (e.g. __Ziggart/scenes__, __krea2-grok__, or __Ziggart__)
+            if norm_key in self._yaml_children:
+                child_keys = self._yaml_children[norm_key]
+                if child_keys:
+                    chosen_child = rng.choice(child_keys)
+                    return self.resolve_key_options(chosen_child, rng)
+
+            # 3. Direct O(1) .txt file lookup in all wildcard directories (and jff/ subfolder)
+            clean_rel = raw_str.replace("\\", "/").strip("/_ ")
+            rel_variants = (
+                clean_rel,
+                norm_key,
+                clean_rel.replace(" ", "-"),
+                clean_rel.replace(" ", "_"),
+                norm_key.replace(" ", "_"),
+            )
+            for base_dir in self._dirs:
+                for sub_prefix in ("", "jff"):
+                    search_root = os.path.join(base_dir, sub_prefix) if sub_prefix else base_dir
+                    for candidate_rel in rel_variants:
+                        candidate_path = os.path.join(search_root, f"{candidate_rel}.txt")
+                        if _is_path_within_dir(base_dir, candidate_path) and os.path.isfile(candidate_path):
+                            items = self._read_txt_file(candidate_path)
+                            if items:
+                                return self._remember_cache(norm_key, items)
+                        dir_all_path = os.path.join(search_root, candidate_rel, "ALL.txt")
+                        if _is_path_within_dir(base_dir, dir_all_path) and os.path.isfile(dir_all_path):
+                            items = self._read_txt_file(dir_all_path)
+                            if items:
+                                return self._remember_cache(norm_key, items)
+
+            # 4. Curated lowercase map lookup
+            if norm_key in self._curated_txt_map:
+                items = self._read_txt_file(self._curated_txt_map[norm_key])
+                if items:
+                    return self._remember_cache(norm_key, items)
+
+            # 5. Suffix match fallback across YAML and curated TXT
+            suffix = "/" + norm_key
+            suffix_yaml = [k for k in self._yaml_offsets if k.endswith(suffix)]
+            if suffix_yaml:
+                return self.resolve_key_options(rng.choice(suffix_yaml), rng)
+
+            suffix_txt = [path for k, path in self._curated_txt_map.items() if k.endswith(suffix)]
+            if suffix_txt:
+                items = self._read_txt_file(rng.choice(suffix_txt))
                 if items:
                     return items
+
+            # 6. Basename & legacy alias fallback (for friend's jff/ cross-folder references)
+            if norm_key in self.LEGACY_ALIAS_MAP:
+                return self.resolve_key_options(self.LEGACY_ALIAS_MAP[norm_key], rng)
+
+            if "/" in norm_key:
+                basename = norm_key.rsplit("/", 1)[-1]
+                if basename in self.LEGACY_ALIAS_MAP:
+                    return self.resolve_key_options(self.LEGACY_ALIAS_MAP[basename], rng)
+                base_suffix = "/" + basename
+                base_matches = [
+                    path
+                    for k, path in self._curated_txt_map.items()
+                    if k == basename or k.endswith(base_suffix)
+                ]
+                if base_matches:
+                    items = self._read_txt_file(rng.choice(base_matches))
+                    if items:
+                        return items
+
+            # 7. Trailing-digit fallback (e.g. actors1 -> actors when actors1.txt is a 0-byte file)
+            stripped_digits = norm_key.rstrip("0123456789")
+            if stripped_digits and stripped_digits != norm_key:
+                return self.resolve_key_options(stripped_digits, rng)
+
             return None
-
-        if norm_key in self._options_cache:
-            return self._options_cache[norm_key]
-
-        # 1. Exact YAML key match (via byte-offset slice!)
-        if norm_key in self._yaml_offsets:
-            yaml_path, b_start, b_end = self._yaml_offsets[norm_key]
-            items = read_yaml_slice_items(yaml_path, b_start, b_end)
-            if items:
-                return self._remember_cache(norm_key, items)
-
-        # 2. Parent YAML key match (e.g. __Ziggart/scenes__, __krea2-grok__, or __Ziggart__)
-        if norm_key in self._yaml_children:
-            child_keys = self._yaml_children[norm_key]
-            if child_keys:
-                chosen_child = rng.choice(child_keys)
-                return self.resolve_key_options(chosen_child, rng)
-
-        # 3. Direct O(1) .txt file lookup in all wildcard directories (and jff/ subfolder)
-        clean_rel = raw_key.strip().replace("\\", "/").strip("/_ ")
-        rel_variants = (
-            clean_rel,
-            norm_key,
-            clean_rel.replace(" ", "-"),
-            clean_rel.replace(" ", "_"),
-            norm_key.replace(" ", "_"),
-        )
-        for base_dir in self._dirs:
-            for sub_prefix in ("", "jff"):
-                search_root = os.path.join(base_dir, sub_prefix) if sub_prefix else base_dir
-                for candidate_rel in rel_variants:
-                    candidate_path = os.path.join(search_root, f"{candidate_rel}.txt")
-                    if os.path.isfile(candidate_path):
-                        items = self._read_txt_file(candidate_path)
-                        if items:
-                            return self._remember_cache(norm_key, items)
-                    dir_all_path = os.path.join(search_root, candidate_rel, "ALL.txt")
-                    if os.path.isfile(dir_all_path):
-                        items = self._read_txt_file(dir_all_path)
-                        if items:
-                            return self._remember_cache(norm_key, items)
-
-        # 4. Curated lowercase map lookup
-        if norm_key in self._curated_txt_map:
-            items = self._read_txt_file(self._curated_txt_map[norm_key])
-            if items:
-                return self._remember_cache(norm_key, items)
-
-        # 5. Suffix match fallback across YAML and curated TXT
-        suffix = "/" + norm_key
-        suffix_yaml = [k for k in self._yaml_offsets if k.endswith(suffix)]
-        if suffix_yaml:
-            return self.resolve_key_options(rng.choice(suffix_yaml), rng)
-
-        suffix_txt = [path for k, path in self._curated_txt_map.items() if k.endswith(suffix)]
-        if suffix_txt:
-            items = self._read_txt_file(rng.choice(suffix_txt))
-            if items:
-                return items
-
-        # 6. Basename & legacy alias fallback (for friend's jff/ cross-folder references)
-        if norm_key in self.LEGACY_ALIAS_MAP:
-            return self.resolve_key_options(self.LEGACY_ALIAS_MAP[norm_key], rng)
-
-        if "/" in norm_key:
-            basename = norm_key.rsplit("/", 1)[-1]
-            if basename in self.LEGACY_ALIAS_MAP:
-                return self.resolve_key_options(self.LEGACY_ALIAS_MAP[basename], rng)
-            base_suffix = "/" + basename
-            base_matches = [
-                path
-                for k, path in self._curated_txt_map.items()
-                if k == basename or k.endswith(base_suffix)
-            ]
-            if base_matches:
-                items = self._read_txt_file(rng.choice(base_matches))
-                if items:
-                    return items
-
-        # 7. Trailing-digit fallback (e.g. actors1 -> actors when actors1.txt is a 0-byte file)
-        stripped_digits = norm_key.rstrip("0123456789")
-        if stripped_digits and stripped_digits != norm_key:
-            return self.resolve_key_options(stripped_digits, rng)
-
-        return None
 
 
 WILDCARD_INDEX = ZiggartWildcardIndex()
@@ -1023,14 +1091,21 @@ def _weighted_choice(options: list[str], count: int, rng: random.Random) -> list
         parsed_items.append(val)
         weights.append(w)
 
-    if count >= len(parsed_items):
-        shuffled = list(parsed_items)
+    # Exclude zero-weight items unless every item has weight <= 0
+    positive_pairs = [(it, w) for it, w in zip(parsed_items, weights) if w > 0.0]
+    if positive_pairs:
+        pool_items = [it for it, _ in positive_pairs]
+        pool_weights = [w for _, w in positive_pairs]
+    else:
+        pool_items = list(parsed_items)
+        pool_weights = list(weights)
+
+    if count >= len(pool_items):
+        shuffled = list(pool_items)
         rng.shuffle(shuffled)
         return shuffled
 
     selected: list[str] = []
-    pool_items = list(parsed_items)
-    pool_weights = list(weights)
     for _ in range(count):
         total_w = sum(pool_weights)
         if total_w <= 0:
@@ -1041,7 +1116,7 @@ def _weighted_choice(options: list[str], count: int, rng: random.Random) -> list
             idx = len(pool_items) - 1
             for i, w in enumerate(pool_weights):
                 upto += w
-                if r <= upto:
+                if r < upto or (r == 0.0 and w > 0.0):
                     idx = i
                     break
         selected.append(pool_items.pop(idx))
@@ -1660,9 +1735,11 @@ class ZiggartWildcardEncode:
         if comfy_nodes is not None and folder_paths is not None and loras:
             avail_loras = folder_paths.get_filename_list("loras")
             for lora_name, model_w, clip_w in loras:
+                norm_lora = str(lora_name).replace("\\", "/")
                 matched_lora = None
                 for candidate in avail_loras:
-                    if candidate == lora_name or candidate.endswith(lora_name) or os.path.splitext(candidate)[0].endswith(lora_name):
+                    norm_cand = str(candidate).replace("\\", "/")
+                    if norm_cand == norm_lora or norm_cand.endswith(norm_lora) or os.path.splitext(norm_cand)[0].endswith(norm_lora):
                         matched_lora = candidate
                         break
                 if matched_lora is not None:
@@ -1673,7 +1750,7 @@ class ZiggartWildcardEncode:
                     except Exception as exc:
                         logging.warning(f"[Ziggart Wildcards] Failed to load LoRA {matched_lora}: {exc}")
 
-        segments = [seg.strip() for seg in clean_prompt.split("BREAK") if seg.strip()] or [""]
+        segments = [seg.strip() for seg in re.split(r"\bBREAK\b", clean_prompt) if seg.strip()] or [""]
         conditioning = None
         if comfy_nodes is not None:
             encoder = comfy_nodes.CLIPTextEncode()
@@ -2003,7 +2080,12 @@ class ZiggartWildcardVLMEnhancer:
             config = vlm_config
         else:
             model_path = _resolve_gguf(model, model_path_override, "model GGUF")
-            mmproj_path = _resolve_gguf(mmproj, mmproj_path_override, "mmproj GGUF")
+            mmproj_path = _resolve_gguf(
+                mmproj,
+                mmproj_path_override,
+                "mmproj GGUF",
+                allow_empty=(reference_image is None),
+            )
             config = ModelConfig(
                 model_path=model_path,
                 mmproj_path=mmproj_path,
@@ -2149,8 +2231,15 @@ class ZiggartWildcardRecipeSaver:
         else:
             out_root = Path(__file__).resolve().parent / "output"
 
-        prefix_clean = filename_prefix.strip().replace("\\", "/").strip("/") or "Ziggart_Recipe"
+        prefix_raw = filename_prefix.strip().replace("\\", "/")
+        if "\x00" in prefix_raw or ":" in prefix_raw or prefix_raw.startswith("/"):
+            raise ValueError(f"Unsafe filename_prefix rejected: {filename_prefix!r}")
+        prefix_clean = prefix_raw.strip("/") or "Ziggart_Recipe"
+        if any(part in (".", "..") for part in prefix_clean.split("/")):
+            raise ValueError(f"Path traversal in filename_prefix rejected: {filename_prefix!r}")
         target_path_prefix = out_root / prefix_clean
+        if not _is_path_within_dir(out_root, target_path_prefix):
+            raise ValueError(f"Output path escapes target root directory: {target_path_prefix}")
         target_dir = target_path_prefix.parent
         base_stem = target_path_prefix.name
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -2297,6 +2386,39 @@ def _matches_mood_and_keyword(
     return True
 
 
+_MALE_GENDER_RE = re.compile(
+    r"\b(?:boy|man|male|he|his|him|gentleman|warrior\s+man)\b|/(?:male|actors)/|\bmale-",
+    re.I,
+)
+_FEMALE_GENDER_RE = re.compile(
+    r"\b(?:girl|woman|female|she|her|hers|lady|maiden|actress)\b|/(?:female|actress)/|\bfemale-",
+    re.I,
+)
+_CREATURE_GENDER_RE = re.compile(
+    r"\b(?:beast|creature|monster|dragon|wyvern|bestiary)\b",
+    re.I,
+)
+_MINOR_AGE_WORDS = ("minor", "child", "kid", "teen", "infant", "toddler", "underage", "youth", "juvenile")
+
+
+def _is_minor_character_obj(char_obj: dict[str, Any] | None) -> bool:
+    if not isinstance(char_obj, dict):
+        return False
+    age_raw = char_obj.get("age", "adult")
+    age = str(age_raw or "adult").strip().lower()
+    if any(tok in age for tok in _MINOR_AGE_WORDS):
+        return True
+    try:
+        if isinstance(age_raw, (int, float)) and float(age_raw) < 18:
+            return True
+        m = re.match(r"^(\d+)(?:\s*(?:y|yo|yrs?|years?\s*old))?$", age)
+        if m and int(m.group(1)) < 18:
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def _pick_filtered_wildcard_line(
     facet_key: str,
     selected_option: str,
@@ -2343,9 +2465,11 @@ def _pick_filtered_wildcard_line(
         if gender_filter in ("Female", "Male", "Creature"):
             g_low = gender_filter.lower()
             other_genders = {"female", "male", "creature"} - {g_low}
+            g_pat = re.compile(rf"(?:^|[/\-_ ]){re.escape(g_low)}(?:$|[/\-_ ])", re.I)
+            other_pats = [re.compile(rf"(?:^|[/\-_ ]){re.escape(og)}(?:$|[/\-_ ])", re.I) for og in other_genders]
             g_filtered = [
                 t for t in pool
-                if g_low in t.lower() or not any(f"/{og}/" in t.lower() or f"{og}-" in t.lower() for og in other_genders)
+                if g_pat.search(t) or not any(op.search(t) for op in other_pats)
             ]
             if g_filtered:
                 pool = g_filtered
@@ -2429,10 +2553,11 @@ def _resolve_character_unit(
         unexpanded_char_token = custom_character_text.strip()
         char_desc = process_wildcards(unexpanded_char_token, seed=rng.randint(0, 0x7FFFFFFF), extra_dir=extra_dir)
         if gender_filter == "Auto / Any":
-            c_low = char_desc.lower()
-            if any(w in c_low for w in ("boy", "man", "male", "he ", "his ", "gentleman", "warrior man")):
+            if _FEMALE_GENDER_RE.search(char_desc):
+                resolved_gender = "Female"
+            elif _MALE_GENDER_RE.search(char_desc):
                 resolved_gender = "Male"
-            elif any(w in c_low for w in ("beast", "creature", "monster", "dragon", "wyvern")):
+            elif _CREATURE_GENDER_RE.search(char_desc):
                 resolved_gender = "Creature"
     elif (
         character_source == "From Context (Theme / Universe)"
@@ -2477,23 +2602,27 @@ def _resolve_character_unit(
             extra_dir=extra_dir,
         )
         if gender_filter == "Auto / Any":
-            tok_low = f"{unexpanded_char_token} {char_desc}".lower()
-            if any(w in tok_low for w in ("/male", "male-", "actors", " man,", " boy,")):
+            tok_str = f"{unexpanded_char_token} {char_desc}"
+            if _FEMALE_GENDER_RE.search(tok_str):
+                resolved_gender = "Female"
+            elif _MALE_GENDER_RE.search(tok_str):
                 resolved_gender = "Male"
-            elif any(w in tok_low for w in ("creature", "bestiary", "monster", "dragon")):
+            elif _CREATURE_GENDER_RE.search(tok_str):
                 resolved_gender = "Creature"
             else:
                 resolved_gender = "Female"
 
-    # Note: some jff character cards (like femme-krea-list.txt) include a built-in outfit after the character trait.
-    # If the user selects an explicit outfit mode or override, we keep `char_desc` clean.
+    # Evaluate minor age status BEFORE outfit resolution so nude mode cannot apply to minors
+    is_minor = _is_minor_character_obj(selected_char_obj)
 
     # 2. Resolve Outfit according to `outfit_link_mode`
     outfit_desc = ""
     unexpanded_outfit_token = ""
     mode_low = outfit_link_mode.lower()
+    if is_minor and "nude" in mode_low:
+        mode_low = "canonical"
 
-    if "nude" in mode_low:
+    if "nude" in mode_low and not is_minor:
         outfit_desc = "nude, completely unclothed"
         unexpanded_outfit_token = "nude"
     elif custom_outfit_text and custom_outfit_text.strip():
@@ -2543,8 +2672,6 @@ def _resolve_character_unit(
     occlusion = analyze_outfit_occlusion(outfit_desc, unexpanded_outfit_token)
     anatomy_desc = ""
 
-    # Block intimate anatomy if character age is minor
-    is_minor = bool(selected_char_obj and str(selected_char_obj.get("age", "adult")).lower() == "minor")
     if is_minor:
         occlusion = OutfitOcclusionReport(
             outfit_text=outfit_desc,
@@ -3695,7 +3822,8 @@ class ZiggartAnatomyCharacterCreator:
                 )
 
         outfit_desc = clean_outfit_prefix(outfit_desc)
-        has_outfit = bool(outfit_desc) and "none" not in om_low
+        has_custom_outfit = bool(custom_outfit_text and custom_outfit_text.strip()) and "nude" not in om_low
+        has_outfit = bool(outfit_desc) and ("none" not in om_low or has_custom_outfit)
         occlusion = (
             analyze_outfit_occlusion(outfit_desc, unexpanded_outfit_token)
             if has_outfit
@@ -4036,7 +4164,7 @@ class ZiggartKrea2TrioEnsembleDirector:
 
         # Determine how many character slots the chosen preset expects (up to 3)
         expected_chars = 3
-        if "Duo" in ensemble_layout_preset or len(preset_regions) == 2:
+        if len(preset_regions) == 2:
             expected_chars = 2
         elif len(preset_regions) == 1:
             expected_chars = 1
@@ -4565,7 +4693,7 @@ def _build_feathered_region_mask(
         wx = torch.exp(-0.5 * dx * dx)
         wy = torch.exp(-0.5 * dy * dy)
         # Ensure exact 0 at outer boundary when feather_ratio > 0 so outside box is clean
-        if fr > 0.0:
+        if fr > 0.0 and rw > 2 and rh > 2:
             edge_taper_x = torch.sin(torch.linspace(0.0, math.pi, steps=rw, dtype=torch.float32)).clamp(min=0.0) ** 0.35
             edge_taper_y = torch.sin(torch.linspace(0.0, math.pi, steps=rh, dtype=torch.float32)).clamp(min=0.0) ** 0.35
             wx = wx * edge_taper_x
@@ -4665,11 +4793,13 @@ def _encode_clip_text(clip: Any, text: str) -> list[Any]:
 
 def _apply_conditioning_mask(
     conditioning: list[Any],
-    mask: torch.Tensor,
+    mask: torch.Tensor | None,
     strength: float = 1.0,
     set_area_to_bounds: bool = False,
 ) -> list[Any]:
     """Applies a spatial mask to a ComfyUI CONDITIONING list."""
+    if not conditioning or mask is None:
+        return list(conditioning or [])
     if comfy_nodes is not None and hasattr(comfy_nodes, "ConditioningSetMask"):
         set_bounds_str = "mask bounds" if set_area_to_bounds else "default"
         return list(
@@ -4721,6 +4851,8 @@ def _apply_conditioning_timestep_range(
 
 def _concat_conditioning(cond_to: list[Any], cond_from: list[Any]) -> list[Any]:
     """Concatenates token tensors of cond_from onto cond_to along dim=1 (ComfyUI ConditioningConcat semantics)."""
+    if not cond_to:
+        return list(cond_from or [])
     if not cond_from:
         return list(cond_to)
     if comfy_nodes is not None and hasattr(comfy_nodes, "ConditioningConcat"):
@@ -4729,7 +4861,7 @@ def _concat_conditioning(cond_to: list[Any], cond_from: list[Any]) -> list[Any]:
         except Exception:
             pass
     out: list[Any] = []
-    cond_from_tensor = cond_from[0][0]
+    cond_from_tensor = cond_from[0][0] if (cond_from and len(cond_from[0]) > 0) else None
     for t in cond_to:
         t1 = t[0]
         if isinstance(t1, torch.Tensor) and isinstance(cond_from_tensor, torch.Tensor) and t1.ndim == 3 and cond_from_tensor.ndim == 3:
@@ -4977,16 +5109,22 @@ class ZiggartRegionalConditioningComposer:
             if not prompt_str or idx >= len(raw_regions):
                 continue
             reg = raw_regions[idx]
-            bbox_px = tuple(
-                reg.get("bbox_px")
-                or (
-                    int(round(float(reg["x1"]) * w_px)),
-                    int(round(float(reg["y1"]) * h_px)),
-                    int(round(float(reg["x2"]) * w_px)),
-                    int(round(float(reg["y2"]) * h_px)),
-                )
-            )
-            w_val = float(reg.get("weight", 1.0))
+            if not isinstance(reg, dict):
+                continue
+            raw_bbox = reg.get("bbox_px")
+            if isinstance(raw_bbox, (list, tuple)) and len(raw_bbox) == 4:
+                bx1, by1, bx2, by2 = (int(raw_bbox[0]), int(raw_bbox[1]), int(raw_bbox[2]), int(raw_bbox[3]))
+            else:
+                bx1 = int(round(float(reg.get("x1", 0.0)) * w_px))
+                by1 = int(round(float(reg.get("y1", 0.0)) * h_px))
+                bx2 = int(round(float(reg.get("x2", 1.0)) * w_px))
+                by2 = int(round(float(reg.get("y2", 1.0)) * h_px))
+            bx1 = max(0, min(w_px - 1, bx1))
+            by1 = max(0, min(h_px - 1, by1))
+            bx2 = max(bx1 + 1, min(w_px, bx2))
+            by2 = max(by1 + 1, min(h_px, by2))
+            bbox_px = (bx1, by1, bx2, by2)
+            w_val = max(0.05, float(reg.get("weight", 1.0)))
             active_entries.append((idx, reg, prompt_str, bbox_px, w_val))
 
         # Build Partition-of-Unity regional masks + Complementary Background Mask
@@ -5005,7 +5143,7 @@ class ZiggartRegionalConditioningComposer:
 
         combined_cond: list[Any] = []
         base_encoded_cache: list[Any] | None = None
-        if base_conditioning is not None:
+        if base_conditioning:
             base_encoded_cache = list(base_conditioning)
         elif eff_base_prompt:
             base_encoded_cache = _encode_clip_text(clip, eff_base_prompt)
@@ -5150,6 +5288,41 @@ _FILLER_WORDS_RE = re.compile(
 )
 
 
+def _split_top_level_clauses(text: str) -> list[str]:
+    """Splits `text` into top-level clauses preserving nested parenthesized blocks and comma-separated items."""
+    clauses: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    for ch in text:
+        if ch == "(":
+            if depth == 0:
+                prefix = "".join(buf).strip(" ,")
+                if prefix:
+                    clauses.append(prefix)
+                buf = []
+            depth += 1
+            buf.append(ch)
+        elif ch == ")":
+            depth = max(0, depth - 1)
+            buf.append(ch)
+            if depth == 0:
+                block = "".join(buf).strip(" ,")
+                if block:
+                    clauses.append(block)
+                buf = []
+        elif ch == "," and depth == 0:
+            part = "".join(buf).strip(" ,")
+            if part:
+                clauses.append(part)
+            buf = []
+        else:
+            buf.append(ch)
+    tail = "".join(buf).strip(" ,")
+    if tail:
+        clauses.append(tail)
+    return clauses
+
+
 class ZiggartPromptTokenInspectorAndCompressor:
     """
     Analyzes compiled prompts for CLIP (77-token chunks) and T5/Qwen3VL token budgets,
@@ -5232,8 +5405,8 @@ class ZiggartPromptTokenInspectorAndCompressor:
                     }
                 )
 
-        # Split into top-level clauses (preserving parenthesized blocks if present)
-        paren_blocks = re.findall(r"\([^()]+\)|[^,]+", raw)
+        # Split into top-level clauses (preserving nested parenthesized blocks)
+        paren_blocks = _split_top_level_clauses(raw)
         seen_clauses: set[str] = set()
         duplicates_removed: list[str] = []
         deduped_clauses: list[str] = []
@@ -5404,28 +5577,81 @@ def _resolve_node_preview_prompt(cls_type: str, inputs: dict[str, Any], seed_val
     return process_wildcards(source_text, seed=seed_val, extra_dir=custom_dir)
 
 
+def _is_allowed_wildcard_dir(candidate_dir: str) -> bool:
+    """Returns True only if `candidate_dir` resolves inside an already-configured wildcard root."""
+    if not candidate_dir or not candidate_dir.strip():
+        return True
+    try:
+        cand = Path(os.path.expandvars(os.path.expanduser(candidate_dir.strip()))).resolve()
+        if not cand.is_dir():
+            return False
+        allowed_roots = set(discover_default_wildcard_dirs()) | set(WILDCARD_INDEX._dirs)
+        return any(_is_path_within_dir(root, cand) for root in allowed_roots)
+    except Exception:
+        return False
+
+
 if PromptServer is not None and getattr(PromptServer, "instance", None) is not None and web is not None:
     @PromptServer.instance.routes.get("/ziggart/wildcards/search")
     async def ziggart_search_wildcards(request):
         q = request.rel_url.query.get("q", "")
-        limit = int(request.rel_url.query.get("limit", "100"))
-        matches = WILDCARD_INDEX.search_wildcards(q, limit=min(500, max(1, limit)))
+        try:
+            limit = int(request.rel_url.query.get("limit", "100"))
+        except (TypeError, ValueError):
+            limit = 100
+        matches = await asyncio.to_thread(
+            WILDCARD_INDEX.search_wildcards, q, min(500, max(1, limit))
+        )
         return web.json_response({"matches": matches, "count": len(matches)})
 
     @PromptServer.instance.routes.post("/ziggart/wildcards/process")
     async def ziggart_process_wildcard_api(request):
         data = await request.json()
         cls_type = str(data.get("class_type", "ZiggartWildcardProcessor") or "ZiggartWildcardProcessor")
-        seed = int(data.get("seed", 0) or 0)
+        try:
+            seed = int(data.get("seed", 0) or 0)
+        except (TypeError, ValueError):
+            seed = 0
         inputs = data.get("inputs")
         if isinstance(inputs, dict):
+            custom_dir = str(inputs.get("custom_wildcards_dir", "") or "")
+            if custom_dir and not _is_allowed_wildcard_dir(custom_dir):
+                return web.json_response(
+                    {"error": "custom_wildcards_dir must resolve inside a configured wildcard directory."},
+                    status=400,
+                )
             if "wildcard_text" not in inputs and "text" in data:
                 inputs["wildcard_text"] = str(data.get("text", ""))
-            expanded = _resolve_node_preview_prompt(cls_type, inputs, seed)
+            expanded = await asyncio.to_thread(_resolve_node_preview_prompt, cls_type, inputs, seed)
         else:
             text = str(data.get("text", ""))
-            expanded = process_wildcards(text, seed=seed)
+            expanded = await asyncio.to_thread(process_wildcards, text, seed=seed)
         return web.json_response({"populated_text": expanded, "used_seed": seed})
+
+    def _compute_widget_index_for_name(n_cls: Any, target_name: str, fallback: int = 1) -> int:
+        if n_cls is None or not hasattr(n_cls, "INPUT_TYPES"):
+            return fallback
+        input_types = n_cls.INPUT_TYPES() or {}
+        widget_idx = 0
+        widget_types = {"INT", "FLOAT", "STRING", "BOOLEAN"}
+        for section in ("required", "optional"):
+            sec_dict = input_types.get(section, {})
+            if not isinstance(sec_dict, dict):
+                continue
+            for key, spec in sec_dict.items():
+                is_widget = False
+                if isinstance(spec, (tuple, list)) and spec:
+                    t0 = spec[0]
+                    if isinstance(t0, (list, tuple)) or (isinstance(t0, str) and t0 in widget_types):
+                        is_widget = True
+                if not is_widget:
+                    continue
+                if key == target_name:
+                    return widget_idx
+                widget_idx += 1
+                if key in ("seed", "noise_seed"):
+                    widget_idx += 1
+        return fallback
 
     def _ziggart_on_prompt_handler(json_data: dict[str, Any]) -> dict[str, Any]:
         """
@@ -5447,7 +5673,12 @@ if PromptServer is not None and getattr(PromptServer, "instance", None) is not N
                 ):
                     continue
                 inputs = node_info.get("inputs", {})
-                mode = inputs.get("mode", "populate")
+                raw_mode = inputs.get("mode", "populate")
+                if isinstance(raw_mode, list):
+                    continue
+                if isinstance(inputs.get("populated_text"), list) or isinstance(inputs.get("wildcard_text"), list):
+                    continue
+                mode = raw_mode
                 if mode is True:
                     mode = "populate"
                 elif mode is False:
@@ -5462,7 +5693,7 @@ if PromptServer is not None and getattr(PromptServer, "instance", None) is not N
                     continue
 
                 raw_seed = inputs.get("seed", 0)
-                if isinstance(raw_seed, (int, float)):
+                if isinstance(raw_seed, (int, float)) and not isinstance(raw_seed, bool):
                     seed_val = int(raw_seed)
                 else:
                     continue
@@ -5487,12 +5718,8 @@ if PromptServer is not None and getattr(PromptServer, "instance", None) is not N
                             w_vals = n_obj.get("widgets_values")
                             if n_id in updated_widgets and isinstance(w_vals, list):
                                 n_type = str(n_obj.get("type", ""))
-                                pop_idx = 1
                                 n_cls = NODE_CLASS_MAPPINGS.get(n_type)
-                                if n_cls is not None and hasattr(n_cls, "INPUT_TYPES"):
-                                    req_keys = list(n_cls.INPUT_TYPES().get("required", {}).keys())
-                                    if "populated_text" in req_keys:
-                                        pop_idx = req_keys.index("populated_text")
+                                pop_idx = _compute_widget_index_for_name(n_cls, "populated_text", fallback=1)
                                 if 0 <= pop_idx < len(w_vals):
                                     w_vals[pop_idx] = updated_widgets[n_id]
         except Exception as exc:

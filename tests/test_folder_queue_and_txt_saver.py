@@ -209,14 +209,14 @@ class DatasetCaptionCuratorTests(unittest.TestCase):
             raw,
             trigger_word_prefix="ziggart_style",
             trigger_word_suffix="masterpiece 8k",
-            format_mode="natural_prose_single_line",
+            format_mode="natural_prose",
             strip_vlm_boilerplate=True,
             clean_markdown=True,
             find_and_replace_rules="emerald armor -> mithril plate",
             banned_phrases="in a forest",
         )
         self.assertTrue(curated.startswith("ziggart_style, "))
-        self.assertTrue(curated.endswith("masterpiece 8k"))
+        self.assertTrue(curated.endswith("masterpiece 8k."))
         self.assertIn("mithril plate", curated)
         self.assertNotIn("in this image", curated.lower())
         self.assertNotIn("in a forest", curated.lower())
@@ -227,7 +227,7 @@ class DatasetCaptionCuratorTests(unittest.TestCase):
             curated,
             trigger_word_prefix="ziggart_style",
             trigger_word_suffix="masterpiece 8k",
-            format_mode="natural_prose_single_line",
+            format_mode="natural_prose",
             strip_vlm_boilerplate=True,
             clean_markdown=True,
         )
@@ -253,7 +253,7 @@ class DatasetCaptionCuratorTests(unittest.TestCase):
                 write_mode="dry_run_preview_only",
                 trigger_word_prefix="ohwx_char",
                 trigger_word_suffix="lora_v1",
-                format_mode="natural_prose_single_line",
+                format_mode="natural_prose",
                 strip_vlm_boilerplate=True,
                 clean_markdown=True,
                 find_and_replace_rules="cyberpunk hacker -> neon netrunner",

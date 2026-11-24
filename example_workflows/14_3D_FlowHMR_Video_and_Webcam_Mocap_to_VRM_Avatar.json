@@ -1,14 +1,20 @@
 {
   "id": "c83f5692-0f23-4d99-b522-9900bbccdd14",
   "revision": 0,
-  "last_node_id": 8,
-  "last_link_id": 9,
+  "last_node_id": 15,
+  "last_link_id": 14,
   "nodes": [
     {
       "id": 1,
       "type": "Note",
-      "pos": [-440.0, -240.0],
-      "size": [2320.0, 140.0],
+      "pos": [
+        -440.0,
+        -240.0
+      ],
+      "size": [
+        2320.0,
+        140.0
+      ],
       "flags": {},
       "order": 0,
       "mode": 0,
@@ -27,8 +33,14 @@
     {
       "id": 2,
       "type": "ZiggartFlowHMRModelLoader",
-      "pos": [-440.0, -40.0],
-      "size": [360.0, 210.0],
+      "pos": [
+        -440.0,
+        -40.0
+      ],
+      "size": [
+        360.0,
+        210.0
+      ],
       "flags": {},
       "order": 1,
       "mode": 0,
@@ -38,7 +50,9 @@
           "name": "flowhmr_model",
           "type": "ZIGGART_FLOWHMR_MODEL",
           "slot_index": 0,
-          "links": [1]
+          "links": [
+            1
+          ]
         },
         {
           "name": "model_info",
@@ -59,8 +73,14 @@
     {
       "id": 3,
       "type": "ZiggartFlowHMRWebcamCapture",
-      "pos": [-40.0, -40.0],
-      "size": [340.0, 190.0],
+      "pos": [
+        -40.0,
+        -40.0
+      ],
+      "size": [
+        340.0,
+        190.0
+      ],
       "flags": {},
       "order": 2,
       "mode": 0,
@@ -70,7 +90,9 @@
           "name": "image_batch",
           "type": "IMAGE",
           "slot_index": 0,
-          "links": [2]
+          "links": [
+            2
+          ]
         },
         {
           "name": "frame_count",
@@ -95,8 +117,14 @@
     {
       "id": 4,
       "type": "ZiggartFlowHMRVideoExtractor",
-      "pos": [340.0, -40.0],
-      "size": [380.0, 240.0],
+      "pos": [
+        340.0,
+        -40.0
+      ],
+      "size": [
+        380.0,
+        240.0
+      ],
       "flags": {},
       "order": 3,
       "mode": 0,
@@ -117,7 +145,9 @@
           "name": "mocap_data",
           "type": "ZIGGART_MOCAP",
           "slot_index": 0,
-          "links": [3]
+          "links": [
+            3
+          ]
         },
         {
           "name": "preview_image",
@@ -142,8 +172,14 @@
     {
       "id": 5,
       "type": "ZiggartMocapRetargetVRM",
-      "pos": [760.0, -40.0],
-      "size": [360.0, 210.0],
+      "pos": [
+        760.0,
+        -40.0
+      ],
+      "size": [
+        360.0,
+        210.0
+      ],
       "flags": {},
       "order": 4,
       "mode": 0,
@@ -159,7 +195,11 @@
           "name": "retargeted_mocap",
           "type": "ZIGGART_MOCAP",
           "slot_index": 0,
-          "links": [4, 5]
+          "links": [
+            4,
+            5,
+            14
+          ]
         },
         {
           "name": "retarget_log",
@@ -177,8 +217,14 @@
     {
       "id": 6,
       "type": "ZiggartMocapExporter",
-      "pos": [760.0, 220.0],
-      "size": [340.0, 160.0],
+      "pos": [
+        760.0,
+        220.0
+      ],
+      "size": [
+        340.0,
+        160.0
+      ],
       "flags": {},
       "order": 5,
       "mode": 0,
@@ -205,8 +251,14 @@
     {
       "id": 7,
       "type": "ZiggartVRMPoseAndMocapStudio",
-      "pos": [1160.0, -40.0],
-      "size": [400.0, 520.0],
+      "pos": [
+        1160.0,
+        -40.0
+      ],
+      "size": [
+        400.0,
+        520.0
+      ],
       "flags": {},
       "order": 6,
       "mode": 0,
@@ -222,7 +274,9 @@
           "name": "image",
           "type": "IMAGE",
           "slot_index": 0,
-          "links": [6]
+          "links": [
+            6
+          ]
         },
         {
           "name": "mask",
@@ -268,7 +322,7 @@
         0.0,
         0.5,
         0.0,
-        90,
+        60,
         512,
         "default",
         "",
@@ -278,8 +332,14 @@
     {
       "id": 8,
       "type": "PreviewImage",
-      "pos": [1600.0, -40.0],
-      "size": [440.0, 480.0],
+      "pos": [
+        1600.0,
+        -40.0
+      ],
+      "size": [
+        440.0,
+        480.0
+      ],
       "flags": {},
       "order": 7,
       "mode": 0,
@@ -292,15 +352,543 @@
       ],
       "outputs": [],
       "widgets_values": []
+    },
+    {
+      "id": 9,
+      "type": "LoadImage",
+      "pos": [
+        -440.0,
+        240.0
+      ],
+      "size": [
+        260.0,
+        220.0
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            7
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ]
+    },
+    {
+      "id": 10,
+      "type": "ZiggartAvatarCanonicalPrep",
+      "pos": [
+        -120.0,
+        240.0
+      ],
+      "size": [
+        320.0,
+        180.0
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "body_ready_image",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            9
+          ]
+        },
+        {
+          "name": "hair_source_image",
+          "type": "IMAGE",
+          "slot_index": 1,
+          "links": [
+            8
+          ]
+        },
+        {
+          "name": "hair_mask",
+          "type": "MASK",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "head_crop_image",
+          "type": "IMAGE",
+          "slot_index": 3,
+          "links": []
+        }
+      ],
+      "title": "Avatar 2D Canonical T-Pose & Hair Splitter",
+      "properties": {
+        "Node name for S&R": "ZiggartAvatarCanonicalPrep"
+      },
+      "widgets_values": [
+        0.36,
+        true,
+        1024
+      ]
+    },
+    {
+      "id": 11,
+      "type": "ZiggartHairDeckGenerator",
+      "pos": [
+        240.0,
+        240.0
+      ],
+      "size": [
+        340.0,
+        260.0
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "hair_image",
+          "type": "IMAGE",
+          "link": 8
+        }
+      ],
+      "outputs": [
+        {
+          "name": "hair_data",
+          "type": "ZIGGART_HAIR",
+          "slot_index": 0,
+          "links": [
+            12
+          ]
+        },
+        {
+          "name": "hair_glb_path",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "preview_image",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": []
+        }
+      ],
+      "title": "HairDeck 3D Hair Cards & Spring-Bone Generator",
+      "properties": {
+        "Node name for S&R": "ZiggartHairDeckGenerator"
+      },
+      "widgets_values": [
+        "anime_layered",
+        36,
+        10,
+        0.038,
+        1.0,
+        0.45,
+        0.08,
+        0.35,
+        true,
+        42,
+        "randomize",
+        "ziggart_hairdeck",
+        ""
+      ]
+    },
+    {
+      "id": 12,
+      "type": "ZiggartSPAR3DImageToMesh",
+      "pos": [
+        240.0,
+        540.0
+      ],
+      "size": [
+        340.0,
+        260.0
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 9
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh_path",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "mesh_data",
+          "type": "ZIGGART_MESH",
+          "slot_index": 1,
+          "links": [
+            10
+          ]
+        },
+        {
+          "name": "point_cloud_ply_path",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "preview_image",
+          "type": "IMAGE",
+          "slot_index": 3,
+          "links": []
+        }
+      ],
+      "title": "SPAR3D Image to 3D Mesh (Fast 7GB VRAM)",
+      "properties": {
+        "Node name for S&R": "ZiggartSPAR3DImageToMesh"
+      },
+      "widgets_values": [
+        true,
+        1024,
+        "none",
+        -1,
+        "ziggart_spar3d_mesh",
+        true,
+        true,
+        "stabilityai/stable-point-aware-3d",
+        ""
+      ]
+    },
+    {
+      "id": 13,
+      "type": "ZiggartAutoRigger",
+      "pos": [
+        620.0,
+        440.0
+      ],
+      "size": [
+        320.0,
+        180.0
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh_data",
+          "type": "ZIGGART_MESH",
+          "link": 10
+        }
+      ],
+      "outputs": [
+        {
+          "name": "rigged_mesh",
+          "type": "ZIGGART_RIGGED_MESH",
+          "slot_index": 0,
+          "links": [
+            11
+          ]
+        },
+        {
+          "name": "rigged_glb_path",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "skeleton_preview",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": []
+        }
+      ],
+      "title": "Avatar 3D Humanoid Auto-Rigger (MIA / UniRig / Geometric)",
+      "properties": {
+        "Node name for S&R": "ZiggartAutoRigger"
+      },
+      "widgets_values": [
+        "auto (MIA / Geometric)",
+        0.085,
+        true,
+        "ziggart_rigged_avatar",
+        ""
+      ]
+    },
+    {
+      "id": 14,
+      "type": "ZiggartVRMAssembler",
+      "pos": [
+        980.0,
+        440.0
+      ],
+      "size": [
+        340.0,
+        220.0
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "rigged_mesh",
+          "type": "ZIGGART_RIGGED_MESH",
+          "link": 11
+        },
+        {
+          "name": "hair_data",
+          "type": "ZIGGART_HAIR",
+          "link": 12
+        }
+      ],
+      "outputs": [
+        {
+          "name": "avatar_data",
+          "type": "ZIGGART_AVATAR",
+          "slot_index": 0,
+          "links": [
+            13
+          ]
+        },
+        {
+          "name": "vrm_path",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "preview_image",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": []
+        }
+      ],
+      "title": "Avatar VRM 1.0 / GLB Assembler & SpringBone Linker",
+      "properties": {
+        "Node name for S&R": "ZiggartVRMAssembler"
+      },
+      "widgets_values": [
+        "Ziggart Live Avatar",
+        "Ziggart Studio",
+        "vrm",
+        0.0,
+        1.0,
+        "ziggart_avatar",
+        "none"
+      ]
+    },
+    {
+      "id": 15,
+      "type": "ZiggartAvatarMocapDrive",
+      "pos": [
+        1360.0,
+        440.0
+      ],
+      "size": [
+        380.0,
+        240.0
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "avatar_data",
+          "type": "ZIGGART_AVATAR",
+          "link": 13
+        },
+        {
+          "name": "mocap_data",
+          "type": "ZIGGART_MOCAP",
+          "link": 14
+        }
+      ],
+      "outputs": [
+        {
+          "name": "rgb_batch",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "mask_batch",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "depth_batch",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "normal_batch",
+          "type": "IMAGE",
+          "slot_index": 3,
+          "links": []
+        },
+        {
+          "name": "openpose_batch",
+          "type": "IMAGE",
+          "slot_index": 4,
+          "links": []
+        },
+        {
+          "name": "exported_glb_path",
+          "type": "STRING",
+          "slot_index": 5,
+          "links": []
+        }
+      ],
+      "title": "Avatar 3D FlowHMR Mocap Multi-Pass Video Drive",
+      "properties": {
+        "Node name for S&R": "ZiggartAvatarMocapDrive"
+      },
+      "widgets_values": [
+        512,
+        15.0,
+        10.0,
+        "dark_studio",
+        true,
+        "ziggart_avatar_mocap"
+      ]
     }
   ],
   "links": [
-    [1, 2, 0, 4, 0, "ZIGGART_FLOWHMR_MODEL"],
-    [2, 3, 0, 4, 1, "IMAGE"],
-    [3, 4, 0, 5, 0, "ZIGGART_MOCAP"],
-    [4, 5, 0, 6, 0, "ZIGGART_MOCAP"],
-    [5, 5, 0, 7, 0, "ZIGGART_MOCAP"],
-    [6, 7, 0, 8, 0, "IMAGE"]
+    [
+      1,
+      2,
+      0,
+      4,
+      0,
+      "ZIGGART_FLOWHMR_MODEL"
+    ],
+    [
+      2,
+      3,
+      0,
+      4,
+      1,
+      "IMAGE"
+    ],
+    [
+      3,
+      4,
+      0,
+      5,
+      0,
+      "ZIGGART_MOCAP"
+    ],
+    [
+      4,
+      5,
+      0,
+      6,
+      0,
+      "ZIGGART_MOCAP"
+    ],
+    [
+      5,
+      5,
+      0,
+      7,
+      0,
+      "ZIGGART_MOCAP"
+    ],
+    [
+      6,
+      7,
+      0,
+      8,
+      0,
+      "IMAGE"
+    ],
+    [
+      7,
+      9,
+      0,
+      10,
+      0,
+      "IMAGE"
+    ],
+    [
+      8,
+      10,
+      1,
+      11,
+      0,
+      "IMAGE"
+    ],
+    [
+      9,
+      10,
+      0,
+      12,
+      0,
+      "IMAGE"
+    ],
+    [
+      10,
+      12,
+      1,
+      13,
+      0,
+      "ZIGGART_MESH"
+    ],
+    [
+      11,
+      13,
+      0,
+      14,
+      0,
+      "ZIGGART_RIGGED_MESH"
+    ],
+    [
+      12,
+      11,
+      0,
+      14,
+      1,
+      "ZIGGART_HAIR"
+    ],
+    [
+      13,
+      14,
+      0,
+      15,
+      0,
+      "ZIGGART_AVATAR"
+    ],
+    [
+      14,
+      5,
+      0,
+      15,
+      1,
+      "ZIGGART_MOCAP"
+    ]
   ],
   "groups": [],
   "config": {},

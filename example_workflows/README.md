@@ -1,10 +1,10 @@
 # Ziggart Nodes — Workflows Exemples (`example_workflows/`)
 
-Ce dossier contient **17 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 62 nœuds Ziggart** dans tous leurs modes et cas d'usage.
+Ce dossier contient **18 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 64 nœuds Ziggart** dans tous leurs modes et cas d'usage.
 
 ---
 
-## Liste des 17 Workflows et des Usages Couverts
+## Liste des 18 Workflows et des Usages Couverts
 
 ### 1. [`01_Wildcards_3_Ways_and_LoRA_Encode.json`](./01_Wildcards_3_Ways_and_LoRA_Encode.json)
 Tour complet des **5 nœuds de génération par Wildcards** et de leurs différents modes :
@@ -101,9 +101,11 @@ Tous les usages de **`GGUF Vision Prompt` (`ZiggartGGUFVisionPrompt`)** et de l'
 ---
 
 ### 9. [`09_3D_Generation_Idol_Gaussian_To_Mesh_SPAR3D_and_Hunyuan3D.json`](./09_3D_Generation_Idol_Gaussian_To_Mesh_SPAR3D_and_Hunyuan3D.json)
-Pipeline complet des **5 nœuds de génération 3D (`Ziggart/3D`)** optimisés pour **RTX 3070 Ti (8 Go – 16 Go VRAM)** :
-- **Branche 1 — `ZiggartIdolImageToGaussian` $\rightarrow$ `ZiggartGaussianToMesh` + `Ziggart3DTurntableRenderer`** :
-  - Génère un **3D Gaussian Splat (`.ply`)** à partir d'une seule image avec **`speridlabs/idol`** (`~7.2 Go` VRAM), le convertit en maillage polygonal **`.glb` / `.obj`** avec couleurs par sommet et lissage Taubin, et calcule une séquence **Turntable 360°** (`IMAGE` + `MASK`).
+Pipeline complet des **10 nœuds de génération 3D (`Ziggart/3D`)** optimisés pour **RTX 3070 Ti (8 Go – 16 Go VRAM)** :
+- **Préparation & Cache — `Ziggart3DModelDownloader` + `ZiggartIdolPreprocess`** :
+  - Télécharge et met en cache les poids Idol / TripoSplat / BiRefNet et prépare une image carrée `1024×1024` détourée (`synthetic` ou `real` crop).
+- **Branche 1 — `ZiggartIdolImageToGaussian` $\rightarrow$ `ZiggartIdolPruneSplat` + `ZiggartIdolInputCamera` $\rightarrow$ `ZiggartGaussianToMesh` + `Ziggart3DTurntableRenderer` + `Ziggart3DTurntableGifSaver`** :
+  - Génère un **3D Gaussian Splat (`.ply`)** à partir d'une seule image avec **`speridlabs/idol`** (`~7.2 Go` VRAM), supprime les floaters de faible opacité (`ZiggartIdolPruneSplat`), extrait la caméra d'entrée prédite (`ZiggartIdolInputCamera`), convertit en maillage polygonal **`.glb` / `.obj`** avec couleurs par sommet et lissage Taubin, calcule une séquence **Turntable 360°** (`IMAGE` + `MASK`), et exporte un **GIF animé optimisé Discord** (`Ziggart3DTurntableGifSaver`).
 - **Branche 2 — `ZiggartSPAR3DImageToMesh` (`low_vram_mode = True`, `~7.0 Go` VRAM)** :
   - Génère un maillage 3D **`.glb` texturé UV** et son nuage de points intermédiaire `.ply` en ~1 à 2 secondes avec **SPAR3D** (Stability AI).
 - **Branche 3 — `ZiggartHunyuan3DImageToMesh` (`Hunyuan3D-2mini`, `~5.5 Go` VRAM)** :
@@ -204,14 +206,22 @@ Boucle itérative **Vision → Génération → Comparaison & Révision** (`Zigg
 ---
 
 ### 17. [`17_Interactive_Vision_Prompt_Review_and_Chat.json`](./17_Interactive_Vision_Prompt_Review_and_Chat.json)
-Pipeline interactif **Image → `GGUF Vision Prompt` → Pause & Discussion Multi-Tours → Génération** (`Ziggart/LLM`) :
-- **`ZiggartGGUFVisionPrompt`** : Génère le prompt initial (`answer`) et transmet le contexte complet (`vision_session` : image(s), configuration GGUF et historique initial) vers le nœud de révision.
+Pipeline interactif **Image → `GGUF Vision Prompt` → Pause & Discussion Multi-Tours en Streaming → Génération** (`Ziggart/LLM`) :
+- **`ZiggartGGUFVisionPrompt`** : Génère le prompt initial (`answer`) avec `caption_preset` + `verbosity`, et transmet le contexte complet (`vision_session` : image(s), configuration GGUF et historique initial) vers le nœud de révision.
 - **`ZiggartGGUFVisionPromptChatGate` (`GGUF Vision Prompt Review & Chat` — `web/ziggart_vision_chat.js`)** :
-  - Met l'exécution ComfyUI en **pause** dès réception du prompt pour vous laisser lire, corriger ou discuter avec le VLM local avant de lancer la diffusion.
-  - **`💬 Ask / Discuss`** : Posez une question au VLM sur un détail de l'image sans écraser le prompt courant.
-  - **`✨ Refine Prompt`** : Expliquez ce que la vision a manqué ou doit insister ; le VLM ré-inspecte l'image avec l'historique complet et génère un prompt mis à jour (`v2`, `v3`...).
-  - **Édition manuelle + `↩ Undo` / Sélecteur de versions + `⤢ Expand`** : Éditez le texte directement, revenez en arrière à tout moment, ou ouvrez la fenêtre modale agrandie avec aperçu de l'image.
+  - Met l'exécution ComfyUI en **pause** dès réception du prompt pour vous laisser lire, corriger ou discuter avec le VLM local en **streaming temps réel** avant de lancer la diffusion.
+  - **`💬 Ask / Discuss` & `⏹ Stop`** : Posez une question au VLM avec streaming des tokens en direct et bouton d'arrêt instantané.
+  - **`✨ Refine Prompt` & `🧹 Reset Context`** : Expliquez ce que la vision a manqué ou réinitialisez le fil de discussion sans perdre votre prompt édité.
+  - **Édition manuelle + `↩ Undo` + `📊 Diff` + Ciblage de Région (`Region-Pinning`) + `⤢ Expand`** : Tracez un cadre directement sur la vignette dans la fenêtre modale pour zoomer une région précise lors du tour suivant, comparez les versions mot à mot, ou annulez à tout moment.
   - **`▶ Continue Workflow` / `✖ Cancel`** : Libère proprement la VRAM (`free_vram_on_continue = True`) et transmet `final_prompt` au reste du workflow (`CLIPTextEncode` → `KSampler` → `SaveImage`).
+
+---
+
+### 18. [`18_OpenAI_API_and_Batch_Folder_Captioner.json`](./18_OpenAI_API_and_Batch_Folder_Captioner.json)
+Pipeline haut débit **API VLM OpenAI-Compatible + Captioning Batch Multi-Images avec Reprise (`Ziggart/LLM`)** :
+- **`ZiggartOpenAIVLMLoader`** : Configure une cible HTTP OpenAI-compatible (Ollama, LM Studio, `llama-server`, vLLM, ou OpenAI API) sur la broche standard `GGUF_VL_MODEL` avec streaming SSE natif.
+- **`ZiggartBatchFolderVisionCaptioner`** : Scanne tout un dossier d'images et les annote en **une seule exécution** sans recharger le modèle entre les images (`chat_batch`, barre de progression, `caption_preset`, `verbosity`), sauvegarde atomiquement les sidecars `<image>.txt` + le `.txt` maître et écrit un journal `.ziggart_batch_manifest.json` pour reprendre proprement après interruption.
+- **`ZiggartDatasetCaptionCuratorAndTriggerInjector`** : Inspecte, nettoie et injecte vos trigger words sur le dataset généré.
 
 
 

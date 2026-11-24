@@ -171,15 +171,19 @@
         "Node name for S&R": "ZiggartGGUFVLMLoader"
       },
       "widgets_values": [
-        "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
-        "mmproj-Qwen2.5-VL-F16.gguf",
+        "[No model GGUF found]",
+        "[No mmproj GGUF found]",
         8192,
         -1,
         14,
         true,
         true,
         "",
-        ""
+        "",
+        "f16",
+        512,
+        true,
+        256
       ],
       "widgets_values_named": {
         "model": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
@@ -275,8 +279,8 @@
         "Node name for S&R": "ZiggartVLMImageCritic"
       },
       "widgets_values": [
-        "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
-        "mmproj-Qwen2.5-VL-F16.gguf",
+        "[No model GGUF found]",
+        "[No mmproj GGUF found]",
         "hands_and_limbs",
         1.5,
         4,
@@ -960,8 +964,8 @@
         "Node name for S&R": "ZiggartDetailerKrea2"
       },
       "widgets_values": [
-        "WeVisOne-VL-4B-Q4_K_M.gguf",
-        "mmproj-WeVisOne-VL-F16.gguf",
+        "[No model GGUF found]",
+        "[No mmproj GGUF found]",
         "hands",
         "ultra-detailed sharp eyes, realistic iris reflections, crystal clear, 8k",
         "blurry, noisy, distorted, low quality, artifacts",
