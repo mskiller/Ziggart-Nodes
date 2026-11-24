@@ -1,9 +1,9 @@
 # Ziggart Nodes for ComfyUI (`v1.9.0`)
 
-A complete collection of **59 local, in-process ComfyUI nodes** combining:
+A complete collection of **62 local, in-process ComfyUI nodes** combining:
 - **Zero-Freeze 700+ MB Wildcard & Canonical Theme Engines** (Way A + Way C architectures + **`🎲 Pre-Generate Prompt (Test Without Queue)`** UI button + Token Inspector/Compressor)
 - **Krea2 (`Qwen3VL-4B` CLIP) Prompt Director & Regional Conditioning Suite** (Modular & All-in-One Theme/Universe context, Trio/Ensemble Director, Interactive 2D Spatial Layout BBox Designer, Regional Conditioning Composer, Head-to-Toe 28-Section Anatomy Character Creator with per-section `[None]` & View Presets, 1:1 Character-Outfit linking, and automatic 9-zone Outfit $\rightarrow$ Anatomy occlusion filtering)
-- **GGUF Vision-Language Models (VLMs)** via `llama-cpp-python` with **Prefix KV-Cached Batch Vision (`LlamaRAMCache` & `chat_batch`)**, **Folder Image Batch & Queue Loader** (1-click `"▶️ Queue All Remaining Images (1-by-1)"`), **Vision Single-Line TXT & Wildcard Saver** (`1 prompt = 1 line`, `0 empty lines`), and **Dataset Caption Curator & Trigger Injector** (LoRA trigger injection, VLM boilerplate stripping, token budget QA & visual contact sheet)
+- **GGUF Vision-Language Models (VLMs)** via `llama-cpp-python` with **Prefix KV-Cached Batch Vision (`LlamaRAMCache` & `chat_batch`)**, **Interactive Vision Prompt Review & Multi-Turn Chat Gate** (pauses workflow so you can discuss missed details with the VLM, refine the prompt over unlimited turns, manually edit/undo, and continue), **Iterative Vision Prompt Reviser & Gate**, **Folder Image Batch & Queue Loader** (1-click `"▶️ Queue All Remaining Images (1-by-1)"`), **Vision Single-Line TXT & Wildcard Saver** (`1 prompt = 1 line`, `0 empty lines`), and **Dataset Caption Curator & Trigger Injector** (LoRA trigger injection, VLM boilerplate stripping, token budget QA & visual contact sheet)
 - **WeVisOne-VL Open-Vocabulary Visual Grounding & Contour Silhouette Matting**
 - **Krea 2 Turbo** High-Resolution Detailing, **Autonomous Closed-Loop Self-Healing Detailer**, **Reinhard Color & Frequency Matcher**, and **Tiled Upscaling**
 - **RTX 3070 Ti (8GB–16GB VRAM) 3D Generation Suite**: **`speridlabs/idol` Image-to-Gaussian Splat (`.ply`)**, **Gaussian-to-Mesh (`.glb`/`.obj`)**, **SPAR3D**, **Hunyuan3D-2mini**, and **360° Turntable Rendering**
@@ -13,7 +13,7 @@ A complete collection of **59 local, in-process ComfyUI nodes** combining:
 
 ---
 
-## Included Nodes (59 Nodes)
+## Included Nodes (62 Nodes)
 
 | Display Name | Internal Class | Category | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -40,8 +40,9 @@ A complete collection of **59 local, in-process ComfyUI nodes** combining:
 | **Ziggart Closed-Loop Self-Healing Detailer (Iterative Krea2)** | `ZiggartClosedLoopSelfHealingDetailer` | `Ziggart/Detailer` | Autonomous `1..max_iterations` self-healing loop: scores each crop (`1–10`), skips crops already `>= target_score`, iteratively resamples failing crops with contour matting & color lock, and retains the highest-scoring pass. |
 | **Ziggart Color & Frequency Matcher (Reinhard Tone Lock)** | `ZiggartColorAndFrequencyMatcher` | `Ziggart/Detailer` | Eliminates skin-tone shifts and lighting seams after high-denoise passes using perceptual Reinhard color transfer and frequency-separated detail blending. |
 | **Krea2 VLM Smart Tile Upscaler** | `ZiggartSmartTileUpscaler` | `Ziggart/Detailer` | Overlapping tiled upscaler (1.0×–4.0×) with optional per-tile VLM captioning (preventing background hallucinations) or fast pure-Krea2 tiled upscaling. |
-| **GGUF Vision Prompt** | `ZiggartGGUFVisionPrompt` | `Ziggart/LLM` | Multimodal prompt generation, image analysis, and specialist passes (Composition, Subject, Style). |
+| **GGUF Vision Prompt** | `ZiggartGGUFVisionPrompt` | `Ziggart/LLM` | Multimodal prompt generation, image analysis, specialist passes (Composition, Subject, Style), and `vision_session` export for interactive review. |
 | **GGUF VLM Loader** | `ZiggartGGUFVLMLoader` | `Ziggart/LLM` | Reusable `GGUF_VL_MODEL` configuration node shared across all Ziggart VLM & Detailer nodes. |
+| **GGUF Vision Prompt Review & Chat** | `ZiggartGGUFVisionPromptChatGate` | `Ziggart/LLM` | Pauses workflow execution after Vision Prompt with an inline + expandable modal UI to **Ask / Discuss** details with the VLM, **Refine Prompt** over unlimited turns, manually edit & **Undo** versions, and release VRAM on **Continue**. |
 | **GGUF Vision Prompt Reviser** | `ZiggartGGUFVisionPromptReviser` | `Ziggart/LLM` | Compares `original_image` vs `generated_image` against `current_prompt`, diagnoses discrepancies, and outputs a corrected `revised_prompt`, `diff_report`, `fidelity_score`, and `needs_revision` gate. |
 | **Ziggart Prompt Revision Gate** | `ZiggartPromptRevisionGate` | `Ziggart/LLM` | Loop helper that selects `revised_prompt` while `needs_revision` is `True` (or locks in `current_prompt` once converged) and accumulates `diff_report` history across passes. |
 | **Ziggart Folder Image Batch & Queue Loader** | `ZiggartFolderImageQueueLoader` | `Ziggart/LLM` | Scans a folder of images (`.jpg`, `.png`, `.webp`, etc.), reports how many queues are needed (`🔍 Scan Folder & Count Queues`), increments `image_index` one-by-one, and includes a 1-click **`▶️ Queue All Remaining Images (1-by-1)`** button. |
@@ -112,6 +113,7 @@ A complete collection of **59 local, in-process ComfyUI nodes** combining:
    - [19B. Ziggart Vision Prompt TXT & Wildcard Line Saver](#19b-ziggart-vision-prompt-txt--wildcard-line-saver)
    - [19C. Ziggart Dataset Caption Curator & Trigger Injector (LoRA / Krea2)](#19c-ziggart-dataset-caption-curator--trigger-injector-lora--krea2)
    - [19D. GGUF Vision Prompt Reviser & Prompt Revision Gate](#19d-gguf-vision-prompt-reviser--prompt-revision-gate)
+   - [19E. GGUF Vision Prompt Review & Chat (Interactive Pause & Multi-Turn Discussion)](#19e-gguf-vision-prompt-review--chat-interactive-pause--multi-turn-discussion)
    - [20. GGUF Quality & Anatomy Critic](#20-gguf-quality--anatomy-critic)
    - [21. GGUF Mask-Aware Inpaint Prompter](#21-gguf-mask-aware-inpaint-prompter)
 6. [3D Generation Suite (`Ziggart/3D` — RTX 3070 Ti 8GB–16GB VRAM Optimized)](#3d-generation-suite-ziggart3d--rtx-3070-ti-8gb16gb-vram-optimized)
@@ -726,7 +728,7 @@ Decouples Ziggart's mod-8 padded cropping and Gaussian feathered compositing so 
 
 *Classes: `ZiggartGGUFVisionPrompt` & `ZiggartGGUFVLMLoader` | Category: `Ziggart/LLM`*
 
-- **GGUF Vision Prompt (`ZiggartGGUFVisionPrompt`)**: Sends images (`image`, optional `detail_crop`, optional `reference_image`) to a local vision-capable GGUF model (e.g. Qwen2.5-VL, Qwen3-VL) with custom system/user instructions and independent **Composition**, **Subject**, and **Style** specialist passes.
+- **GGUF Vision Prompt (`ZiggartGGUFVisionPrompt`)**: Sends images (`image`, optional `detail_crop`, optional `reference_image`) to a local vision-capable GGUF model (e.g. Qwen2.5-VL, Qwen3-VL) with custom system/user instructions, independent **Composition**, **Subject**, and **Style** specialist passes, and a `vision_session` (`ZIGGART_VISION_SESSION`) output for interactive multi-turn review.
 - **GGUF VLM Loader (`ZiggartGGUFVLMLoader`)**: Outputs a `GGUF_VL_MODEL` (`vlm_config`) pin that can be wired into any Ziggart VLM or Detailer node so you only configure model paths, `context_size`, `gpu_layers`, and `flash_attention` in one place.
 
 ---
@@ -826,6 +828,37 @@ original_image ─► GGUF Vision Prompt ─► KSampler (Pass 1) ─► generat
 - **Ziggart Prompt Revision Gate (`ZiggartPromptRevisionGate`)**:
   - **Inputs**: `current_prompt`, `revised_prompt`, `needs_revision`, optional `latest_diff_report`, `previous_notes`, `iteration_label`, `force_use_revised`.
   - **Outputs**: `active_prompt` (`STRING`), `accumulated_notes` (`STRING` combining prior and latest diff reports for `previous_diff_notes`), and `continue_revision` (`BOOLEAN`).
+
+---
+
+### 19E. GGUF Vision Prompt Review & Chat (Interactive Pause & Multi-Turn Discussion)
+
+*Class: `ZiggartGGUFVisionPromptChatGate` | Category: `Ziggart/LLM` | Web UI: `web/ziggart_vision_chat.js`*
+
+Human-in-the-loop pause and multi-turn discussion gate placed directly after **GGUF Vision Prompt**. Instead of creating illegal graph cycles or re-queuing the entire workflow, the node pauses execution and lets you inspect the generated prompt, point out missed visual details to the local VLM over unlimited turns, manually edit or roll back versions, and then release the approved prompt downstream:
+
+```text
+Image ─► GGUF Vision Prompt ─(answer + vision_session)─► GGUF Vision Prompt Review & Chat ─► CLIP / KSampler / SaveImage
+                                                                 │      ▲
+                                                 Pause & Wait ◄──┘      │
+                                                 Ask / Discuss / Refine ┴─► In-place local VLM pass (unlimited turns)
+                                                 Continue Workflow ───────► Frees VRAM & resumes workflow
+```
+
+- **Interactive UI (`web/ziggart_vision_chat.js`)**:
+  - **Inline Panel + `⤢ Expand` Modal**: Compact review panel directly inside the ComfyUI node plus a full-size side-by-side modal showing a thumbnail preview of the source image, large prompt editor, and scrollable conversation history.
+  - **`✨ Refine Prompt` (`Ctrl+Enter`)**: Sends your correction/instruction to the VLM (with the original image(s) and conversation history), generates an updated complete prompt, and records a new version (`v2`, `v3`, ...).
+  - **`💬 Ask / Discuss` (`Ctrl+Shift+Enter`)**: Asks the VLM a factual question about the image without overwriting your current prompt; the Q&A stays in context for any later **Refine Prompt** pass.
+  - **Manual Editing + Version History (`↩ Undo` & Version Selector)**: Edit the prompt directly in the text box at any time and roll back to any previous version if an LLM pass moves away from what you wanted.
+  - **`▶ Continue Workflow` & `✖ Cancel`**: Approves the active prompt (and automatically frees VLM VRAM when `free_vram_on_continue = True`) or cleanly aborts execution via ComfyUI's interrupt mechanism.
+- **Inputs**:
+  - `prompt_text` (`STRING`, required): Connect `answer` from **GGUF Vision Prompt** (or any upstream prompt node).
+  - `vision_session` (`ZIGGART_VISION_SESSION`, optional): Connect `vision_session` from **GGUF Vision Prompt** to auto-supply image(s), `ModelConfig`, sampling settings, and initial conversation context.
+  - `pause_mode` (`always_pause` / `bypass_passthrough`): Switch to `bypass_passthrough` for unattended batch queues without rewiring.
+  - `free_vram_on_continue` (`BOOLEAN`, default `True`): Unloads the GGUF VLM right before passing `final_prompt` downstream. *(Tip: set `free_vram_after = False` on `GGUF Vision Prompt` so the model and RAM KV prefix cache stay warm during your chat, then let this node unload VRAM on Continue.)*
+  - `keep_full_history` (`BOOLEAN`, default `True`): Preserves all prior turns in VLM context (disable for stateless per-turn refinement).
+  - Optional fallback & override inputs: `image`, `detail_crop`, `reference_image`, `vlm_config`, `model`, `mmproj`, `system_prompt_override`, `max_tokens`, `temperature`, `enable_thinking`, `timeout_seconds` (`0` = wait indefinitely).
+- **Outputs**: `final_prompt` (`STRING`), `chat_history` (`STRING`), `turn_count` (`INT`), `vision_session` (`ZIGGART_VISION_SESSION`).
 
 ---
 
@@ -1031,7 +1064,7 @@ A complete monocular video-to-mocap and live webcam animation pipeline built on 
 
 ### Ready-to-Load Example Workflows (`example_workflows/`)
 
-All **59 Ziggart nodes** and their distinct operating modes are provided as **15 ready-to-load ComfyUI workflow JSON files** inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
+All **62 Ziggart nodes** and their distinct operating modes are provided as **17 ready-to-load ComfyUI workflow JSON files** inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
 
 | Workflow File | Featured Ziggart Nodes | Covered Usage Modes |
 | :--- | :--- | :--- |
@@ -1051,6 +1084,7 @@ All **59 Ziggart nodes** and their distinct operating modes are provided as **15
 | [`14_3D_FlowHMR_Video_and_Webcam_Mocap_to_VRM_Avatar.json`](./example_workflows/14_3D_FlowHMR_Video_and_Webcam_Mocap_to_VRM_Avatar.json) | `ZiggartFlowHMRModelLoader`, `ZiggartFlowHMRWebcamCapture`, `ZiggartFlowHMRVideoExtractor`, `ZiggartMocapRetargetVRM`, `ZiggartAvatarMocapDrive`, `ZiggartMocapExporter`, `ZiggartVRMPoseAndMocapStudio` | End-to-end FlowHMR video/webcam motion capture to VRM 3D Avatar pipeline with SMPL-H ➔ VRM 25-bone retargeting, ground contact locking, multi-pass video conditioning generation (`RGB`, `MASK`, `DEPTH`, `NORMAL`, `OPENPOSE`), and `.bvh` / `.npz` / `.json` export. |
 | [`15_Folder_Image_Batch_Queue_to_Vision_and_SingleLine_TXT_Saver.json`](./example_workflows/15_Folder_Image_Batch_Queue_to_Vision_and_SingleLine_TXT_Saver.json) | `ZiggartFolderImageQueueLoader`, `ZiggartGGUFVLMLoader`, `ZiggartGGUFVisionPrompt`, `ZiggartVisionPromptTxtSaver`, `ZiggartDatasetCaptionCuratorAndTriggerInjector` | Automated 1-by-1 folder image scanning & queueing (`🔍 Scan Folder & Count Queues` + `▶️ Queue All Remaining Images (1-by-1)` + `skip_existing_txt`) into **GGUF Vision Prompt**, single-line consolidation (`flatten_to_single_line = True`, `clean_markdown_formatting = True`, `0 empty lines`) into `all_prompts_krea2.txt` + per-image `.txt` sidecars, and batch dataset curation / LoRA trigger injection + visual QA Contact Sheet inspection. |
 | [`16_Vision_Prompt_Iterative_Revision_Loop.json`](./example_workflows/16_Vision_Prompt_Iterative_Revision_Loop.json) | `ZiggartGGUFVLMLoader`, `ZiggartGGUFVisionPrompt`, `ZiggartGGUFVisionPromptReviser`, `ZiggartPromptRevisionGate` | Iterative **Vision → Generate → Compare & Revise** loop comparing the original target image against the generated image and current prompt, outputting `revised_prompt`, `diff_report`, `fidelity_score`, and `needs_revision` through the revision gate for multi-pass refinement. |
+| [`17_Interactive_Vision_Prompt_Review_and_Chat.json`](./example_workflows/17_Interactive_Vision_Prompt_Review_and_Chat.json) | `ZiggartGGUFVLMLoader`, `ZiggartGGUFVisionPrompt`, `ZiggartGGUFVisionPromptChatGate` | Interactive **Image → Vision Prompt → Pause, Discuss & Refine → Generate** workflow: pauses after initial VLM output so you can **Ask / Discuss**, **Refine Prompt** across unlimited turns, manually edit / **Undo** versions, open the **Expand** modal, and release VRAM on **Continue Workflow**. |
 
 ### Workflow A: Krea2 (`Qwen3VL-4B`) Modular Prompt Director + Multi-Character Detailing
 

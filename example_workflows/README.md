@@ -1,10 +1,10 @@
 # Ziggart Nodes — Workflows Exemples (`example_workflows/`)
 
-Ce dossier contient **15 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 59 nœuds Ziggart** dans tous leurs modes et cas d'usage.
+Ce dossier contient **17 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 62 nœuds Ziggart** dans tous leurs modes et cas d'usage.
 
 ---
 
-## Liste des 15 Workflows et des Usages Couverts
+## Liste des 17 Workflows et des Usages Couverts
 
 ### 1. [`01_Wildcards_3_Ways_and_LoRA_Encode.json`](./01_Wildcards_3_Ways_and_LoRA_Encode.json)
 Tour complet des **5 nœuds de génération par Wildcards** et de leurs différents modes :
@@ -193,5 +193,25 @@ Pipeline complet **Traitement de Dossier d'Images (1 par 1) vers `GGUF Vision Pr
   - Inclut les options `flatten_to_single_line` (convertit les prompts multi-lignes en une seule ligne propre `' '.join(text.split())`), `clean_markdown_formatting` (supprime les titres `**...:**` et puces `- `), `skip_duplicate_lines` (évite les doublons), `line_prefix`/`line_suffix`, et `save_individual_sidecar_txt` (sauvegarde également `<image_name>.txt` à côté de chaque image).
 - **`ZiggartDatasetCaptionCuratorAndTriggerInjector` (Ziggart Dataset Caption Curator & Trigger Injector)** :
   - Audite et nettoie un dossier complet d'images et de fichiers `.txt` sidecars pour l'entraînement LoRA / Krea2 / Flux : suppression automatique du boilerplate VLM (`"In this image..."`, `"Here is a detailed prompt:"`), injection idempotente de `trigger_word_prefix` / `trigger_word_suffix` sans doublons, règles `find_and_replace_rules` (`ancien -> nouveau`) et `banned_phrases`, vérification du budget de tokens CLIP/Qwen3VL (`max_token_budget`), modes `dry_run_preview_only` / `write_in_place_atomic` / `export_to_output_folder`, et génération d'une planche contact QA visuelle (`qa_contact_sheet`) + rapport JSON (`qa_report_json`).
+
+---
+
+### 16. [`16_Vision_Prompt_Iterative_Revision_Loop.json`](./16_Vision_Prompt_Iterative_Revision_Loop.json)
+Boucle itérative **Vision → Génération → Comparaison & Révision** (`Ziggart/LLM`) :
+- **`ZiggartGGUFVisionPromptReviser`** : Compare l'image cible d'origine (`original_image`) et l'image générée (`generated_image`) par rapport au `current_prompt`, diagnostique les éléments manquants ou hallucinés, et produit `revised_prompt`, `diff_report`, `fidelity_score` (`1.0–10.0`) et `needs_revision`.
+- **`ZiggartPromptRevisionGate`** : Sélectionne `active_prompt` selon `needs_revision` et cumule les notes d'itération (`accumulated_notes`) pour éviter les oscillations sur les passes 2 et 3.
+
+---
+
+### 17. [`17_Interactive_Vision_Prompt_Review_and_Chat.json`](./17_Interactive_Vision_Prompt_Review_and_Chat.json)
+Pipeline interactif **Image → `GGUF Vision Prompt` → Pause & Discussion Multi-Tours → Génération** (`Ziggart/LLM`) :
+- **`ZiggartGGUFVisionPrompt`** : Génère le prompt initial (`answer`) et transmet le contexte complet (`vision_session` : image(s), configuration GGUF et historique initial) vers le nœud de révision.
+- **`ZiggartGGUFVisionPromptChatGate` (`GGUF Vision Prompt Review & Chat` — `web/ziggart_vision_chat.js`)** :
+  - Met l'exécution ComfyUI en **pause** dès réception du prompt pour vous laisser lire, corriger ou discuter avec le VLM local avant de lancer la diffusion.
+  - **`💬 Ask / Discuss`** : Posez une question au VLM sur un détail de l'image sans écraser le prompt courant.
+  - **`✨ Refine Prompt`** : Expliquez ce que la vision a manqué ou doit insister ; le VLM ré-inspecte l'image avec l'historique complet et génère un prompt mis à jour (`v2`, `v3`...).
+  - **Édition manuelle + `↩ Undo` / Sélecteur de versions + `⤢ Expand`** : Éditez le texte directement, revenez en arrière à tout moment, ou ouvrez la fenêtre modale agrandie avec aperçu de l'image.
+  - **`▶ Continue Workflow` / `✖ Cancel`** : Libère proprement la VRAM (`free_vram_on_continue = True`) et transmet `final_prompt` au reste du workflow (`CLIPTextEncode` → `KSampler` → `SaveImage`).
+
 
 

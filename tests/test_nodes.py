@@ -229,7 +229,13 @@ class NodeExecutionTests(unittest.TestCase):
         finally:
             nodes.MODEL_MANAGER = original
 
-        self.assertEqual(result, ("final prompt", "composition notes", "", ""))
+        self.assertEqual(len(result), 5)
+        self.assertEqual(result[:4], ("final prompt", "composition notes", "", ""))
+        session = result[4]
+        self.assertIsInstance(session, nodes.VisionChatSession)
+        self.assertEqual(session.initial_answer, "final prompt")
+        self.assertTrue(session.thumbnail_uri.startswith("data:image/jpeg;base64,"))
+        self.assertEqual(session.messages[-1], {"role": "assistant", "content": "final prompt"})
         self.assertEqual(len(fake.calls), 2)
         specialist_messages = fake.calls[0]
         self.assertEqual(specialist_messages[0]["content"], "Write a prompt.")

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import base64
+import copy
 import fnmatch
 import io
 import json
 import os
+import queue
 import random
 import re
+import threading
+import time
+import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -119,6 +125,55 @@ def image_to_data_uri(image: Any, max_dimension: int = 0) -> str:
     return f"data:image/png;base64,{encoded}"
 
 
+def image_to_thumbnail_uri(image: Any, max_dimension: int = 384) -> str:
+    """Convert one Comfy IMAGE tensor/array (HWC float 0..1) to a compact JPEG data URI for UI preview."""
+    if hasattr(image, "detach"):
+        image = image.detach().cpu().float().numpy()
+    array = np.asarray(image)
+    if array.ndim != 3 or array.shape[-1] not in (1, 3, 4):
+        return ""
+    array = np.nan_to_num(array, nan=0.0, posinf=1.0, neginf=0.0)
+    array = (np.clip(array, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
+    if array.shape[-1] == 1:
+        array = np.repeat(array, 3, axis=-1)
+    if array.shape[-1] == 4:
+        rgb = array[..., :3].astype(np.float32)
+        alpha = array[..., 3:4].astype(np.float32) / 255.0
+        array = (rgb * alpha + 0.5).astype(np.uint8)
+    pil_image = Image.fromarray(array)
+    if max_dimension > 0 and max(pil_image.size) > max_dimension:
+        scale = max_dimension / max(pil_image.size)
+        target = (
+            max(1, round(pil_image.width * scale)),
+            max(1, round(pil_image.height * scale)),
+        )
+        pil_image = pil_image.resize(target, Image.Resampling.LANCZOS)
+    buffer = io.BytesIO()
+    pil_image.save(buffer, format="JPEG", quality=82, optimize=True)
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/jpeg;base64,{encoded}"
+
+
+@dataclass(frozen=True)
+class VisionChatSession:
+    """Immutable snapshot of a GGUF Vision Prompt run for multi-turn interactive review & chat."""
+
+    model_config: ModelConfig
+    unload_comfy_models_before: bool = True
+    system_prompt: str = ""
+    initial_prompt: str = ""
+    initial_answer: str = ""
+    visual_parts: list[dict[str, Any]] = field(default_factory=list)
+    messages: list[dict[str, Any]] = field(default_factory=list)
+    thumbnail_uri: str = ""
+    max_tokens: int = 1024
+    temperature: float = 0.2
+    top_p: float = 0.9
+    top_k: int = 40
+    seed: int = -1
+    enable_thinking: bool = False
+
+
 def _resolve_vlm_node_config(
     model: str,
     mmproj: str,
@@ -155,13 +210,14 @@ class GGUFVisionPrompt:
     )
     CATEGORY = "Ziggart/LLM"
     FUNCTION = "generate"
-    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING")
-    RETURN_NAMES = ("answer", "composition", "subject", "style")
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING", "ZIGGART_VISION_SESSION")
+    RETURN_NAMES = ("answer", "composition", "subject", "style", "vision_session")
     OUTPUT_TOOLTIPS = (
         "The final response. Batch responses are separated by a divider.",
         "Composition specialist notes, when enabled.",
         "Subject specialist notes, when enabled.",
         "Style specialist notes, when enabled.",
+        "Vision session snapshot (images, VLM config, and initial conversation) for GGUF Vision Prompt Review & Chat.",
     )
 
     @classmethod
@@ -422,6 +478,15 @@ class GGUFVisionPrompt:
                     enable_thinking=bool(enable_thinking),
                 )
 
+            first_visual_parts: list[dict[str, Any]] = []
+            first_messages: list[dict[str, Any]] = []
+            thumbnail_uri = ""
+            if len(image) > 0:
+                try:
+                    thumbnail_uri = image_to_thumbnail_uri(image[0], 384)
+                except Exception:
+                    thumbnail_uri = ""
+
             for index in range(len(image)):
                 notes = []
                 for pass_name, enabled in enabled_passes.items():
@@ -450,20 +515,51 @@ class GGUFVisionPrompt:
                         "conflicts against the images, and produce the requested final response.\n\n"
                         + "\n\n".join(notes)
                     )
+                user_visual_content = visual_content(index, final_instruction)
                 messages = []
                 if system_prompt.strip():
                     messages.append({"role": "system", "content": system_prompt})
-                messages.append(
-                    {"role": "user", "content": visual_content(index, final_instruction)}
-                )
-                answers.append(infer(messages))
+                messages.append({"role": "user", "content": user_visual_content})
+                answer_text = infer(messages)
+                answers.append(answer_text)
+                if index == 0:
+                    first_visual_parts = [
+                        copy.deepcopy(part)
+                        for part in user_visual_content
+                        if part.get("type") == "image_url" or (
+                            part.get("type") == "text"
+                            and part is not user_visual_content[0]
+                        )
+                    ]
+                    first_messages = copy.deepcopy(messages)
 
             separator = "\n\n---\n\n"
+            joined_answer = separator.join(answers)
+            session_messages = copy.deepcopy(first_messages)
+            if session_messages:
+                session_messages.append({"role": "assistant", "content": joined_answer})
+            vision_session = VisionChatSession(
+                model_config=config,
+                unload_comfy_models_before=bool(unload_comfy_models_before),
+                system_prompt=str(system_prompt or ""),
+                initial_prompt=str(prompt or ""),
+                initial_answer=joined_answer,
+                visual_parts=first_visual_parts,
+                messages=session_messages,
+                thumbnail_uri=thumbnail_uri,
+                max_tokens=int(max_tokens),
+                temperature=float(temperature),
+                top_p=float(top_p),
+                top_k=int(top_k),
+                seed=int(seed),
+                enable_thinking=bool(enable_thinking),
+            )
             return (
-                separator.join(answers),
+                joined_answer,
                 separator.join(pass_results["composition"]),
                 separator.join(pass_results["subject"]),
                 separator.join(pass_results["style"]),
+                vision_session,
             )
         except EmbeddedLlamaError as exc:
             raise RuntimeError(f"GGUF Vision Prompt failed: {exc}") from exc
@@ -909,6 +1005,1068 @@ class ZiggartPromptRevisionGate:
 
         accumulated_notes = "\n\n".join(notes_chunks)
         return (active_prompt, accumulated_notes, bool(needs_revision))
+
+
+# ---------------------------------------------------------------------------
+# Interactive Vision Prompt Review & Multi-Turn Chat Gate
+# ---------------------------------------------------------------------------
+
+_VISION_CHAT_LOCK = threading.RLock()
+_VISION_CHAT_SESSIONS: dict[str, "_ActiveVisionChatSession"] = {}
+_LAST_VISION_CHAT_STATES: dict[str, dict[str, Any]] = {}
+
+
+def _check_comfy_interrupt() -> None:
+    """Checks whether ComfyUI's Cancel/Interrupt button was pressed."""
+    try:
+        import comfy.model_management as model_management
+
+        model_management.throw_exception_if_processing_interrupted()
+    except ImportError:
+        pass
+
+
+def _raise_comfy_interrupt(reason: str = "Vision prompt review cancelled by user.") -> None:
+    """Raises ComfyUI's InterruptProcessingException (or RuntimeError outside ComfyUI)."""
+    try:
+        import comfy.model_management as model_management
+
+        exc_cls = getattr(model_management, "InterruptProcessingException", None)
+        if exc_cls is not None:
+            raise exc_cls(reason)
+    except ImportError:
+        pass
+    raise RuntimeError(reason)
+
+
+def _send_vision_chat_state(payload: dict[str, Any]) -> None:
+    """Pushes the live interactive Vision Review & Chat state to the ComfyUI frontend."""
+    if PromptServer is not None and getattr(PromptServer, "instance", None) is not None:
+        try:
+            PromptServer.instance.send_sync("ziggart-vision-chat-state", payload)
+        except Exception:
+            pass
+
+
+def _build_visual_parts_from_tensors(
+    image: Any,
+    detail_crop: Any = None,
+    reference_image: Any = None,
+    max_dimension: int = 2048,
+) -> tuple[list[dict[str, Any]], str]:
+    """Converts ComfyUI image tensors into reusable multimodal content parts + UI thumbnail."""
+    parts: list[dict[str, Any]] = []
+    thumbnail_uri = ""
+    if image is not None and len(image) > 0:
+        parts.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": image_to_data_uri(image[0], max_dimension)},
+            }
+        )
+        try:
+            thumbnail_uri = image_to_thumbnail_uri(image[0], 384)
+        except Exception:
+            thumbnail_uri = ""
+    if detail_crop is not None and len(detail_crop) > 0:
+        parts.append(
+            {
+                "type": "text",
+                "text": "High-resolution detail crop from the main image; use it to recover fine details:",
+            }
+        )
+        parts.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": image_to_data_uri(detail_crop[0], max_dimension)},
+            }
+        )
+    if reference_image is not None and len(reference_image) > 0:
+        parts.append(
+            {
+                "type": "text",
+                "text": "Secondary reference image; treat it as supporting context and do not confuse it with the main image:",
+            }
+        )
+        parts.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": image_to_data_uri(reference_image[0], max_dimension)},
+            }
+        )
+    return parts, thumbnail_uri
+
+
+class _ActiveVisionChatSession:
+    """Holds live thread-safe state for a paused GGUF Vision Prompt Review & Chat node."""
+
+    def __init__(
+        self,
+        *,
+        node_id: str,
+        initial_prompt: str,
+        llm_messages: list[dict[str, Any]],
+        visual_parts: list[dict[str, Any]],
+        system_prompt: str,
+        thumbnail_uri: str,
+        can_reply: bool,
+    ) -> None:
+        self.node_id = str(node_id)
+        self.session_token = uuid.uuid4().hex
+        self.action_queue: queue.Queue[dict[str, Any]] = queue.Queue()
+        self.lock = threading.RLock()
+        self.status: str = "waiting"
+        self.error_message: str = ""
+        self.current_prompt: str = initial_prompt
+        self.versions: list[dict[str, Any]] = [
+            {
+                "version": 1,
+                "prompt": initial_prompt,
+                "source": "initial",
+                "note": "Initial vision output",
+            }
+        ]
+        self.active_version_index: int = 0
+        self.chat_log: list[dict[str, Any]] = [
+            {
+                "role": "assistant",
+                "mode": "initial",
+                "content": initial_prompt or "(empty initial prompt)",
+                "version": 1,
+            }
+        ]
+        self.llm_messages: list[dict[str, Any]] = copy.deepcopy(llm_messages)
+        self.visual_parts: list[dict[str, Any]] = copy.deepcopy(visual_parts)
+        self.system_prompt: str = system_prompt
+        self.thumbnail_uri: str = thumbnail_uri
+        self.can_reply: bool = bool(can_reply)
+        self.turn_count: int = 0
+
+    def record_prompt_version(self, prompt_text: str, source: str, note: str) -> int:
+        """Records a new prompt version when text changed and returns the active 1-based version number."""
+        with self.lock:
+            cleaned = str(prompt_text)
+            if cleaned == self.current_prompt and self.versions:
+                return int(self.versions[self.active_version_index]["version"])
+            next_ver = len(self.versions) + 1
+            self.versions.append(
+                {
+                    "version": next_ver,
+                    "prompt": cleaned,
+                    "source": source,
+                    "note": note,
+                }
+            )
+            self.active_version_index = len(self.versions) - 1
+            self.current_prompt = cleaned
+            return next_ver
+
+    def undo(self) -> bool:
+        with self.lock:
+            if self.active_version_index <= 0:
+                return False
+            self.active_version_index -= 1
+            target = self.versions[self.active_version_index]
+            self.current_prompt = target["prompt"]
+            self.error_message = ""
+            self.chat_log.append(
+                {
+                    "role": "system",
+                    "mode": "undo",
+                    "content": f"Reverted to v{target['version']} ({target['note']}).",
+                    "version": target["version"],
+                }
+            )
+            return True
+
+    def restore_version(self, version_index: int) -> bool:
+        with self.lock:
+            idx = int(version_index)
+            if idx < 0 or idx >= len(self.versions):
+                return False
+            if idx == self.active_version_index:
+                return True
+            self.active_version_index = idx
+            target = self.versions[idx]
+            self.current_prompt = target["prompt"]
+            self.error_message = ""
+            self.chat_log.append(
+                {
+                    "role": "system",
+                    "mode": "undo",
+                    "content": f"Switched to v{target['version']} ({target['note']}).",
+                    "version": target["version"],
+                }
+            )
+            return True
+
+    def format_transcript(self) -> str:
+        with self.lock:
+            lines: list[str] = []
+            for entry in self.chat_log:
+                role = entry.get("role", "system").upper()
+                mode = entry.get("mode", "")
+                ver = entry.get("version")
+                tag = f"[{role}"
+                if mode:
+                    tag += f" · {mode}"
+                if ver is not None:
+                    tag += f" · v{ver}"
+                tag += "]"
+                lines.append(f"{tag}\n{entry.get('content', '')}")
+            return "\n\n".join(lines)
+
+    def to_client_state(self) -> dict[str, Any]:
+        with self.lock:
+            return {
+                "node_id": self.node_id,
+                "session_token": self.session_token,
+                "status": self.status,
+                "error": self.error_message,
+                "current_prompt": self.current_prompt,
+                "active_version_index": self.active_version_index,
+                "active_version": int(self.versions[self.active_version_index]["version"])
+                if self.versions
+                else 1,
+                "version_count": len(self.versions),
+                "can_undo": self.active_version_index > 0,
+                "versions": [
+                    {
+                        "index": idx,
+                        "version": int(v["version"]),
+                        "source": v["source"],
+                        "note": v["note"],
+                    }
+                    for idx, v in enumerate(self.versions)
+                ],
+                "chat_log": copy.deepcopy(self.chat_log),
+                "thumbnail_uri": self.thumbnail_uri,
+                "can_reply": self.can_reply,
+                "turn_count": self.turn_count,
+            }
+
+
+def get_vision_chat_state(node_id: Any) -> dict[str, Any]:
+    """Returns the current (or most recent) UI state for a Vision Prompt Review & Chat node."""
+    nid = str(node_id or "").strip()
+    with _VISION_CHAT_LOCK:
+        session = _VISION_CHAT_SESSIONS.get(nid)
+        if session is not None:
+            return session.to_client_state()
+        last = _LAST_VISION_CHAT_STATES.get(nid)
+        if last is not None:
+            return copy.deepcopy(last)
+    return {
+        "node_id": nid,
+        "session_token": "",
+        "status": "idle",
+        "error": "",
+        "current_prompt": "",
+        "active_version_index": 0,
+        "active_version": 0,
+        "version_count": 0,
+        "can_undo": False,
+        "versions": [],
+        "chat_log": [],
+        "thumbnail_uri": "",
+        "can_reply": False,
+        "turn_count": 0,
+    }
+
+
+def submit_vision_chat_action(
+    node_id: Any,
+    action: str,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Applies an interactive UI action to a paused ZiggartGGUFVisionPromptChatGate node.
+    Actions: 'refine', 'discuss', 'update_prompt', 'undo', 'restore_version', 'continue', 'cancel'.
+    """
+    nid = str(node_id or "").strip()
+    act = str(action or "").strip().lower()
+    data = dict(payload or {})
+
+    with _VISION_CHAT_LOCK:
+        session = _VISION_CHAT_SESSIONS.get(nid)
+
+    if session is None:
+        return {
+            "ok": False,
+            "error": "No active paused review session for this node. Queue the workflow first.",
+            "state": get_vision_chat_state(nid),
+        }
+
+    req_token = str(data.get("session_token", "") or "").strip()
+    if req_token and req_token != session.session_token:
+        return {
+            "ok": False,
+            "error": "Stale session token; syncing latest state.",
+            "state": session.to_client_state(),
+        }
+
+    with session.lock:
+        if act in ("update_prompt", "undo", "restore_version"):
+            if session.status != "waiting":
+                return {
+                    "ok": False,
+                    "error": "Cannot modify prompt while VLM is thinking.",
+                    "state": session.to_client_state(),
+                }
+            if act == "update_prompt":
+                new_prompt = str(data.get("prompt", ""))
+                session.record_prompt_version(new_prompt, source="manual_edit", note="Manual edit")
+                session.error_message = ""
+            elif act == "undo":
+                if not session.undo():
+                    return {
+                        "ok": False,
+                        "error": "Already at the earliest prompt version.",
+                        "state": session.to_client_state(),
+                    }
+            elif act == "restore_version":
+                raw_idx = data.get("version_index", 0)
+                if not session.restore_version(int(raw_idx)):
+                    return {
+                        "ok": False,
+                        "error": "Invalid version index.",
+                        "state": session.to_client_state(),
+                    }
+            state = session.to_client_state()
+            _send_vision_chat_state(state)
+            return {"ok": True, "state": state}
+
+        if act in ("refine", "discuss"):
+            if session.status != "waiting":
+                return {
+                    "ok": False,
+                    "error": "VLM is currently generating a reply. Please wait.",
+                    "state": session.to_client_state(),
+                }
+            if not session.can_reply:
+                return {
+                    "ok": False,
+                    "error": (
+                        "No VLM session or model configured. Connect vision_session from GGUF Vision Prompt "
+                        "(or provide vlm_config / model + mmproj) to enable replies."
+                    ),
+                    "state": session.to_client_state(),
+                }
+            message = str(data.get("message", "") or "").strip()
+            if not message:
+                return {
+                    "ok": False,
+                    "error": "Please enter a reply or question first.",
+                    "state": session.to_client_state(),
+                }
+            session.status = "thinking"
+            session.error_message = ""
+            state = session.to_client_state()
+            _send_vision_chat_state(state)
+            session.action_queue.put(
+                {
+                    "action": act,
+                    "message": message,
+                    "prompt": data.get("prompt"),
+                }
+            )
+            return {"ok": True, "state": state}
+
+        if act == "continue":
+            if session.status not in ("waiting", "thinking"):
+                return {
+                    "ok": False,
+                    "error": "Session is no longer active.",
+                    "state": session.to_client_state(),
+                }
+            if session.status == "thinking":
+                return {
+                    "ok": False,
+                    "error": "Please wait for the current VLM reply to finish before continuing.",
+                    "state": session.to_client_state(),
+                }
+            session.action_queue.put(
+                {
+                    "action": "continue",
+                    "prompt": data.get("prompt"),
+                }
+            )
+            return {"ok": True, "state": session.to_client_state()}
+
+        if act == "cancel":
+            session.action_queue.put({"action": "cancel"})
+            return {"ok": True, "state": session.to_client_state()}
+
+    return {
+        "ok": False,
+        "error": f"Unknown action: {act}",
+        "state": session.to_client_state(),
+    }
+
+
+class ZiggartGGUFVisionPromptChatGate:
+    """
+    Interactive human-in-the-loop gate placed after GGUF Vision Prompt.
+    Pauses workflow execution so the user can read the output prompt, ask/discuss details with the VLM,
+    iteratively refine the prompt over unlimited turns, manually edit or undo versions, and then continue.
+    """
+
+    DESCRIPTION = (
+        "Pauses workflow execution after GGUF Vision Prompt so you can inspect the generated prompt, "
+        "discuss missed details with the local VLM ('Ask / Discuss'), request updated prompt passes "
+        "('Refine Prompt'), manually edit or undo versions, and click 'Continue Workflow' when satisfied. "
+        "Tip: set free_vram_after=False on GGUF Vision Prompt and leave free_vram_on_continue=True here "
+        "for fast multi-turn replies with clean VRAM release before diffusion."
+    )
+    CATEGORY = "Ziggart/LLM"
+    FUNCTION = "review"
+    RETURN_TYPES = ("STRING", "STRING", "INT", "ZIGGART_VISION_SESSION")
+    RETURN_NAMES = ("final_prompt", "chat_history", "turn_count", "vision_session")
+    OUTPUT_TOOLTIPS = (
+        "Approved (or manually edited) prompt sent to the rest of the workflow.",
+        "Readable transcript of all initial, Refine, Discuss, and Undo steps.",
+        "Total number of VLM reply passes (Refine + Discuss) executed during review.",
+        "Updated VisionChatSession snapshot containing the full conversation.",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        models, projectors = _gguf_files()
+        return {
+            "required": {
+                "prompt_text": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "forceInput": True,
+                        "tooltip": "Connect 'answer' from GGUF Vision Prompt (or any upstream prompt node).",
+                    },
+                ),
+                "pause_mode": (
+                    ["always_pause", "bypass_passthrough"],
+                    {
+                        "default": "always_pause",
+                        "tooltip": "'always_pause' waits for your approval/replies; 'bypass_passthrough' passes prompt_text through immediately for unattended batch runs.",
+                    },
+                ),
+                "free_vram_on_continue": (
+                    "BOOLEAN",
+                    {
+                        "default": True,
+                        "tooltip": "Unload the embedded GGUF VLM right before releasing final_prompt downstream so diffusion has full VRAM.",
+                    },
+                ),
+                "keep_full_history": (
+                    "BOOLEAN",
+                    {
+                        "default": True,
+                        "tooltip": "Keep all prior Refine & Discuss turns in the VLM conversation context. Disable to send only the original image(s), current prompt, and latest reply.",
+                    },
+                ),
+            },
+            "optional": {
+                "vision_session": (
+                    "ZIGGART_VISION_SESSION",
+                    {
+                        "tooltip": "Connect 'vision_session' from GGUF Vision Prompt to auto-supply image(s), model config, and initial context.",
+                    },
+                ),
+                "image": (
+                    "IMAGE",
+                    {
+                        "tooltip": "Optional fallback main image when vision_session is not connected (e.g. with third-party vision nodes).",
+                    },
+                ),
+                "detail_crop": (
+                    "IMAGE",
+                    {"tooltip": "Optional fallback high-resolution detail crop when vision_session is not connected."},
+                ),
+                "reference_image": (
+                    "IMAGE",
+                    {"tooltip": "Optional fallback reference image when vision_session is not connected."},
+                ),
+                "vlm_config": (
+                    "GGUF_VL_MODEL",
+                    {
+                        "tooltip": "Optional shared VLM configuration (fallback when vision_session is absent, or override).",
+                    },
+                ),
+                "model": (
+                    ["[Use vision_session]"] + list(models),
+                    {
+                        "default": "[Use vision_session]",
+                        "tooltip": "Optional fallback/override GGUF model if vision_session is not connected.",
+                    },
+                ),
+                "mmproj": (
+                    ["[Use vision_session]"] + list(projectors),
+                    {
+                        "default": "[Use vision_session]",
+                        "tooltip": "Optional fallback/override mmproj GGUF if vision_session is not connected.",
+                    },
+                ),
+                "max_image_dimension": (
+                    ["original", "512", "768", "1024", "1536", "2048", "3072", "4096"],
+                    {
+                        "default": "2048",
+                        "tooltip": "Downscale fallback images so their longest side is at most this size.",
+                    },
+                ),
+                "system_prompt_override": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "tooltip": "Optional system prompt override for follow-up Refine / Discuss passes.",
+                    },
+                ),
+                "max_tokens": (
+                    "INT",
+                    {
+                        "default": 0,
+                        "min": 0,
+                        "max": 32768,
+                        "tooltip": "0 = inherit from vision_session (or default 1024).",
+                    },
+                ),
+                "temperature": (
+                    "FLOAT",
+                    {
+                        "default": -1.0,
+                        "min": -1.0,
+                        "max": 2.0,
+                        "step": 0.05,
+                        "tooltip": "-1.0 = inherit from vision_session (or default 0.2).",
+                    },
+                ),
+                "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "top_k": ("INT", {"default": 40, "min": 0, "max": 1000}),
+                "seed": ("INT", {"default": -1, "min": -1, "max": 0x7FFFFFFF}),
+                "enable_thinking": (
+                    ["inherit", "disable", "enable"],
+                    {
+                        "default": "inherit",
+                        "tooltip": "Control VLM thinking mode during follow-up replies.",
+                    },
+                ),
+                "context_size": ("INT", {"default": 8192, "min": 2048, "max": 262144, "step": 1024}),
+                "gpu_layers": ("INT", {"default": -1, "min": -1, "max": 999}),
+                "threads": ("INT", {"default": max(1, (os.cpu_count() or 4) // 2), "min": 1, "max": 256}),
+                "flash_attention": ("BOOLEAN", {"default": True}),
+                "mmproj_on_gpu": ("BOOLEAN", {"default": True}),
+                "unload_comfy_models_before": ("BOOLEAN", {"default": True}),
+                "model_path_override": ("STRING", {"default": ""}),
+                "mmproj_path_override": ("STRING", {"default": ""}),
+                "timeout_seconds": (
+                    "INT",
+                    {
+                        "default": 0,
+                        "min": 0,
+                        "max": 86400,
+                        "tooltip": "0 = wait indefinitely until you click Continue/Cancel or interrupt ComfyUI; >0 = auto-continue with current prompt after N seconds.",
+                    },
+                ),
+            },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+            },
+        }
+
+    @classmethod
+    def IS_CHANGED(
+        cls,
+        prompt_text: str = "",
+        pause_mode: str = "always_pause",
+        **kwargs: Any,
+    ) -> Any:
+        if pause_mode == "always_pause":
+            return float("nan")
+        return f"bypass:{prompt_text}"
+
+    def _resolve_reply_context(
+        self,
+        *,
+        initial_prompt: str,
+        vision_session: VisionChatSession | None,
+        image: Any,
+        detail_crop: Any,
+        reference_image: Any,
+        vlm_config: ModelConfig | None,
+        model: str,
+        mmproj: str,
+        max_image_dimension: str,
+        system_prompt_override: str,
+        max_tokens: int,
+        temperature: float,
+        top_p: float,
+        top_k: int,
+        seed: int,
+        enable_thinking: str,
+        context_size: int,
+        gpu_layers: int,
+        threads: int,
+        flash_attention: bool,
+        mmproj_on_gpu: bool,
+        unload_comfy_models_before: bool,
+        model_path_override: str,
+        mmproj_path_override: str,
+    ) -> dict[str, Any]:
+        base = vision_session if isinstance(vision_session, VisionChatSession) else None
+
+        active_config: ModelConfig | None = None
+        if isinstance(vlm_config, ModelConfig):
+            active_config = vlm_config
+        elif (
+            model not in ("", "[Use vision_session]", NO_MODEL)
+            or model_path_override.strip()
+        ) and (
+            mmproj not in ("", "[Use vision_session]", NO_MMPROJ)
+            or mmproj_path_override.strip()
+        ):
+            active_config = _resolve_vlm_node_config(
+                model=model,
+                mmproj=mmproj,
+                model_path_override=model_path_override,
+                mmproj_path_override=mmproj_path_override,
+                context_size=context_size,
+                gpu_layers=gpu_layers,
+                threads=threads,
+                flash_attention=flash_attention,
+                mmproj_on_gpu=mmproj_on_gpu,
+                vlm_config=None,
+            )
+        elif base is not None:
+            active_config = base.model_config
+
+        maximum = 0 if max_image_dimension == "original" else int(max_image_dimension)
+        visual_parts: list[dict[str, Any]] = []
+        thumbnail_uri = ""
+        if image is not None:
+            visual_parts, thumbnail_uri = _build_visual_parts_from_tensors(
+                image=image,
+                detail_crop=detail_crop,
+                reference_image=reference_image,
+                max_dimension=maximum,
+            )
+        elif base is not None:
+            visual_parts = copy.deepcopy(base.visual_parts)
+            thumbnail_uri = base.thumbnail_uri
+
+        default_sys = (
+            "You are an expert image prompt writer and visual analyst. Inspect the provided image(s) carefully, "
+            "follow the user's corrections accurately, and do not invent unseen details unless the user explicitly asks for them."
+        )
+        if system_prompt_override.strip():
+            eff_system_prompt = system_prompt_override.strip()
+        elif base is not None and base.system_prompt.strip():
+            eff_system_prompt = base.system_prompt.strip()
+        else:
+            eff_system_prompt = default_sys
+
+        if base is not None and base.messages and image is None:
+            llm_messages = copy.deepcopy(base.messages)
+            if system_prompt_override.strip():
+                if llm_messages and llm_messages[0].get("role") == "system":
+                    llm_messages[0]["content"] = eff_system_prompt
+                else:
+                    llm_messages.insert(0, {"role": "system", "content": eff_system_prompt})
+            if llm_messages and llm_messages[-1].get("role") == "assistant":
+                llm_messages[-1]["content"] = initial_prompt
+            else:
+                llm_messages.append({"role": "assistant", "content": initial_prompt})
+        else:
+            llm_messages = []
+            if eff_system_prompt:
+                llm_messages.append({"role": "system", "content": eff_system_prompt})
+            if visual_parts:
+                user_content: list[dict[str, Any]] = [
+                    {
+                        "type": "text",
+                        "text": "Turn this image into a detailed image-generation prompt.\n\nMain image:",
+                    }
+                ]
+                user_content.extend(copy.deepcopy(visual_parts))
+                llm_messages.append({"role": "user", "content": user_content})
+            else:
+                llm_messages.append(
+                    {
+                        "role": "user",
+                        "content": "Review and refine the following image-generation prompt as requested.",
+                    }
+                )
+            llm_messages.append({"role": "assistant", "content": initial_prompt})
+
+        eff_max_tokens = int(max_tokens) if int(max_tokens) > 0 else (base.max_tokens if base else 1024)
+        eff_temperature = float(temperature) if float(temperature) >= 0.0 else (base.temperature if base else 0.2)
+        eff_top_p = float(top_p) if base is None else float(base.top_p)
+        eff_top_k = int(top_k) if base is None else int(base.top_k)
+        eff_seed = int(seed) if int(seed) >= 0 else (base.seed if base else -1)
+        if enable_thinking == "enable":
+            eff_thinking = True
+        elif enable_thinking == "disable":
+            eff_thinking = False
+        else:
+            eff_thinking = bool(base.enable_thinking) if base is not None else False
+
+        eff_unload_before = (
+            bool(base.unload_comfy_models_before)
+            if base is not None
+            else bool(unload_comfy_models_before)
+        )
+
+        return {
+            "config": active_config,
+            "unload_comfy_models_before": eff_unload_before,
+            "system_prompt": eff_system_prompt,
+            "visual_parts": visual_parts,
+            "thumbnail_uri": thumbnail_uri,
+            "llm_messages": llm_messages,
+            "max_tokens": eff_max_tokens,
+            "temperature": eff_temperature,
+            "top_p": eff_top_p,
+            "top_k": eff_top_k,
+            "seed": eff_seed,
+            "enable_thinking": eff_thinking,
+            "initial_instruction": base.initial_prompt if base is not None else "",
+        }
+
+    def _build_followup_messages(
+        self,
+        *,
+        session: _ActiveVisionChatSession,
+        mode: str,
+        user_message: str,
+        keep_full_history: bool,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        if mode == "discuss":
+            formatted_user = (
+                "The user has a question or observation about the image(s) or current prompt. "
+                "Re-examine the image(s) carefully and answer concisely and factually. "
+                "Do NOT rewrite the entire prompt unless the user asks you to.\n\n"
+                f"Current prompt:\n{session.current_prompt or '(empty)'}\n\n"
+                f"User message:\n{user_message}"
+            )
+        else:
+            formatted_user = (
+                "Re-examine the image(s) carefully and update the image-generation prompt to incorporate "
+                "the user's feedback below. Preserve accurate details from the current prompt unless the "
+                "user asked to change or remove them.\n\n"
+                f"Current prompt:\n{session.current_prompt or '(empty)'}\n\n"
+                f"User feedback:\n{user_message}\n\n"
+                "Output ONLY the complete updated image-generation prompt ready for generation, "
+                "with no explanations or preamble."
+            )
+
+        user_entry: dict[str, Any] = {"role": "user", "content": formatted_user}
+        if keep_full_history:
+            messages = copy.deepcopy(session.llm_messages)
+            messages.append(user_entry)
+            return messages, user_entry
+
+        # Stateless mode: always attach the original image(s) fresh alongside current_prompt + user feedback
+        messages = []
+        if session.system_prompt:
+            messages.append({"role": "system", "content": session.system_prompt})
+        if session.visual_parts:
+            content: list[dict[str, Any]] = [
+                {"type": "text", "text": formatted_user + "\n\nMain image:"}
+            ]
+            content.extend(copy.deepcopy(session.visual_parts))
+            messages.append({"role": "user", "content": content})
+        else:
+            messages.append(user_entry)
+        return messages, user_entry
+
+    def review(
+        self,
+        prompt_text: str,
+        pause_mode: str = "always_pause",
+        free_vram_on_continue: bool = True,
+        keep_full_history: bool = True,
+        vision_session: VisionChatSession | None = None,
+        image: Any = None,
+        detail_crop: Any = None,
+        reference_image: Any = None,
+        vlm_config: ModelConfig | None = None,
+        model: str = "[Use vision_session]",
+        mmproj: str = "[Use vision_session]",
+        max_image_dimension: str = "2048",
+        system_prompt_override: str = "",
+        max_tokens: int = 0,
+        temperature: float = -1.0,
+        top_p: float = 0.9,
+        top_k: int = 40,
+        seed: int = -1,
+        enable_thinking: str = "inherit",
+        context_size: int = 8192,
+        gpu_layers: int = -1,
+        threads: int = 4,
+        flash_attention: bool = True,
+        mmproj_on_gpu: bool = True,
+        unload_comfy_models_before: bool = True,
+        model_path_override: str = "",
+        mmproj_path_override: str = "",
+        timeout_seconds: int = 0,
+        unique_id: Any = None,
+    ):
+        initial_prompt = str(prompt_text or "").strip()
+        ctx = self._resolve_reply_context(
+            initial_prompt=initial_prompt,
+            vision_session=vision_session,
+            image=image,
+            detail_crop=detail_crop,
+            reference_image=reference_image,
+            vlm_config=vlm_config,
+            model=model,
+            mmproj=mmproj,
+            max_image_dimension=max_image_dimension,
+            system_prompt_override=system_prompt_override,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            seed=seed,
+            enable_thinking=enable_thinking,
+            context_size=context_size,
+            gpu_layers=gpu_layers,
+            threads=threads,
+            flash_attention=flash_attention,
+            mmproj_on_gpu=mmproj_on_gpu,
+            unload_comfy_models_before=unload_comfy_models_before,
+            model_path_override=model_path_override,
+            mmproj_path_override=mmproj_path_override,
+        )
+
+        def _make_output_session(final_prompt_str: str, messages_list: list[dict[str, Any]]) -> VisionChatSession | None:
+            if ctx["config"] is None:
+                return vision_session
+            return VisionChatSession(
+                model_config=ctx["config"],
+                unload_comfy_models_before=ctx["unload_comfy_models_before"],
+                system_prompt=ctx["system_prompt"],
+                initial_prompt=ctx["initial_instruction"],
+                initial_answer=final_prompt_str,
+                visual_parts=copy.deepcopy(ctx["visual_parts"]),
+                messages=copy.deepcopy(messages_list),
+                thumbnail_uri=ctx["thumbnail_uri"],
+                max_tokens=ctx["max_tokens"],
+                temperature=ctx["temperature"],
+                top_p=ctx["top_p"],
+                top_k=ctx["top_k"],
+                seed=ctx["seed"],
+                enable_thinking=ctx["enable_thinking"],
+            )
+
+        nid = str(unique_id) if unique_id is not None else f"ephemeral_{uuid.uuid4().hex[:8]}"
+
+        if pause_mode == "bypass_passthrough":
+            if free_vram_on_continue and ctx["config"] is not None:
+                MODEL_MANAGER.unload()
+            out_sess = _make_output_session(initial_prompt, ctx["llm_messages"])
+            bypass_state = {
+                "node_id": nid,
+                "session_token": "",
+                "status": "approved",
+                "error": "",
+                "current_prompt": initial_prompt,
+                "active_version_index": 0,
+                "active_version": 1,
+                "version_count": 1,
+                "can_undo": False,
+                "versions": [{"index": 0, "version": 1, "source": "initial", "note": "Bypass passthrough"}],
+                "chat_log": [
+                    {
+                        "role": "assistant",
+                        "mode": "initial",
+                        "content": initial_prompt or "(empty prompt)",
+                        "version": 1,
+                    }
+                ],
+                "thumbnail_uri": ctx["thumbnail_uri"],
+                "can_reply": ctx["config"] is not None,
+                "turn_count": 0,
+            }
+            with _VISION_CHAT_LOCK:
+                _LAST_VISION_CHAT_STATES[nid] = copy.deepcopy(bypass_state)
+            _send_vision_chat_state(bypass_state)
+            transcript = f"[ASSISTANT · initial · v1]\n{initial_prompt}"
+            return (initial_prompt, transcript, 0, out_sess)
+
+        session = _ActiveVisionChatSession(
+            node_id=nid,
+            initial_prompt=initial_prompt,
+            llm_messages=ctx["llm_messages"],
+            visual_parts=ctx["visual_parts"],
+            system_prompt=ctx["system_prompt"],
+            thumbnail_uri=ctx["thumbnail_uri"],
+            can_reply=ctx["config"] is not None,
+        )
+
+        with _VISION_CHAT_LOCK:
+            _VISION_CHAT_SESSIONS[nid] = session
+
+        init_state = session.to_client_state()
+        _send_vision_chat_state(init_state)
+
+        deadline = time.monotonic() + float(timeout_seconds) if int(timeout_seconds) > 0 else None
+        cancelled = False
+
+        try:
+            while True:
+                _check_comfy_interrupt()
+                if deadline is not None and time.monotonic() >= deadline:
+                    with session.lock:
+                        session.chat_log.append(
+                            {
+                                "role": "system",
+                                "mode": "timeout",
+                                "content": f"Review timeout ({timeout_seconds}s) reached; continuing with current prompt.",
+                                "version": int(session.versions[session.active_version_index]["version"]),
+                            }
+                        )
+                    break
+
+                try:
+                    cmd = session.action_queue.get(timeout=0.15)
+                except queue.Empty:
+                    continue
+
+                action = str(cmd.get("action", "")).lower()
+
+                if action == "cancel":
+                    cancelled = True
+                    with session.lock:
+                        session.status = "cancelled"
+                        session.chat_log.append(
+                            {
+                                "role": "system",
+                                "mode": "cancel",
+                                "content": "Workflow cancelled by user during vision prompt review.",
+                                "version": None,
+                            }
+                        )
+                    _send_vision_chat_state(session.to_client_state())
+                    _raise_comfy_interrupt("Vision prompt review cancelled by user.")
+
+                if action == "continue":
+                    edited_prompt = cmd.get("prompt")
+                    if edited_prompt is not None:
+                        session.record_prompt_version(
+                            str(edited_prompt),
+                            source="manual_edit",
+                            note="Manual edit before continue",
+                        )
+                    break
+
+                if action in ("refine", "discuss"):
+                    edited_prompt = cmd.get("prompt")
+                    if edited_prompt is not None:
+                        session.record_prompt_version(
+                            str(edited_prompt),
+                            source="manual_edit",
+                            note="Manual edit",
+                        )
+                    user_msg = str(cmd.get("message", "") or "").strip()
+                    if not user_msg:
+                        with session.lock:
+                            session.status = "waiting"
+                            session.error_message = "Empty reply ignored."
+                        _send_vision_chat_state(session.to_client_state())
+                        continue
+
+                    try:
+                        MODEL_MANAGER.load(ctx["config"], ctx["unload_comfy_models_before"])
+                        with session.lock:
+                            messages_to_send, user_entry = self._build_followup_messages(
+                                session=session,
+                                mode=action,
+                                user_message=user_msg,
+                                keep_full_history=bool(keep_full_history),
+                            )
+                        reply_text = MODEL_MANAGER.chat(
+                            messages_to_send,
+                            max_tokens=int(ctx["max_tokens"]),
+                            temperature=float(ctx["temperature"]),
+                            top_p=float(ctx["top_p"]),
+                            top_k=int(ctx["top_k"]),
+                            seed=int(ctx["seed"]),
+                            enable_thinking=bool(ctx["enable_thinking"]),
+                        )
+                        with session.lock:
+                            session.turn_count += 1
+                            session.llm_messages.append(user_entry)
+                            session.llm_messages.append({"role": "assistant", "content": reply_text})
+                            session.chat_log.append(
+                                {
+                                    "role": "user",
+                                    "mode": action,
+                                    "content": user_msg,
+                                    "version": None,
+                                }
+                            )
+                            if action == "refine":
+                                new_ver = session.record_prompt_version(
+                                    reply_text,
+                                    source="refine",
+                                    note=f"VLM Refine (turn {session.turn_count})",
+                                )
+                                session.chat_log.append(
+                                    {
+                                        "role": "assistant",
+                                        "mode": "refine",
+                                        "content": reply_text,
+                                        "version": new_ver,
+                                    }
+                                )
+                            else:
+                                session.chat_log.append(
+                                    {
+                                        "role": "assistant",
+                                        "mode": "discuss",
+                                        "content": reply_text,
+                                        "version": None,
+                                    }
+                                )
+                            session.status = "waiting"
+                            session.error_message = ""
+                    except Exception as exc:
+                        with session.lock:
+                            session.status = "waiting"
+                            session.error_message = f"VLM reply failed: {exc}"
+                            session.chat_log.append(
+                                {
+                                    "role": "system",
+                                    "mode": "error",
+                                    "content": f"VLM reply failed: {exc}",
+                                    "version": None,
+                                }
+                            )
+                    _send_vision_chat_state(session.to_client_state())
+                    if deadline is not None:
+                        deadline = time.monotonic() + float(timeout_seconds)
+
+            with session.lock:
+                session.status = "approved"
+                session.error_message = ""
+                final_prompt = session.current_prompt
+                turn_count = session.turn_count
+                transcript = session.format_transcript()
+                final_messages = copy.deepcopy(session.llm_messages)
+                final_state = session.to_client_state()
+
+            _send_vision_chat_state(final_state)
+            out_session = _make_output_session(final_prompt, final_messages)
+            return (final_prompt, transcript, int(turn_count), out_session)
+        finally:
+            with _VISION_CHAT_LOCK:
+                if _VISION_CHAT_SESSIONS.get(nid) is session:
+                    _VISION_CHAT_SESSIONS.pop(nid, None)
+                if cancelled:
+                    session.status = "cancelled"
+                _LAST_VISION_CHAT_STATES[nid] = session.to_client_state()
+            if free_vram_on_continue and ctx["config"] is not None:
+                MODEL_MANAGER.unload()
 
 
 # ---------------------------------------------------------------------------
@@ -2372,12 +3530,29 @@ if (
                 status=200,
             )
 
+    @PromptServer.instance.routes.get("/ziggart/vision_chat/state")
+    async def ziggart_vision_chat_state_api(request):
+        node_id = request.rel_url.query.get("node_id", "")
+        return web.json_response({"ok": True, "state": get_vision_chat_state(node_id)})
+
+    @PromptServer.instance.routes.post("/ziggart/vision_chat/action")
+    async def ziggart_vision_chat_action_api(request):
+        try:
+            data = await request.json()
+            node_id = data.get("node_id", "")
+            action = data.get("action", "")
+            result = submit_vision_chat_action(node_id, action, data)
+            return web.json_response(result, status=200)
+        except Exception as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=200)
+
 
 NODE_CLASS_MAPPINGS = {
     "ZiggartGGUFVisionPrompt": GGUFVisionPrompt,
     "ZiggartGGUFVLMLoader": ZiggartGGUFVLMLoader,
     "ZiggartGGUFVisionPromptReviser": ZiggartGGUFVisionPromptReviser,
     "ZiggartPromptRevisionGate": ZiggartPromptRevisionGate,
+    "ZiggartGGUFVisionPromptChatGate": ZiggartGGUFVisionPromptChatGate,
     "ZiggartFolderImageQueueLoader": ZiggartFolderImageQueueLoader,
     "ZiggartVisionPromptTxtSaver": ZiggartVisionPromptTxtSaver,
     "ZiggartDatasetCaptionCuratorAndTriggerInjector": ZiggartDatasetCaptionCuratorAndTriggerInjector,
@@ -2387,6 +3562,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZiggartGGUFVLMLoader": "GGUF VLM Loader",
     "ZiggartGGUFVisionPromptReviser": "GGUF Vision Prompt Reviser",
     "ZiggartPromptRevisionGate": "Ziggart Prompt Revision Gate",
+    "ZiggartGGUFVisionPromptChatGate": "GGUF Vision Prompt Review & Chat",
     "ZiggartFolderImageQueueLoader": "Ziggart Folder Image Batch & Queue Loader",
     "ZiggartVisionPromptTxtSaver": "Ziggart Vision Prompt TXT & Wildcard Line Saver",
     "ZiggartDatasetCaptionCuratorAndTriggerInjector": "Ziggart Dataset Caption Curator & Trigger Injector (QA)",
