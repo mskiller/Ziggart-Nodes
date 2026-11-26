@@ -20,15 +20,15 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "Master Showcase — Architecture Complète réunissant les 18 Nœuds Ziggart",
+      "title": "Master Showcase \u2014 Architecture Compl\u00e8te r\u00e9unissant les 18 N\u0153uds Ziggart",
       "properties": {
         "Node name for S&R": "Note"
       },
       "widgets_values": [
-        "WORKFLOW 08 : VITRINE COMPLÈTE DES 18 NŒUDS ZIGGART DANS UN SEUL WORKFLOW STRUCTURÉ\n- Colonne 1 (Wildcards) : ZiggartWildcardProcessor, ZiggartWildcardProcessorAllInOne, ZiggartCollectionSceneBuilder, ZiggartWildcardEncode, ZiggartCanonicalThemeResolver, ZiggartWildcardVLMEnhancer\n- Colonne 2 (VLM & Génération de Base) : ZiggartGGUFVLMLoader, ZiggartGGUFVisionPrompt, CheckpointLoaderSimple, KSampler\n- Colonne 3 (Detailers Krea2) : ZiggartMultiSubjectDetailer, ZiggartDetailerKrea2, ZiggartAutoPromptDetailer\n- Colonne 4 (Détection, Critique, Inpaint & Crop/Stitch) : ZiggartWeVisOneDetector, ZiggartVLMImageCritic, ZiggartVLMInpaintPrompter, ZiggartCropByBBox, ZiggartStitchByBBox\n- Colonne 5 (Upscaling & Sauvegarde Recette) : ZiggartSmartTileUpscaler, ZiggartWildcardRecipeSaver"
+        "WORKFLOW 08 : VITRINE COMPL\u00c8TE DES 18 N\u0152UDS ZIGGART DANS UN SEUL WORKFLOW STRUCTUR\u00c9\n- Colonne 1 (Wildcards) : ZiggartWildcardProcessor, ZiggartWildcardProcessorAllInOne, ZiggartCollectionSceneBuilder, ZiggartWildcardEncode, ZiggartCanonicalThemeResolver, ZiggartWildcardVLMEnhancer\n- Colonne 2 (VLM & G\u00e9n\u00e9ration de Base) : ZiggartGGUFVLMLoader, ZiggartGGUFVisionPrompt, CheckpointLoaderSimple, KSampler\n- Colonne 3 (Detailers Krea2) : ZiggartMultiSubjectDetailer, ZiggartDetailerKrea2, ZiggartAutoPromptDetailer\n- Colonne 4 (D\u00e9tection, Critique, Inpaint & Crop/Stitch) : ZiggartWeVisOneDetector, ZiggartVLMImageCritic, ZiggartVLMInpaintPrompter, ZiggartCropByBBox, ZiggartStitchByBBox\n- Colonne 5 (Upscaling & Sauvegarde Recette) : ZiggartSmartTileUpscaler, ZiggartWildcardRecipeSaver"
       ],
       "widgets_values_named": {
-        "text": "WORKFLOW 08 : VITRINE COMPLÈTE DES 18 NŒUDS ZIGGART DANS UN SEUL WORKFLOW STRUCTURÉ\n- Colonne 1 (Wildcards) : ZiggartWildcardProcessor, ZiggartWildcardProcessorAllInOne, ZiggartCollectionSceneBuilder, ZiggartWildcardEncode, ZiggartCanonicalThemeResolver, ZiggartWildcardVLMEnhancer\n- Colonne 2 (VLM & Génération de Base) : ZiggartGGUFVLMLoader, ZiggartGGUFVisionPrompt, CheckpointLoaderSimple, KSampler\n- Colonne 3 (Detailers Krea2) : ZiggartMultiSubjectDetailer, ZiggartDetailerKrea2, ZiggartAutoPromptDetailer\n- Colonne 4 (Détection, Critique, Inpaint & Crop/Stitch) : ZiggartWeVisOneDetector, ZiggartVLMImageCritic, ZiggartVLMInpaintPrompter, ZiggartCropByBBox, ZiggartStitchByBBox\n- Colonne 5 (Upscaling & Sauvegarde Recette) : ZiggartSmartTileUpscaler, ZiggartWildcardRecipeSaver"
+        "text": "WORKFLOW 08 : VITRINE COMPL\u00c8TE DES 18 N\u0152UDS ZIGGART DANS UN SEUL WORKFLOW STRUCTUR\u00c9\n- Colonne 1 (Wildcards) : ZiggartWildcardProcessor, ZiggartWildcardProcessorAllInOne, ZiggartCollectionSceneBuilder, ZiggartWildcardEncode, ZiggartCanonicalThemeResolver, ZiggartWildcardVLMEnhancer\n- Colonne 2 (VLM & G\u00e9n\u00e9ration de Base) : ZiggartGGUFVLMLoader, ZiggartGGUFVisionPrompt, CheckpointLoaderSimple, KSampler\n- Colonne 3 (Detailers Krea2) : ZiggartMultiSubjectDetailer, ZiggartDetailerKrea2, ZiggartAutoPromptDetailer\n- Colonne 4 (D\u00e9tection, Critique, Inpaint & Crop/Stitch) : ZiggartWeVisOneDetector, ZiggartVLMImageCritic, ZiggartVLMInpaintPrompter, ZiggartCropByBBox, ZiggartStitchByBBox\n- Colonne 5 (Upscaling & Sauvegarde Recette) : ZiggartSmartTileUpscaler, ZiggartWildcardRecipeSaver"
       },
       "color": "#432",
       "bgcolor": "#653"
@@ -550,7 +550,11 @@
         "f16",
         512,
         true,
-        256
+        256,
+        "auto",
+        "",
+        true,
+        -1
       ],
       "widgets_values_named": {
         "model": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
@@ -2453,7 +2457,7 @@
   "groups": [
     {
       "id": 1,
-      "title": "MASTER ARCHITECTURE SHOWCASE — LES 18 NŒUDS ZIGGART RÉUNIS",
+      "title": "MASTER ARCHITECTURE SHOWCASE \u2014 LES 18 N\u0152UDS ZIGGART R\u00c9UNIS",
       "bounding": [
         -600.0,
         -260.0,

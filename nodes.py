@@ -43,6 +43,7 @@ from .embedded_model import (
     EmbeddedLlamaError,
     ModelConfig,
     build_json_schema_response_format,
+    find_llama_server_binary,
     strip_thinking_tags,
 )
 
@@ -318,6 +319,10 @@ def _resolve_vlm_node_config(
     prefix_cache_mb: int = 256,
     kv_cache_type: str = "f16",
     n_batch: int = 512,
+    backend: str = "",
+    llama_server_path: str = "",
+    auto_download_llama_server: bool = False,
+    image_min_tokens: int = -1,
 ) -> ModelConfig:
     if isinstance(vlm_config, ModelConfig):
         return vlm_config
@@ -328,6 +333,9 @@ def _resolve_vlm_node_config(
         "mmproj GGUF",
         allow_empty=allow_empty_mmproj,
     )
+    eff_backend = (backend or "").strip()
+    if not eff_backend:
+        eff_backend = "auto" if find_llama_server_binary(llama_server_path) else "in_process_gguf"
     return ModelConfig(
         model_path=model_path,
         mmproj_path=projector_path,
@@ -340,6 +348,10 @@ def _resolve_vlm_node_config(
         prefix_cache_mb=int(prefix_cache_mb),
         kv_cache_type=str(kv_cache_type or "f16"),
         n_batch=int(n_batch),
+        backend=eff_backend,
+        llama_server_path=(llama_server_path or "").strip(),
+        auto_download_llama_server=bool(auto_download_llama_server),
+        image_min_tokens=int(image_min_tokens),
     )
 
 
@@ -807,6 +819,37 @@ class ZiggartGGUFVLMLoader:
                 ),
                 "enable_prefix_cache": ("BOOLEAN", {"default": True}),
                 "prefix_cache_mb": ("INT", {"default": 256, "min": 16, "max": 4096, "step": 32}),
+                "backend": (
+                    ["auto", "in_process_gguf", "llama_server"],
+                    {
+                        "default": "auto",
+                        "tooltip": "auto: in-process llama-cpp-python with automatic fallback to local llama-server for newer architectures (e.g. Inkling-2-Mini).",
+                    },
+                ),
+                "llama_server_path": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "tooltip": "Optional path to llama-server.exe (leave empty to auto-detect in Ziggart-Nodes/bin/llama.cpp/ or PATH).",
+                    },
+                ),
+                "auto_download_llama_server": (
+                    "BOOLEAN",
+                    {
+                        "default": True,
+                        "tooltip": "Automatically download the official llama.cpp Windows CUDA llama-server binary into bin/llama.cpp/ if needed for unsupported architectures.",
+                    },
+                ),
+                "image_min_tokens": (
+                    "INT",
+                    {
+                        "default": -1,
+                        "min": -1,
+                        "max": 4096,
+                        "step": 64,
+                        "tooltip": "-1 = model default; set 1024 for higher Qwen-VL / Ornith grounding accuracy.",
+                    },
+                ),
             },
         }
 
@@ -825,6 +868,10 @@ class ZiggartGGUFVLMLoader:
         n_batch: int = 512,
         enable_prefix_cache: bool = True,
         prefix_cache_mb: int = 256,
+        backend: str = "auto",
+        llama_server_path: str = "",
+        auto_download_llama_server: bool = True,
+        image_min_tokens: int = -1,
     ) -> tuple[ModelConfig]:
         model_path = _resolve_gguf(model, model_path_override, "model GGUF")
         projector_path = _resolve_gguf(
@@ -843,6 +890,10 @@ class ZiggartGGUFVLMLoader:
                 prefix_cache_mb=int(prefix_cache_mb),
                 kv_cache_type=str(kv_cache_type or "f16"),
                 n_batch=int(n_batch),
+                backend=str(backend or "auto"),
+                llama_server_path=(llama_server_path or "").strip(),
+                auto_download_llama_server=bool(auto_download_llama_server),
+                image_min_tokens=int(image_min_tokens),
             ),
         )
 

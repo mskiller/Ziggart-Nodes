@@ -425,6 +425,230 @@ class VisionImprovementsAndHardeningTests(unittest.TestCase):
 
         self.assertEqual(seen_types, set(pkg.NODE_CLASS_MAPPINGS.keys()))
 
+    # ------------------------------------------------------------------
+    # Multi-Architecture GGUF, Gemma4/Qwen35/Inkling2 Handlers & llama-server
+    # ------------------------------------------------------------------
+
+    def test_read_gguf_metadata_and_missing_files(self):
+        import struct
+
+        def _pack_str(s: str) -> bytes:
+            b = s.encode("utf-8")
+            return struct.pack("<Q", len(b)) + b
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "not_gguf.bin"
+            bad.write_bytes(b"NOPE1234567890")
+            self.assertEqual(embedded_model.read_gguf_metadata(str(bad)), {})
+            self.assertEqual(embedded_model.read_gguf_metadata(str(Path(tmp) / "missing.gguf")), {})
+
+            gguf_path = Path(tmp) / "test_inkling2.gguf"
+            kvs = [
+                ("general.architecture", 8, _pack_str("inkling2")),
+                ("general.name", 8, _pack_str("Inkling-2-Mini")),
+                ("tokenizer.chat_template", 8, _pack_str("{{ messages }}")),
+                ("clip.has_vision_encoder", 7, b"\x01"),
+            ]
+            blob = bytearray(b"GGUF")
+            blob.extend(struct.pack("<IQQ", 3, 0, len(kvs)))
+            for k, vt, raw_val in kvs:
+                blob.extend(_pack_str(k))
+                blob.extend(struct.pack("<I", vt))
+                blob.extend(raw_val)
+            gguf_path.write_bytes(bytes(blob))
+
+            meta = embedded_model.read_gguf_metadata(str(gguf_path))
+            self.assertEqual(meta.get("gguf_version"), 3)
+            self.assertEqual(meta.get("general.architecture"), "inkling2")
+            self.assertEqual(meta.get("general.name"), "Inkling-2-Mini")
+            self.assertTrue(meta.get("has_chat_template"))
+            self.assertTrue(meta.get("clip.has_vision_encoder"))
+
+    def test_strip_thinking_tags_handles_gemma4_and_thought_variants(self):
+        self.assertEqual(
+            embedded_model.strip_thinking_tags("<|channel>thought\n<channel|>The square is red."),
+            "The square is red.",
+        )
+        self.assertEqual(
+            embedded_model.strip_thinking_tags("<|channel>thought\nLet me look closely.<channel|>A blue vase."),
+            "A blue vase.",
+        )
+        self.assertEqual(
+            embedded_model.strip_thinking_tags("<thought>reasoning here</thought>\nClean final prompt."),
+            "Clean final prompt.",
+        )
+        # Empty marker-only output returns empty string cleanly
+        self.assertEqual(
+            embedded_model.strip_thinking_tags("<|channel>thought\n<channel|>"),
+            "",
+        )
+
+    def test_architecture_handler_selection_and_enable_thinking_sync(self):
+        import types
+
+        class _FakeHandlerBase:
+            def __init__(self, mmproj_path=None, verbose=True, use_gpu=True, **kwargs):
+                self.mmproj_path = mmproj_path
+                self.use_gpu = use_gpu
+                self.extra_template_arguments = {}
+                self.calls = []
+
+            def __call__(self, **kwargs):
+                self.calls.append((kwargs.get("enable_thinking"), dict(self.extra_template_arguments)))
+                return {"choices": [{"message": {"content": "ok"}}]}
+
+        class Gemma4ChatHandler(_FakeHandlerBase):
+            def __init__(self, enable_thinking=True, **kwargs):
+                self.enable_thinking = enable_thinking
+                super().__init__(**kwargs)
+
+        class Qwen35ChatHandler(_FakeHandlerBase):
+            def __init__(self, enable_thinking=True, **kwargs):
+                self.enable_thinking = enable_thinking
+                super().__init__(**kwargs)
+
+        class Qwen3VLChatHandler(_FakeHandlerBase):
+            pass
+
+        class GenericMTMDChatHandler(_FakeHandlerBase):
+            def __init__(self, chat_format=None, mmproj_path="", verbose=True, **kwargs):
+                self.chat_format = chat_format
+                super().__init__(mmproj_path=mmproj_path, verbose=verbose, **kwargs)
+
+        class MTMDChatHandler(_FakeHandlerBase):
+            pass
+
+        fake_cf = types.SimpleNamespace(
+            Gemma4ChatHandler=Gemma4ChatHandler,
+            Qwen35ChatHandler=Qwen35ChatHandler,
+            Qwen3VLChatHandler=Qwen3VLChatHandler,
+            GenericMTMDChatHandler=GenericMTMDChatHandler,
+            MTMDChatHandler=MTMDChatHandler,
+        )
+        fake_mm = types.SimpleNamespace()
+        fake_pkg = types.SimpleNamespace(
+            llama_chat_format=fake_cf,
+            llama_multimodal=fake_mm,
+        )
+
+        with mock.patch.dict(
+            sys.modules,
+            {
+                "llama_cpp": fake_pkg,
+                "llama_cpp.llama_chat_format": fake_cf,
+                "llama_cpp.llama_multimodal": fake_mm,
+            },
+        ):
+            h_gemma, name_gemma = embedded_model._create_mtmd_chat_handler(
+                mmproj_path="g.mmproj.gguf",
+                arch="gemma4",
+                has_chat_template=True,
+                use_gpu=True,
+            )
+            self.assertEqual(name_gemma, "Gemma4ChatHandler")
+            self.assertIsInstance(h_gemma, Gemma4ChatHandler)
+
+            h_q35, name_q35 = embedded_model._create_mtmd_chat_handler(
+                mmproj_path="ornith.mmproj.gguf",
+                arch="qwen35",
+                has_chat_template=True,
+                use_gpu=True,
+            )
+            self.assertEqual(name_q35, "Qwen35ChatHandler")
+            self.assertIsInstance(h_q35, Qwen35ChatHandler)
+
+            h_ink, name_ink = embedded_model._create_mtmd_chat_handler(
+                mmproj_path="inkling.mmproj.gguf",
+                arch="inkling2_loop",
+                has_chat_template=True,
+                use_gpu=True,
+            )
+            self.assertEqual(name_ink, "GenericMTMDChatHandler")
+            self.assertIsNone(h_ink.chat_format)
+
+            h_leg, name_leg = embedded_model._create_mtmd_chat_handler(
+                mmproj_path="legacy.mmproj.gguf",
+                arch="",
+                has_chat_template=False,
+                use_gpu=True,
+            )
+            self.assertEqual(name_leg, "MTMDChatHandler")
+
+            # Verify live enable_thinking propagation onto handler instance & extra_template_arguments
+            mgr = embedded_model.EmbeddedModelManager()
+            mgr._model = object()
+            mgr._handler = h_gemma
+            mgr._invoke_local_completion(
+                [{"role": "user", "content": "hi"}],
+                max_tokens=32,
+                temperature=0.2,
+                top_p=0.9,
+                top_k=40,
+                seed=-1,
+                enable_thinking=True,
+                response_format=None,
+                stream=False,
+            )
+            self.assertTrue(h_gemma.enable_thinking)
+            self.assertEqual(h_gemma.calls[-1], (True, {"enable_thinking": True}))
+
+    def test_auto_fallback_to_managed_llama_server_and_clean_unload(self):
+        import types
+
+        loader = nodes.ZiggartGGUFVLMLoader()
+        with mock.patch.object(nodes, "_resolve_gguf", side_effect=["C:/models/inkling2.gguf", "C:/models/mmproj.gguf"]):
+            (cfg,) = loader.create_config(
+                model="inkling2.gguf",
+                mmproj="mmproj.gguf",
+                backend="auto",
+                llama_server_path="C:/fake/llama-server.exe",
+                auto_download_llama_server=False,
+                image_min_tokens=1024,
+            )
+        self.assertEqual(cfg.backend, "auto")
+        self.assertEqual(cfg.llama_server_path, "C:/fake/llama-server.exe")
+        self.assertEqual(cfg.image_min_tokens, 1024)
+
+        fake_llama_mod = types.SimpleNamespace(
+            __version__="0.4.7+cu130",
+            Llama=mock.Mock(side_effect=ValueError("Failed to load model from file")),
+        )
+        fake_proc = mock.MagicMock()
+        fake_proc.poll.return_value = None
+        fake_proc.stderr = io.BytesIO(b"")
+
+        chat_payload = json.dumps({"choices": [{"message": {"content": "Red square from Inkling-2-Mini"}}]}).encode("utf-8")
+
+        mgr = embedded_model.EmbeddedModelManager()
+        with mock.patch.dict(sys.modules, {"llama_cpp": fake_llama_mod}), \
+             mock.patch.object(embedded_model, "read_gguf_metadata", return_value={"general.architecture": "inkling2", "has_chat_template": True}), \
+             mock.patch.object(embedded_model, "_create_mtmd_chat_handler", return_value=(object(), "GenericMTMDChatHandler")), \
+             mock.patch.object(embedded_model, "find_llama_server_binary", return_value="C:/fake/llama-server.exe"), \
+             mock.patch("subprocess.Popen", return_value=fake_proc) as m_popen, \
+             mock.patch("urllib.request.urlopen", side_effect=[_FakeHTTPResponse(b'{"status":"ok"}', status=200), _FakeHTTPResponse(chat_payload, status=200)]):
+            mgr.load(cfg, unload_comfy_models=False)
+            self.assertTrue(mgr.is_loaded())
+            self.assertTrue(mgr._server_base_url.startswith("http://127.0.0.1:"))
+            cmd = m_popen.call_args[0][0]
+            self.assertIn("--jinja", cmd)
+            self.assertIn("--image-min-tokens", cmd)
+            self.assertIn("1024", cmd)
+
+            out = mgr.chat(
+                [{"role": "user", "content": "describe"}],
+                max_tokens=64,
+                temperature=0.2,
+                top_p=0.9,
+                top_k=40,
+                seed=1,
+                enable_thinking=False,
+            )
+            self.assertEqual(out, "Red square from Inkling-2-Mini")
+
+            mgr.unload()
+            self.assertFalse(mgr.is_loaded())
+            fake_proc.terminate.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -20,15 +20,15 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "Guide — Krea2 VLM Smart Tile Upscaler (Mode VLM Anti-Hallucination vs Mode Rapide Pure-Krea2)",
+      "title": "Guide \u2014 Krea2 VLM Smart Tile Upscaler (Mode VLM Anti-Hallucination vs Mode Rapide Pure-Krea2)",
       "properties": {
         "Node name for S&R": "Note"
       },
       "widgets_values": [
-        "WORKFLOW 06 : LES 2 MODES DU KREA2 VLM SMART TILE UPSCALER\n1. MODE A (enable_vlm_tile_prompts = True) : Le VLM GGUF décrit chaque tuile individuellement avant l'échantillonnage Krea 2 Turbo.\n   - Évite totalement les hallucinations de visages/personnages dans les tuiles de décor ou d'arrière-plan lors d'un upscale 2x–4x !\n2. MODE B (enable_vlm_tile_prompts = False) : Upscaling tuilé ultra-rapide par Krea 2 Turbo sans charger de VLM, utilisant uniquement base_positive_prompt."
+        "WORKFLOW 06 : LES 2 MODES DU KREA2 VLM SMART TILE UPSCALER\n1. MODE A (enable_vlm_tile_prompts = True) : Le VLM GGUF d\u00e9crit chaque tuile individuellement avant l'\u00e9chantillonnage Krea 2 Turbo.\n   - \u00c9vite totalement les hallucinations de visages/personnages dans les tuiles de d\u00e9cor ou d'arri\u00e8re-plan lors d'un upscale 2x\u20134x !\n2. MODE B (enable_vlm_tile_prompts = False) : Upscaling tuil\u00e9 ultra-rapide par Krea 2 Turbo sans charger de VLM, utilisant uniquement base_positive_prompt."
       ],
       "widgets_values_named": {
-        "text": "WORKFLOW 06 : LES 2 MODES DU KREA2 VLM SMART TILE UPSCALER\n1. MODE A (enable_vlm_tile_prompts = True) : Le VLM GGUF décrit chaque tuile individuellement avant l'échantillonnage Krea 2 Turbo.\n   - Évite totalement les hallucinations de visages/personnages dans les tuiles de décor ou d'arrière-plan lors d'un upscale 2x–4x !\n2. MODE B (enable_vlm_tile_prompts = False) : Upscaling tuilé ultra-rapide par Krea 2 Turbo sans charger de VLM, utilisant uniquement base_positive_prompt."
+        "text": "WORKFLOW 06 : LES 2 MODES DU KREA2 VLM SMART TILE UPSCALER\n1. MODE A (enable_vlm_tile_prompts = True) : Le VLM GGUF d\u00e9crit chaque tuile individuellement avant l'\u00e9chantillonnage Krea 2 Turbo.\n   - \u00c9vite totalement les hallucinations de visages/personnages dans les tuiles de d\u00e9cor ou d'arri\u00e8re-plan lors d'un upscale 2x\u20134x !\n2. MODE B (enable_vlm_tile_prompts = False) : Upscaling tuil\u00e9 ultra-rapide par Krea 2 Turbo sans charger de VLM, utilisant uniquement base_positive_prompt."
       },
       "color": "#432",
       "bgcolor": "#653"
@@ -179,7 +179,11 @@
         "f16",
         512,
         true,
-        256
+        256,
+        "auto",
+        "",
+        true,
+        -1
       ],
       "widgets_values_named": {
         "model": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
@@ -263,7 +267,7 @@
           ]
         }
       ],
-      "title": "Mode A — Krea2 VLM Smart Tile Upscaler (VLM Per-Tile Enabled)",
+      "title": "Mode A \u2014 Krea2 VLM Smart Tile Upscaler (VLM Per-Tile Enabled)",
       "properties": {
         "Node name for S&R": "ZiggartSmartTileUpscaler"
       },
@@ -338,7 +342,7 @@
         }
       ],
       "outputs": [],
-      "title": "Preview — Individual Refined Tiles Batch",
+      "title": "Preview \u2014 Individual Refined Tiles Batch",
       "properties": {
         "Node name for S&R": "PreviewImage"
       },
@@ -495,7 +499,7 @@
           "links": []
         }
       ],
-      "title": "Mode B — Krea2 Smart Tile Upscaler (Fast No-VLM Mode)",
+      "title": "Mode B \u2014 Krea2 Smart Tile Upscaler (Fast No-VLM Mode)",
       "properties": {
         "Node name for S&R": "ZiggartSmartTileUpscaler"
       },
@@ -717,7 +721,7 @@
     },
     {
       "id": 3,
-      "title": "2A. Mode A — Smart Tile Upscaler with Per-Tile VLM Captioning (enable_vlm_tile_prompts = True)",
+      "title": "2A. Mode A \u2014 Smart Tile Upscaler with Per-Tile VLM Captioning (enable_vlm_tile_prompts = True)",
       "bounding": [
         70.0,
         -10.0,
@@ -729,7 +733,7 @@
     },
     {
       "id": 4,
-      "title": "2B. Mode B — Fast Pure-Krea2 Tiled Upscaler (enable_vlm_tile_prompts = False)",
+      "title": "2B. Mode B \u2014 Fast Pure-Krea2 Tiled Upscaler (enable_vlm_tile_prompts = False)",
       "bounding": [
         70.0,
         580.0,

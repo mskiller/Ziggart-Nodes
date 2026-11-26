@@ -20,15 +20,15 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "Guide — GGUF Vision Prompt (Simple vs Specialist Passes + Detail Crop + Reference Image) & Harmonizer Multimodal",
+      "title": "Guide \u2014 GGUF Vision Prompt (Simple vs Specialist Passes + Detail Crop + Reference Image) & Harmonizer Multimodal",
       "properties": {
         "Node name for S&R": "Note"
       },
       "widgets_values": [
-        "WORKFLOW 07 : TOUS LES USAGES DE GGUF VISION PROMPT & WILDCARD-TO-VLM HARMONIZER MULTIMODAL\n1. USAGE 1 (Single-Pass Reverse Prompting) : Décrit une image en un prompt détaillé directement prêt pour Krea 2 / Flux.\n2. USAGE 2 (Multi-Pass Specialist Analysis + Detail Crop + Reference Image) :\n   - WeVisOne-VL Detector extrait un 'detail_crop' haute-résolution du sujet principal.\n   - GGUF Vision Prompt exécute 3 passes spécialistes ('analyze_composition', 'analyze_subject', 'analyze_style') + la synthèse finale !\n3. USAGE 3 (Wildcard-to-VLM Harmonizer avec Reference Image) : Harmonise un wildcard en s'inspirant de l'éclairage et de la palette d'une image de référence."
+        "WORKFLOW 07 : TOUS LES USAGES DE GGUF VISION PROMPT & WILDCARD-TO-VLM HARMONIZER MULTIMODAL\n1. USAGE 1 (Single-Pass Reverse Prompting) : D\u00e9crit une image en un prompt d\u00e9taill\u00e9 directement pr\u00eat pour Krea 2 / Flux.\n2. USAGE 2 (Multi-Pass Specialist Analysis + Detail Crop + Reference Image) :\n   - WeVisOne-VL Detector extrait un 'detail_crop' haute-r\u00e9solution du sujet principal.\n   - GGUF Vision Prompt ex\u00e9cute 3 passes sp\u00e9cialistes ('analyze_composition', 'analyze_subject', 'analyze_style') + la synth\u00e8se finale !\n3. USAGE 3 (Wildcard-to-VLM Harmonizer avec Reference Image) : Harmonise un wildcard en s'inspirant de l'\u00e9clairage et de la palette d'une image de r\u00e9f\u00e9rence."
       ],
       "widgets_values_named": {
-        "text": "WORKFLOW 07 : TOUS LES USAGES DE GGUF VISION PROMPT & WILDCARD-TO-VLM HARMONIZER MULTIMODAL\n1. USAGE 1 (Single-Pass Reverse Prompting) : Décrit une image en un prompt détaillé directement prêt pour Krea 2 / Flux.\n2. USAGE 2 (Multi-Pass Specialist Analysis + Detail Crop + Reference Image) :\n   - WeVisOne-VL Detector extrait un 'detail_crop' haute-résolution du sujet principal.\n   - GGUF Vision Prompt exécute 3 passes spécialistes ('analyze_composition', 'analyze_subject', 'analyze_style') + la synthèse finale !\n3. USAGE 3 (Wildcard-to-VLM Harmonizer avec Reference Image) : Harmonise un wildcard en s'inspirant de l'éclairage et de la palette d'une image de référence."
+        "text": "WORKFLOW 07 : TOUS LES USAGES DE GGUF VISION PROMPT & WILDCARD-TO-VLM HARMONIZER MULTIMODAL\n1. USAGE 1 (Single-Pass Reverse Prompting) : D\u00e9crit une image en un prompt d\u00e9taill\u00e9 directement pr\u00eat pour Krea 2 / Flux.\n2. USAGE 2 (Multi-Pass Specialist Analysis + Detail Crop + Reference Image) :\n   - WeVisOne-VL Detector extrait un 'detail_crop' haute-r\u00e9solution du sujet principal.\n   - GGUF Vision Prompt ex\u00e9cute 3 passes sp\u00e9cialistes ('analyze_composition', 'analyze_subject', 'analyze_style') + la synth\u00e8se finale !\n3. USAGE 3 (Wildcard-to-VLM Harmonizer avec Reference Image) : Harmonise un wildcard en s'inspirant de l'\u00e9clairage et de la palette d'une image de r\u00e9f\u00e9rence."
       },
       "color": "#432",
       "bgcolor": "#653"
@@ -173,7 +173,11 @@
         "f16",
         512,
         true,
-        256
+        256,
+        "auto",
+        "",
+        true,
+        -1
       ],
       "widgets_values_named": {
         "model": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
@@ -260,7 +264,7 @@
           "links": []
         }
       ],
-      "title": "Usage A — GGUF Vision Prompt (Fast Single-Pass Image-to-Prompt)",
+      "title": "Usage A \u2014 GGUF Vision Prompt (Fast Single-Pass Image-to-Prompt)",
       "properties": {
         "Node name for S&R": "ZiggartGGUFVisionPrompt"
       },
@@ -482,7 +486,7 @@
           "links": []
         }
       ],
-      "title": "Usage B — GGUF Vision Prompt (Composition + Subject + Style Specialist Passes + Detail Crop + Ref Image)",
+      "title": "Usage B \u2014 GGUF Vision Prompt (Composition + Subject + Style Specialist Passes + Detail Crop + Ref Image)",
       "properties": {
         "Node name for S&R": "ZiggartGGUFVisionPrompt"
       },
@@ -590,7 +594,7 @@
           ]
         }
       ],
-      "title": "Usage C — Wildcard-to-VLM Harmonizer (with Reference Image)",
+      "title": "Usage C \u2014 Wildcard-to-VLM Harmonizer (with Reference Image)",
       "properties": {
         "Node name for S&R": "ZiggartWildcardVLMEnhancer"
       },
@@ -1252,7 +1256,7 @@
     },
     {
       "id": 3,
-      "title": "2. GGUF Vision Prompt — Usage A (Fast Reverse Prompt) & Usage B (Specialist Passes + Detail Crop)",
+      "title": "2. GGUF Vision Prompt \u2014 Usage A (Fast Reverse Prompt) & Usage B (Specialist Passes + Detail Crop)",
       "bounding": [
         60.0,
         -10.0,
@@ -1264,7 +1268,7 @@
     },
     {
       "id": 4,
-      "title": "3. Usage C — Reference-Image Guided Wildcard Harmonizer + Generation",
+      "title": "3. Usage C \u2014 Reference-Image Guided Wildcard Harmonizer + Generation",
       "bounding": [
         1140.0,
         -10.0,

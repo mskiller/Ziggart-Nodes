@@ -20,15 +20,15 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "Guide — Workflow 15 : Folder Image Batch & Queue Loader -> GGUF Vision Prompt -> Single-Line TXT Saver & Dataset Caption Curator",
+      "title": "Guide \u2014 Workflow 15 : Folder Image Batch & Queue Loader -> GGUF Vision Prompt -> Single-Line TXT Saver & Dataset Caption Curator",
       "properties": {
         "Node name for S&R": "Note"
       },
       "widgets_values": [
-        "WORKFLOW 15 : TRAITEMENT D'UN DOSSIER D'IMAGES (1 PAR 1) VERS GGUF VISION PROMPT, SAUVEGARDE TXT MONO-LIGNE & CURATION DE DATASET LORA/KREA2\n1. Ziggart Folder Image Batch & Queue Loader : Renseignez 'folder_path', cliquez sur '🔍 Scan Folder & Count Queues' pour connaître le nombre exact de queues requis, puis cliquez sur '▶️ Queue All Remaining Images (1-by-1)' (ou utilisez 'image_index' en mode 'increment').\n2. GGUF Vision Prompt : Analyse chaque image une par une et génère le prompt descriptif détaillé.\n3. Ziggart Vision Prompt TXT & Wildcard Line Saver : Aplatit automatiquement les prompts multi-lignes en une seule ligne propre ('flatten_to_single_line = True', 'clean_markdown_formatting = True'), ignore les doublons ('skip_duplicate_lines = True'), et ajoute 1 nouvelle ligne par passe dans 'all_prompts_krea2.txt' (sans aucune ligne vide) + optionnellement un fichier '<image_name>.txt' à côté de chaque image.\n4. Ziggart Dataset Caption Curator & Trigger Injector : Audite et nettoie un dossier de captions '.txt' (suppression du boilerplate VLM 'In this image...', injection idempotente de trigger words LoRA en préfixe/suffixe, recherche/remplacement, contrôle du budget de tokens CLIP/Qwen3VL, et planche contact QA visuelle)."
+        "WORKFLOW 15 : TRAITEMENT D'UN DOSSIER D'IMAGES (1 PAR 1) VERS GGUF VISION PROMPT, SAUVEGARDE TXT MONO-LIGNE & CURATION DE DATASET LORA/KREA2\n1. Ziggart Folder Image Batch & Queue Loader : Renseignez 'folder_path', cliquez sur '\ud83d\udd0d Scan Folder & Count Queues' pour conna\u00eetre le nombre exact de queues requis, puis cliquez sur '\u25b6\ufe0f Queue All Remaining Images (1-by-1)' (ou utilisez 'image_index' en mode 'increment').\n2. GGUF Vision Prompt : Analyse chaque image une par une et g\u00e9n\u00e8re le prompt descriptif d\u00e9taill\u00e9.\n3. Ziggart Vision Prompt TXT & Wildcard Line Saver : Aplatit automatiquement les prompts multi-lignes en une seule ligne propre ('flatten_to_single_line = True', 'clean_markdown_formatting = True'), ignore les doublons ('skip_duplicate_lines = True'), et ajoute 1 nouvelle ligne par passe dans 'all_prompts_krea2.txt' (sans aucune ligne vide) + optionnellement un fichier '<image_name>.txt' \u00e0 c\u00f4t\u00e9 de chaque image.\n4. Ziggart Dataset Caption Curator & Trigger Injector : Audite et nettoie un dossier de captions '.txt' (suppression du boilerplate VLM 'In this image...', injection idempotente de trigger words LoRA en pr\u00e9fixe/suffixe, recherche/remplacement, contr\u00f4le du budget de tokens CLIP/Qwen3VL, et planche contact QA visuelle)."
       ],
       "widgets_values_named": {
-        "text": "WORKFLOW 15 : TRAITEMENT D'UN DOSSIER D'IMAGES (1 PAR 1) VERS GGUF VISION PROMPT, SAUVEGARDE TXT MONO-LIGNE & CURATION DE DATASET LORA/KREA2\n1. Ziggart Folder Image Batch & Queue Loader : Renseignez 'folder_path', cliquez sur '🔍 Scan Folder & Count Queues' pour connaître le nombre exact de queues requis, puis cliquez sur '▶️ Queue All Remaining Images (1-by-1)' (ou utilisez 'image_index' en mode 'increment').\n2. GGUF Vision Prompt : Analyse chaque image une par une et génère le prompt descriptif détaillé.\n3. Ziggart Vision Prompt TXT & Wildcard Line Saver : Aplatit automatiquement les prompts multi-lignes en une seule ligne propre ('flatten_to_single_line = True', 'clean_markdown_formatting = True'), ignore les doublons ('skip_duplicate_lines = True'), et ajoute 1 nouvelle ligne par passe dans 'all_prompts_krea2.txt' (sans aucune ligne vide) + optionnellement un fichier '<image_name>.txt' à côté de chaque image.\n4. Ziggart Dataset Caption Curator & Trigger Injector : Audite et nettoie un dossier de captions '.txt' (suppression du boilerplate VLM 'In this image...', injection idempotente de trigger words LoRA en préfixe/suffixe, recherche/remplacement, contrôle du budget de tokens CLIP/Qwen3VL, et planche contact QA visuelle)."
+        "text": "WORKFLOW 15 : TRAITEMENT D'UN DOSSIER D'IMAGES (1 PAR 1) VERS GGUF VISION PROMPT, SAUVEGARDE TXT MONO-LIGNE & CURATION DE DATASET LORA/KREA2\n1. Ziggart Folder Image Batch & Queue Loader : Renseignez 'folder_path', cliquez sur '\ud83d\udd0d Scan Folder & Count Queues' pour conna\u00eetre le nombre exact de queues requis, puis cliquez sur '\u25b6\ufe0f Queue All Remaining Images (1-by-1)' (ou utilisez 'image_index' en mode 'increment').\n2. GGUF Vision Prompt : Analyse chaque image une par une et g\u00e9n\u00e8re le prompt descriptif d\u00e9taill\u00e9.\n3. Ziggart Vision Prompt TXT & Wildcard Line Saver : Aplatit automatiquement les prompts multi-lignes en une seule ligne propre ('flatten_to_single_line = True', 'clean_markdown_formatting = True'), ignore les doublons ('skip_duplicate_lines = True'), et ajoute 1 nouvelle ligne par passe dans 'all_prompts_krea2.txt' (sans aucune ligne vide) + optionnellement un fichier '<image_name>.txt' \u00e0 c\u00f4t\u00e9 de chaque image.\n4. Ziggart Dataset Caption Curator & Trigger Injector : Audite et nettoie un dossier de captions '.txt' (suppression du boilerplate VLM 'In this image...', injection idempotente de trigger words LoRA en pr\u00e9fixe/suffixe, recherche/remplacement, contr\u00f4le du budget de tokens CLIP/Qwen3VL, et planche contact QA visuelle)."
       },
       "color": "#432",
       "bgcolor": "#653"
@@ -141,7 +141,7 @@
         "loop_index": false,
         "filename_filter": "",
         "seed": 42,
-        "status_text": "Enter a folder_path and click '🔍 Scan Folder & Count Queues'."
+        "status_text": "Enter a folder_path and click '\ud83d\udd0d Scan Folder & Count Queues'."
       },
       "color": "#223",
       "bgcolor": "#335"
@@ -188,7 +188,11 @@
         "f16",
         512,
         true,
-        256
+        256,
+        "auto",
+        "",
+        true,
+        -1
       ],
       "widgets_values_named": {
         "model": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",

@@ -20,7 +20,7 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "Guide — Workflow 16 : Vision Prompt -> Generate -> Compare & Revise Loop (2-3 Passes)",
+      "title": "Guide \u2014 Workflow 16 : Vision Prompt -> Generate -> Compare & Revise Loop (2-3 Passes)",
       "properties": {
         "Node name for S&R": "Note"
       },
@@ -114,7 +114,11 @@
         "f16",
         512,
         true,
-        256
+        256,
+        "auto",
+        "",
+        true,
+        -1
       ]
     },
     {

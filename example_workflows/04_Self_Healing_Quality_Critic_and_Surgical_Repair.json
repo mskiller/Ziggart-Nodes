@@ -20,15 +20,15 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "Guide — GGUF Quality & Anatomy Critic + Réparation Chirurgicale via BBox Crop / Stitch ou Detailers Krea2",
+      "title": "Guide \u2014 GGUF Quality & Anatomy Critic + R\u00e9paration Chirurgicale via BBox Crop / Stitch ou Detailers Krea2",
       "properties": {
         "Node name for S&R": "Note"
       },
       "widgets_values": [
-        "WORKFLOW 04 : AUTO-CORRECTION DES DÉFAUTS ANATOMIQUES (MAINS, YEUX, TEXTE, ARTEFACTS)\n1. GGUF Quality & Anatomy Critic : Analyse l'image (focus: 'all_defects', 'hands_and_limbs', 'faces_and_eyes', 'text_and_logos', ou 'custom').\n   - Retourne un score (1-10), les boîtes de défauts (bboxes_json), un masque (defect_mask), et un prompt de réparation sur-mesure (fix_positive_prompt).\n2. USAGE A (Pipeline Modulaire BBox Crop -> Custom KSampler -> BBox Feathered Stitch) :\n   - Découpe uniquement les boîtes défectueuses via BBox Crop, applique le crop_mask dans le latent, ré-échantillonne avec fix_positive_prompt, et fusionne avec BBox Feathered Stitch.\n3. USAGE B (Direct Critic -> Detailers Krea2) : Envoie fix_positive_prompt directement dans Detailers Krea2."
+        "WORKFLOW 04 : AUTO-CORRECTION DES D\u00c9FAUTS ANATOMIQUES (MAINS, YEUX, TEXTE, ARTEFACTS)\n1. GGUF Quality & Anatomy Critic : Analyse l'image (focus: 'all_defects', 'hands_and_limbs', 'faces_and_eyes', 'text_and_logos', ou 'custom').\n   - Retourne un score (1-10), les bo\u00eetes de d\u00e9fauts (bboxes_json), un masque (defect_mask), et un prompt de r\u00e9paration sur-mesure (fix_positive_prompt).\n2. USAGE A (Pipeline Modulaire BBox Crop -> Custom KSampler -> BBox Feathered Stitch) :\n   - D\u00e9coupe uniquement les bo\u00eetes d\u00e9fectueuses via BBox Crop, applique le crop_mask dans le latent, r\u00e9-\u00e9chantillonne avec fix_positive_prompt, et fusionne avec BBox Feathered Stitch.\n3. USAGE B (Direct Critic -> Detailers Krea2) : Envoie fix_positive_prompt directement dans Detailers Krea2."
       ],
       "widgets_values_named": {
-        "text": "WORKFLOW 04 : AUTO-CORRECTION DES DÉFAUTS ANATOMIQUES (MAINS, YEUX, TEXTE, ARTEFACTS)\n1. GGUF Quality & Anatomy Critic : Analyse l'image (focus: 'all_defects', 'hands_and_limbs', 'faces_and_eyes', 'text_and_logos', ou 'custom').\n   - Retourne un score (1-10), les boîtes de défauts (bboxes_json), un masque (defect_mask), et un prompt de réparation sur-mesure (fix_positive_prompt).\n2. USAGE A (Pipeline Modulaire BBox Crop -> Custom KSampler -> BBox Feathered Stitch) :\n   - Découpe uniquement les boîtes défectueuses via BBox Crop, applique le crop_mask dans le latent, ré-échantillonne avec fix_positive_prompt, et fusionne avec BBox Feathered Stitch.\n3. USAGE B (Direct Critic -> Detailers Krea2) : Envoie fix_positive_prompt directement dans Detailers Krea2."
+        "text": "WORKFLOW 04 : AUTO-CORRECTION DES D\u00c9FAUTS ANATOMIQUES (MAINS, YEUX, TEXTE, ARTEFACTS)\n1. GGUF Quality & Anatomy Critic : Analyse l'image (focus: 'all_defects', 'hands_and_limbs', 'faces_and_eyes', 'text_and_logos', ou 'custom').\n   - Retourne un score (1-10), les bo\u00eetes de d\u00e9fauts (bboxes_json), un masque (defect_mask), et un prompt de r\u00e9paration sur-mesure (fix_positive_prompt).\n2. USAGE A (Pipeline Modulaire BBox Crop -> Custom KSampler -> BBox Feathered Stitch) :\n   - D\u00e9coupe uniquement les bo\u00eetes d\u00e9fectueuses via BBox Crop, applique le crop_mask dans le latent, r\u00e9-\u00e9chantillonne avec fix_positive_prompt, et fusionne avec BBox Feathered Stitch.\n3. USAGE B (Direct Critic -> Detailers Krea2) : Envoie fix_positive_prompt directement dans Detailers Krea2."
       },
       "color": "#432",
       "bgcolor": "#653"
@@ -183,7 +183,11 @@
         "f16",
         512,
         true,
-        256
+        256,
+        "auto",
+        "",
+        true,
+        -1
       ],
       "widgets_values_named": {
         "model": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
@@ -959,7 +963,7 @@
           "links": []
         }
       ],
-      "title": "Usage B — Detailers Krea2 Guided by Critic's fix_positive_prompt",
+      "title": "Usage B \u2014 Detailers Krea2 Guided by Critic's fix_positive_prompt",
       "properties": {
         "Node name for S&R": "ZiggartDetailerKrea2"
       },
@@ -1040,7 +1044,7 @@
         }
       ],
       "outputs": [],
-      "title": "Preview — Direct Detailer Repaired Output",
+      "title": "Preview \u2014 Direct Detailer Repaired Output",
       "properties": {
         "Node name for S&R": "PreviewImage"
       },
@@ -1319,7 +1323,7 @@
     },
     {
       "id": 3,
-      "title": "2A. Usage A — Surgical Repair via BBox Crop + Custom KSampler + BBox Feathered Stitch",
+      "title": "2A. Usage A \u2014 Surgical Repair via BBox Crop + Custom KSampler + BBox Feathered Stitch",
       "bounding": [
         540.0,
         -10.0,
@@ -1331,7 +1335,7 @@
     },
     {
       "id": 4,
-      "title": "2B. Usage B — Direct Critic fix_positive_prompt -> Detailers Krea2",
+      "title": "2B. Usage B \u2014 Direct Critic fix_positive_prompt -> Detailers Krea2",
       "bounding": [
         540.0,
         580.0,

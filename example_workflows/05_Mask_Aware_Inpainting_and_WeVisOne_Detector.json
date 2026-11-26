@@ -20,15 +20,15 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "Guide — WeVisOne-VL Detector + GGUF Mask-Aware Inpaint Prompter + Inpainting Haute-Résolution",
+      "title": "Guide \u2014 WeVisOne-VL Detector + GGUF Mask-Aware Inpaint Prompter + Inpainting Haute-R\u00e9solution",
       "properties": {
         "Node name for S&R": "Note"
       },
       "widgets_values": [
-        "WORKFLOW 05 : DÉTECTION OPEN-VOCABULARY & INPAINTING HARMONISÉ PAR VLM\n1. WeVisOne-VL Detector : Détecte n'importe quelle cible en langage naturel (ex: 'sunglasses or upper face') et génère un MASK automatique + bboxes_json.\n   (Vous pouvez aussi utiliser directement la sortie MASK du nœud LoadImage dessinée dans le MaskEditor de ComfyUI !)\n2. GGUF Mask-Aware Inpaint Prompter : Encadre la zone masquée sur la scène globale et envoie la vue globale + le crop au VLM avec votre instruction d'édition\n   (ex: 'Add ornate gold steampunk goggles with glowing cyan lenses') pour générer un prompt d'inpainting cohérent avec l'éclairage de la scène.\n3. BBox Crop -> KSampler Inpaint -> BBox Feathered Stitch : Inpaint en haute résolution (768px) uniquement sur la boîte cible et fusionne sans couture."
+        "WORKFLOW 05 : D\u00c9TECTION OPEN-VOCABULARY & INPAINTING HARMONIS\u00c9 PAR VLM\n1. WeVisOne-VL Detector : D\u00e9tecte n'importe quelle cible en langage naturel (ex: 'sunglasses or upper face') et g\u00e9n\u00e8re un MASK automatique + bboxes_json.\n   (Vous pouvez aussi utiliser directement la sortie MASK du n\u0153ud LoadImage dessin\u00e9e dans le MaskEditor de ComfyUI !)\n2. GGUF Mask-Aware Inpaint Prompter : Encadre la zone masqu\u00e9e sur la sc\u00e8ne globale et envoie la vue globale + le crop au VLM avec votre instruction d'\u00e9dition\n   (ex: 'Add ornate gold steampunk goggles with glowing cyan lenses') pour g\u00e9n\u00e9rer un prompt d'inpainting coh\u00e9rent avec l'\u00e9clairage de la sc\u00e8ne.\n3. BBox Crop -> KSampler Inpaint -> BBox Feathered Stitch : Inpaint en haute r\u00e9solution (768px) uniquement sur la bo\u00eete cible et fusionne sans couture."
       ],
       "widgets_values_named": {
-        "text": "WORKFLOW 05 : DÉTECTION OPEN-VOCABULARY & INPAINTING HARMONISÉ PAR VLM\n1. WeVisOne-VL Detector : Détecte n'importe quelle cible en langage naturel (ex: 'sunglasses or upper face') et génère un MASK automatique + bboxes_json.\n   (Vous pouvez aussi utiliser directement la sortie MASK du nœud LoadImage dessinée dans le MaskEditor de ComfyUI !)\n2. GGUF Mask-Aware Inpaint Prompter : Encadre la zone masquée sur la scène globale et envoie la vue globale + le crop au VLM avec votre instruction d'édition\n   (ex: 'Add ornate gold steampunk goggles with glowing cyan lenses') pour générer un prompt d'inpainting cohérent avec l'éclairage de la scène.\n3. BBox Crop -> KSampler Inpaint -> BBox Feathered Stitch : Inpaint en haute résolution (768px) uniquement sur la boîte cible et fusionne sans couture."
+        "text": "WORKFLOW 05 : D\u00c9TECTION OPEN-VOCABULARY & INPAINTING HARMONIS\u00c9 PAR VLM\n1. WeVisOne-VL Detector : D\u00e9tecte n'importe quelle cible en langage naturel (ex: 'sunglasses or upper face') et g\u00e9n\u00e8re un MASK automatique + bboxes_json.\n   (Vous pouvez aussi utiliser directement la sortie MASK du n\u0153ud LoadImage dessin\u00e9e dans le MaskEditor de ComfyUI !)\n2. GGUF Mask-Aware Inpaint Prompter : Encadre la zone masqu\u00e9e sur la sc\u00e8ne globale et envoie la vue globale + le crop au VLM avec votre instruction d'\u00e9dition\n   (ex: 'Add ornate gold steampunk goggles with glowing cyan lenses') pour g\u00e9n\u00e9rer un prompt d'inpainting coh\u00e9rent avec l'\u00e9clairage de la sc\u00e8ne.\n3. BBox Crop -> KSampler Inpaint -> BBox Feathered Stitch : Inpaint en haute r\u00e9solution (768px) uniquement sur la bo\u00eete cible et fusionne sans couture."
       },
       "color": "#432",
       "bgcolor": "#653"
@@ -181,7 +181,11 @@
         "f16",
         512,
         true,
-        256
+        256,
+        "auto",
+        "",
+        true,
+        -1
       ],
       "widgets_values_named": {
         "model": "WeVisOne-VL-4B-Q4_K_M.gguf",
@@ -438,7 +442,7 @@
         }
       ],
       "outputs": [],
-      "title": "Preview — Highlighted Target Sent to VLM",
+      "title": "Preview \u2014 Highlighted Target Sent to VLM",
       "properties": {
         "Node name for S&R": "PreviewImage"
       },

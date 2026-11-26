@@ -22,3 +22,6 @@ output/
 # Keep the wildcards/ folder in git, but ignore user's 700+ MB wildcard files inside it
 wildcards/*
 !wildcards/.gitkeep
+
+# Downloaded local runtime binaries (e.g., official llama.cpp llama-server CUDA binaries)
+bin/

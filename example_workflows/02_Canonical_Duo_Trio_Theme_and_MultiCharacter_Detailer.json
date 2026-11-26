@@ -20,15 +20,15 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "Guide — Résolveur de Thèmes Canoniques (Single/Duo/Trio) + Harmoniseur VLM + Multi-Character Detailer",
+      "title": "Guide \u2014 R\u00e9solveur de Th\u00e8mes Canoniques (Single/Duo/Trio) + Harmoniseur VLM + Multi-Character Detailer",
       "properties": {
         "Node name for S&R": "Note"
       },
       "widgets_values": [
-        "WORKFLOW 02 : SCÈNE DUO/TRIO CANONIQUE + HARMONISATION VLM + RETOUCHE MULTI-PERSONNAGES\n1. Ziggart Canonical Theme & Character-Outfit Resolver : Lit 'Character-Outfits.json' dans Collection/Themes/* pour associer chaque personnage à sa vraie tenue canonique.\n   - Génère 'scene_prompt' (scène complète) ET 'character_1_prompt', 'character_2_prompt', 'character_3_prompt' (descriptions individuelles).\n2. Wildcard-to-VLM Prompt Harmonizer : Réécrit le prompt assemblé en prose fluide pour Krea 2 Turbo / Flux tout en verrouillant les personnages.\n3. Multi-Character Grounded Krea2 Detailer : Localise jusqu'à 3 sujets distincts avec WeVisOne-VL et raffine chaque personnage avec son propre prompt canonique !\n4. Ziggart Prompt Recipe & Comparison Saver : Sauvegarde la grille comparative 'Avant / Après Detailing' (build_comparison_grid = True) + le fichier .json."
+        "WORKFLOW 02 : SC\u00c8NE DUO/TRIO CANONIQUE + HARMONISATION VLM + RETOUCHE MULTI-PERSONNAGES\n1. Ziggart Canonical Theme & Character-Outfit Resolver : Lit 'Character-Outfits.json' dans Collection/Themes/* pour associer chaque personnage \u00e0 sa vraie tenue canonique.\n   - G\u00e9n\u00e8re 'scene_prompt' (sc\u00e8ne compl\u00e8te) ET 'character_1_prompt', 'character_2_prompt', 'character_3_prompt' (descriptions individuelles).\n2. Wildcard-to-VLM Prompt Harmonizer : R\u00e9\u00e9crit le prompt assembl\u00e9 en prose fluide pour Krea 2 Turbo / Flux tout en verrouillant les personnages.\n3. Multi-Character Grounded Krea2 Detailer : Localise jusqu'\u00e0 3 sujets distincts avec WeVisOne-VL et raffine chaque personnage avec son propre prompt canonique !\n4. Ziggart Prompt Recipe & Comparison Saver : Sauvegarde la grille comparative 'Avant / Apr\u00e8s Detailing' (build_comparison_grid = True) + le fichier .json."
       ],
       "widgets_values_named": {
-        "text": "WORKFLOW 02 : SCÈNE DUO/TRIO CANONIQUE + HARMONISATION VLM + RETOUCHE MULTI-PERSONNAGES\n1. Ziggart Canonical Theme & Character-Outfit Resolver : Lit 'Character-Outfits.json' dans Collection/Themes/* pour associer chaque personnage à sa vraie tenue canonique.\n   - Génère 'scene_prompt' (scène complète) ET 'character_1_prompt', 'character_2_prompt', 'character_3_prompt' (descriptions individuelles).\n2. Wildcard-to-VLM Prompt Harmonizer : Réécrit le prompt assemblé en prose fluide pour Krea 2 Turbo / Flux tout en verrouillant les personnages.\n3. Multi-Character Grounded Krea2 Detailer : Localise jusqu'à 3 sujets distincts avec WeVisOne-VL et raffine chaque personnage avec son propre prompt canonique !\n4. Ziggart Prompt Recipe & Comparison Saver : Sauvegarde la grille comparative 'Avant / Après Detailing' (build_comparison_grid = True) + le fichier .json."
+        "text": "WORKFLOW 02 : SC\u00c8NE DUO/TRIO CANONIQUE + HARMONISATION VLM + RETOUCHE MULTI-PERSONNAGES\n1. Ziggart Canonical Theme & Character-Outfit Resolver : Lit 'Character-Outfits.json' dans Collection/Themes/* pour associer chaque personnage \u00e0 sa vraie tenue canonique.\n   - G\u00e9n\u00e8re 'scene_prompt' (sc\u00e8ne compl\u00e8te) ET 'character_1_prompt', 'character_2_prompt', 'character_3_prompt' (descriptions individuelles).\n2. Wildcard-to-VLM Prompt Harmonizer : R\u00e9\u00e9crit le prompt assembl\u00e9 en prose fluide pour Krea 2 Turbo / Flux tout en verrouillant les personnages.\n3. Multi-Character Grounded Krea2 Detailer : Localise jusqu'\u00e0 3 sujets distincts avec WeVisOne-VL et raffine chaque personnage avec son propre prompt canonique !\n4. Ziggart Prompt Recipe & Comparison Saver : Sauvegarde la grille comparative 'Avant / Apr\u00e8s Detailing' (build_comparison_grid = True) + le fichier .json."
       },
       "color": "#432",
       "bgcolor": "#653"
@@ -89,7 +89,7 @@
           "links": []
         }
       ],
-      "title": "1A. Canonical Theme Resolver — Mode Duo (Female + Male)",
+      "title": "1A. Canonical Theme Resolver \u2014 Mode Duo (Female + Male)",
       "properties": {
         "Node name for S&R": "ZiggartCanonicalThemeResolver"
       },
@@ -167,7 +167,7 @@
           "links": []
         }
       ],
-      "title": "1B. Canonical Theme Resolver — Mode Single + Keyword Filter ('albator')",
+      "title": "1B. Canonical Theme Resolver \u2014 Mode Single + Keyword Filter ('albator')",
       "properties": {
         "Node name for S&R": "ZiggartCanonicalThemeResolver"
       },
@@ -241,7 +241,11 @@
         "f16",
         512,
         true,
-        256
+        256,
+        "auto",
+        "",
+        true,
+        -1
       ],
       "widgets_values_named": {
         "model": "WeVisOne-VL-4B-Q4_K_M.gguf",
@@ -853,7 +857,7 @@
         }
       ],
       "outputs": [],
-      "title": "Preview — Grounded Character Bounding Boxes",
+      "title": "Preview \u2014 Grounded Character Bounding Boxes",
       "properties": {
         "Node name for S&R": "PreviewImage"
       },
@@ -884,7 +888,7 @@
         }
       ],
       "outputs": [],
-      "title": "Preview — Refined Character Crops",
+      "title": "Preview \u2014 Refined Character Crops",
       "properties": {
         "Node name for S&R": "PreviewImage"
       },

@@ -20,15 +20,15 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "Guide — Detailers Krea2 (Standard, Enchaîné Face -> Yeux, et VLM Auto-Prompt par Crop)",
+      "title": "Guide \u2014 Detailers Krea2 (Standard, Encha\u00een\u00e9 Face -> Yeux, et VLM Auto-Prompt par Crop)",
       "properties": {
         "Node name for S&R": "Note"
       },
       "widgets_values": [
-        "WORKFLOW 03 : LES DIFFÉRENTS USAGES DE DETAILERS KREA2 & DETAILERS KREA2 (VLM AUTO-PROMPT)\n- BRANCHE HAUT (Chained Standard Detailers Krea2) : Passe 1 détecte et raffine 'face' -> Passe 2 détecte et raffine 'eyes' avec masque de bruit latent et feathering gaussien.\n- BRANCHE BAS (Detailers Krea2 VLM Auto-Prompt) : Idéal quand plusieurs objets différents sont détectés (ex: 'faces and hands', max_detections=4).\n  Le VLM examine chaque crop individuellement pendant qu'il est en VRAM, rédige un micro-prompt sur-mesure par crop, se décharge une seule fois, puis Krea 2 Turbo raffine chaque zone."
+        "WORKFLOW 03 : LES DIFF\u00c9RENTS USAGES DE DETAILERS KREA2 & DETAILERS KREA2 (VLM AUTO-PROMPT)\n- BRANCHE HAUT (Chained Standard Detailers Krea2) : Passe 1 d\u00e9tecte et raffine 'face' -> Passe 2 d\u00e9tecte et raffine 'eyes' avec masque de bruit latent et feathering gaussien.\n- BRANCHE BAS (Detailers Krea2 VLM Auto-Prompt) : Id\u00e9al quand plusieurs objets diff\u00e9rents sont d\u00e9tect\u00e9s (ex: 'faces and hands', max_detections=4).\n  Le VLM examine chaque crop individuellement pendant qu'il est en VRAM, r\u00e9dige un micro-prompt sur-mesure par crop, se d\u00e9charge une seule fois, puis Krea 2 Turbo raffine chaque zone."
       ],
       "widgets_values_named": {
-        "text": "WORKFLOW 03 : LES DIFFÉRENTS USAGES DE DETAILERS KREA2 & DETAILERS KREA2 (VLM AUTO-PROMPT)\n- BRANCHE HAUT (Chained Standard Detailers Krea2) : Passe 1 détecte et raffine 'face' -> Passe 2 détecte et raffine 'eyes' avec masque de bruit latent et feathering gaussien.\n- BRANCHE BAS (Detailers Krea2 VLM Auto-Prompt) : Idéal quand plusieurs objets différents sont détectés (ex: 'faces and hands', max_detections=4).\n  Le VLM examine chaque crop individuellement pendant qu'il est en VRAM, rédige un micro-prompt sur-mesure par crop, se décharge une seule fois, puis Krea 2 Turbo raffine chaque zone."
+        "text": "WORKFLOW 03 : LES DIFF\u00c9RENTS USAGES DE DETAILERS KREA2 & DETAILERS KREA2 (VLM AUTO-PROMPT)\n- BRANCHE HAUT (Chained Standard Detailers Krea2) : Passe 1 d\u00e9tecte et raffine 'face' -> Passe 2 d\u00e9tecte et raffine 'eyes' avec masque de bruit latent et feathering gaussien.\n- BRANCHE BAS (Detailers Krea2 VLM Auto-Prompt) : Id\u00e9al quand plusieurs objets diff\u00e9rents sont d\u00e9tect\u00e9s (ex: 'faces and hands', max_detections=4).\n  Le VLM examine chaque crop individuellement pendant qu'il est en VRAM, r\u00e9dige un micro-prompt sur-mesure par crop, se d\u00e9charge une seule fois, puis Krea 2 Turbo raffine chaque zone."
       },
       "color": "#432",
       "bgcolor": "#653"
@@ -185,7 +185,11 @@
         "f16",
         512,
         true,
-        256
+        256,
+        "auto",
+        "",
+        true,
+        -1
       ],
       "widgets_values_named": {
         "model": "WeVisOne-VL-4B-Q4_K_M.gguf",
@@ -285,7 +289,7 @@
           "links": []
         }
       ],
-      "title": "Pass 1 — Detailers Krea2 (Target: 'face')",
+      "title": "Pass 1 \u2014 Detailers Krea2 (Target: 'face')",
       "properties": {
         "Node name for S&R": "ZiggartDetailerKrea2"
       },
@@ -428,7 +432,7 @@
           "links": []
         }
       ],
-      "title": "Pass 2 — Detailers Krea2 (Target: 'eyes')",
+      "title": "Pass 2 \u2014 Detailers Krea2 (Target: 'eyes')",
       "properties": {
         "Node name for S&R": "ZiggartDetailerKrea2"
       },
@@ -672,7 +676,7 @@
           ]
         }
       ],
-      "title": "Detailers Krea2 (VLM Auto-Prompt — Multi-Object Autonomous Prompting)",
+      "title": "Detailers Krea2 (VLM Auto-Prompt \u2014 Multi-Object Autonomous Prompting)",
       "properties": {
         "Node name for S&R": "ZiggartAutoPromptDetailer"
       },
@@ -1091,7 +1095,7 @@
     },
     {
       "id": 3,
-      "title": "2A. Branch A — Chained Detailers Krea2 (Pass 1: Face -> Pass 2: Eyes)",
+      "title": "2A. Branch A \u2014 Chained Detailers Krea2 (Pass 1: Face -> Pass 2: Eyes)",
       "bounding": [
         100.0,
         -10.0,
@@ -1103,7 +1107,7 @@
     },
     {
       "id": 4,
-      "title": "2B. Branch B — Detailers Krea2 (VLM Auto-Prompt per Crop)",
+      "title": "2B. Branch B \u2014 Detailers Krea2 (VLM Auto-Prompt per Crop)",
       "bounding": [
         100.0,
         770.0,
