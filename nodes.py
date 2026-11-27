@@ -379,9 +379,16 @@ class GGUFVisionPrompt:
         models, projectors = _gguf_files()
         return {
             "required": {
-                "image": ("IMAGE", {"tooltip": "Image or image batch to describe."}),
                 "model": (models, {"tooltip": "Language-model GGUF from models/LLM/GGUF."}),
-                "mmproj": (projectors, {"tooltip": "Matching mmproj GGUF from models/LLM/GGUF."}),
+                "mmproj": (
+                    list(projectors) + [NO_MMPROJ_TEXT_ONLY],
+                    {
+                        "tooltip": (
+                            "Matching mmproj GGUF from models/LLM/GGUF, or '[None (Text-Only LLM)]' "
+                            "for pure text-only LLM mode."
+                        )
+                    },
+                ),
                 "system_prompt": (
                     "STRING",
                     {
@@ -412,6 +419,12 @@ class GGUFVisionPrompt:
                 ),
             },
             "optional": {
+                "image": (
+                    "IMAGE",
+                    {
+                        "tooltip": "Optional image or image batch to describe. Leave unconnected for pure text-only LLM mode."
+                    },
+                ),
                 "detail_crop": (
                     "IMAGE",
                     {"tooltip": "Optional high-resolution crop containing details from the main image."},
@@ -523,13 +536,13 @@ class GGUFVisionPrompt:
 
     def generate(
         self,
-        image,
         model,
         mmproj,
         system_prompt,
         prompt,
         free_vram_after,
         enable_thinking,
+        image=None,
         detail_crop=None,
         reference_image=None,
         max_image_dimension="2048",
@@ -564,6 +577,11 @@ class GGUFVisionPrompt:
             flash_attention=flash_attention,
             mmproj_on_gpu=mmproj_on_gpu,
             vlm_config=vlm_config,
+            allow_empty_mmproj=True,
+        )
+        is_text_only = (image is None) or (
+            not config.mmproj_path
+            and getattr(config, "backend", "in_process_gguf") != "openai_compatible"
         )
         eff_system_prompt, eff_prompt = _resolve_caption_prompts(
             caption_preset, verbosity, system_prompt, prompt
@@ -626,6 +644,8 @@ class GGUFVisionPrompt:
                 return batch[index] if len(batch) > 1 and index < len(batch) else batch[0]
 
             def visual_content(index, instruction):
+                if is_text_only:
+                    return instruction
                 content = [{"type": "text", "text": instruction + "\n\nMain image:"}]
                 content.append(
                     {
@@ -678,7 +698,7 @@ class GGUFVisionPrompt:
             first_messages: list[dict[str, Any]] = []
             thumbnail_uri = ""
             source_rgb_0: np.ndarray | None = None
-            if len(image) > 0:
+            if not is_text_only and len(image) > 0:
                 try:
                     thumbnail_uri = image_to_thumbnail_uri(image[0], 384)
                 except Exception:
@@ -689,7 +709,8 @@ class GGUFVisionPrompt:
                     source_rgb_0 = None
 
             base_seed = int(seed)
-            for index in range(len(image)):
+            batch_count = 1 if is_text_only else len(image)
+            for index in range(batch_count):
                 item_seed = base_seed if base_seed < 0 else int((base_seed + index * 13) & 0x7FFFFFFF)
                 notes = []
                 for pass_name, enabled in enabled_passes.items():
@@ -726,14 +747,17 @@ class GGUFVisionPrompt:
                 answer_text = infer(messages, item_seed)
                 answers.append(answer_text)
                 if index == 0:
-                    first_visual_parts = [
-                        copy.deepcopy(part)
-                        for part in user_visual_content
-                        if part.get("type") == "image_url" or (
-                            part.get("type") == "text"
-                            and part is not user_visual_content[0]
-                        )
-                    ]
+                    if isinstance(user_visual_content, list):
+                        first_visual_parts = [
+                            copy.deepcopy(part)
+                            for part in user_visual_content
+                            if part.get("type") == "image_url" or (
+                                part.get("type") == "text"
+                                and part is not user_visual_content[0]
+                            )
+                        ]
+                    else:
+                        first_visual_parts = []
                     first_messages = copy.deepcopy(messages)
 
             separator = "\n\n---\n\n"

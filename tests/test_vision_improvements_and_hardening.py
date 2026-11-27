@@ -361,16 +361,16 @@ class VisionImprovementsAndHardeningTests(unittest.TestCase):
             three_d_nodes._next_output_path("../../escape", "glb")
 
     # ------------------------------------------------------------------
-    # Merged __init__.py & Full 64-Node / 18-Workflow Integrity
+    # Merged __init__.py & Full 66-Node / 19-Workflow Integrity
     # ------------------------------------------------------------------
 
     def test_merged_init_and_all_workflows_schema_valid(self):
-        self.assertEqual(len(pkg.NODE_CLASS_MAPPINGS), 64)
+        self.assertEqual(len(pkg.NODE_CLASS_MAPPINGS), 66)
         self.assertEqual(set(pkg.NODE_CLASS_MAPPINGS.keys()), set(pkg.NODE_DISPLAY_NAME_MAPPINGS.keys()))
 
         wf_dir = ROOT / "example_workflows"
         wf_files = sorted(wf_dir.glob("*.json"))
-        self.assertEqual(len(wf_files), 18)
+        self.assertEqual(len(wf_files), 19)
 
         seen_types = set()
         widget_types = {"INT", "FLOAT", "STRING", "BOOLEAN"}

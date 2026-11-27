@@ -1613,6 +1613,54 @@ def _extract_trimesh_arrays(mesh_obj: Any) -> dict[str, Any]:
     }
 
 
+def _patch_hy3dgen_dinov2_v5_compat() -> None:
+    """Remap transformers-v4 Dinov2 keys in hy3dgen SingleImageEncoder to transformers-v5."""
+    try:
+        import torch as _torch
+        from hy3dgen.shapegen.models.conditioners import SingleImageEncoder  # type: ignore[import-not-found]
+    except Exception:
+        return
+
+    if getattr(SingleImageEncoder, "_ziggart_v5_patched", False):
+        return
+
+    orig_load_state_dict = SingleImageEncoder.load_state_dict
+
+    def _compat_load_state_dict(self, state_dict, strict=True, assign=False):
+        expected_keys = set(self.state_dict().keys())
+        needs_remap = (
+            any(".attention.q_proj." in k for k in expected_keys)
+            and any(".attention.attention.query." in k for k in state_dict)
+        )
+        if needs_remap:
+            remapped = {}
+            for key, val in state_dict.items():
+                if ".attention.attention.query." in key:
+                    remapped[key.replace(".attention.attention.query.", ".attention.q_proj.")] = val
+                elif ".attention.attention.key." in key:
+                    remapped[key.replace(".attention.attention.key.", ".attention.k_proj.")] = val
+                elif ".attention.attention.value." in key:
+                    remapped[key.replace(".attention.attention.value.", ".attention.v_proj.")] = val
+                elif ".attention.output.dense." in key:
+                    remapped[key.replace(".attention.output.dense.", ".attention.o_proj.")] = val
+                elif ".mlp.weights_in." in key:
+                    gate, up = _torch.chunk(val, 2, dim=0)
+                    remapped[key.replace(".mlp.weights_in.", ".mlp.gate_proj.")] = gate
+                    remapped[key.replace(".mlp.weights_in.", ".mlp.up_proj.")] = up
+                elif ".mlp.weights_out." in key:
+                    remapped[key.replace(".mlp.weights_out.", ".mlp.down_proj.")] = val
+                else:
+                    remapped[key] = val
+            state_dict = remapped
+        try:
+            return orig_load_state_dict(self, state_dict, strict=strict, assign=assign)
+        except TypeError:
+            return orig_load_state_dict(self, state_dict, strict=strict)
+
+    SingleImageEncoder.load_state_dict = _compat_load_state_dict  # type: ignore[method-assign]
+    SingleImageEncoder._ziggart_v5_patched = True
+
+
 # ---------------------------------------------------------------------------
 # Unified 3D Model Manager (RTX 3070 Ti 8GB-16GB VRAM Safe)
 # ---------------------------------------------------------------------------
@@ -2751,6 +2799,8 @@ class Ziggart3DModelManager:
                     "Install missing dependencies or install from https://github.com/Tencent/Hunyuan3D-2 (pip install -e .)."
                 ) from exc
 
+            _patch_hy3dgen_dinov2_v5_compat()
+
             try:
                 device = "cuda" if (torch is not None and torch.cuda.is_available()) else "cpu"
                 dtype = torch.float16 if (torch is not None and device == "cuda") else None
@@ -3505,6 +3555,7 @@ class Ziggart3DTurntableRenderer:
                 "gsplat_data": ("ZIGGART_GSPLAT",),
                 "mesh_data": ("ZIGGART_MESH",),
                 "ply_path": ("STRING", {"default": ""}),
+                "mesh_path": ("STRING", {"default": "", "tooltip": "Optional path to a .glb, .obj, or mesh file to render directly."}),
                 "invert_y": ("BOOLEAN", {"default": False, "tooltip": "Invert Y-axis if model is upside down."}),
             },
         }
@@ -3520,8 +3571,18 @@ class Ziggart3DTurntableRenderer:
         gsplat_data: dict[str, Any] | None = None,
         mesh_data: dict[str, Any] | None = None,
         ply_path: str = "",
+        mesh_path: str = "",
         invert_y: bool = False,
     ) -> tuple[Any, Any]:
+        if mesh_data is None and mesh_path and str(mesh_path).strip():
+            resolved_mesh = Path(os.path.expandvars(os.path.expanduser(str(mesh_path).strip()))).resolve()
+            if not resolved_mesh.is_file():
+                raise FileNotFoundError(f"Mesh file not found: {resolved_mesh}")
+            import trimesh
+
+            loaded_mesh = trimesh.load(str(resolved_mesh))
+            mesh_data = _extract_trimesh_arrays(loaded_mesh)
+
         if mesh_data is not None:
             positions = mesh_data["vertices"]
             colors = mesh_data["vertex_colors"]
@@ -3535,7 +3596,9 @@ class Ziggart3DTurntableRenderer:
         else:
             if gsplat_data is None:
                 if not ply_path or not str(ply_path).strip():
-                    raise ValueError("Connect 'gsplat_data', 'mesh_data', or provide a 'ply_path' to render.")
+                    raise ValueError(
+                        "Connect 'gsplat_data', 'mesh_data', or provide a 'ply_path' or 'mesh_path' to render."
+                    )
                 gsplat_data = load_gaussian_ply(ply_path.strip(), invert_y=invert_y)
             elif invert_y:
                 gsplat_data = dict(gsplat_data)

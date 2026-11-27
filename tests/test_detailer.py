@@ -312,6 +312,19 @@ class MockSamplerExecutionTests(unittest.TestCase):
         # CLIP tokenize called only twice total (1 pos + 1 neg) across all 3 crops!
         self.assertEqual(mock_clip.tokenize.call_count, 2)
 
+    def test_resolve_vae_downscale_variants(self):
+        class _VaeObj:
+            def __init__(self, ratio):
+                self.downscale_ratio = ratio
+
+        self.assertEqual(detailer_nodes._resolve_vae_downscale(_VaeObj(8)), 8)
+        self.assertEqual(detailer_nodes._resolve_vae_downscale(_VaeObj((8, 8))), 8)
+        self.assertEqual(detailer_nodes._resolve_vae_downscale(_VaeObj((16, 16, 1))), 16)
+        self.assertEqual(detailer_nodes._resolve_vae_downscale(_VaeObj(lambda: (8, 8))), 8)
+        self.assertEqual(detailer_nodes._resolve_vae_downscale(_VaeObj(0)), 1)
+        self.assertEqual(detailer_nodes._resolve_vae_downscale(_VaeObj("invalid"), default=8), 8)
+        self.assertEqual(detailer_nodes._resolve_vae_downscale(object(), default=8), 8)
+
 
 if __name__ == "__main__":
     unittest.main()

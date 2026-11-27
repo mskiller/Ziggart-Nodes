@@ -415,6 +415,105 @@ class ThreeDNodesMockedInferenceTests(unittest.TestCase):
                     self.assertTrue(manifest["all_ready"])
                     self.assertGreater(manifest["total_size_mb"], 0)
 
+    def test_patch_hy3dgen_dinov2_v5_compat_remaps_v4_keys(self):
+        import sys
+        import types
+        import torch
+
+        class FakeSingleImageEncoder:
+            def __init__(self):
+                self._expected = {
+                    "main_image_encoder.model.encoder.layer.0.attention.q_proj.weight": torch.zeros(2, 2),
+                    "main_image_encoder.model.encoder.layer.0.attention.k_proj.weight": torch.zeros(2, 2),
+                    "main_image_encoder.model.encoder.layer.0.attention.v_proj.weight": torch.zeros(2, 2),
+                    "main_image_encoder.model.encoder.layer.0.attention.o_proj.weight": torch.zeros(2, 2),
+                    "main_image_encoder.model.encoder.layer.0.mlp.gate_proj.weight": torch.zeros(2, 2),
+                    "main_image_encoder.model.encoder.layer.0.mlp.up_proj.weight": torch.zeros(2, 2),
+                    "main_image_encoder.model.encoder.layer.0.mlp.down_proj.weight": torch.zeros(2, 2),
+                    "other.weight": torch.zeros(2),
+                }
+                self.loaded_state = None
+
+            def state_dict(self):
+                return self._expected
+
+            def load_state_dict(self, state_dict, strict=True, assign=False):
+                self.loaded_state = dict(state_dict)
+                return ("ok", strict, assign)
+
+        hy3dgen_mod = types.ModuleType("hy3dgen")
+        shapegen_mod = types.ModuleType("hy3dgen.shapegen")
+        models_mod = types.ModuleType("hy3dgen.shapegen.models")
+        cond_mod = types.ModuleType("hy3dgen.shapegen.models.conditioners")
+        cond_mod.SingleImageEncoder = FakeSingleImageEncoder
+
+        with mock.patch.dict(
+            sys.modules,
+            {
+                "hy3dgen": hy3dgen_mod,
+                "hy3dgen.shapegen": shapegen_mod,
+                "hy3dgen.shapegen.models": models_mod,
+                "hy3dgen.shapegen.models.conditioners": cond_mod,
+            },
+        ):
+            three_d_nodes._patch_hy3dgen_dinov2_v5_compat()
+            self.assertTrue(getattr(FakeSingleImageEncoder, "_ziggart_v5_patched", False))
+
+            enc = FakeSingleImageEncoder()
+            v4_state = {
+                "main_image_encoder.model.encoder.layer.0.attention.attention.query.weight": torch.ones(2, 2),
+                "main_image_encoder.model.encoder.layer.0.attention.attention.key.weight": torch.ones(2, 2) * 2,
+                "main_image_encoder.model.encoder.layer.0.attention.attention.value.weight": torch.ones(2, 2) * 3,
+                "main_image_encoder.model.encoder.layer.0.attention.output.dense.weight": torch.ones(2, 2) * 4,
+                "main_image_encoder.model.encoder.layer.0.mlp.weights_in.weight": torch.cat(
+                    [torch.ones(2, 2) * 5, torch.ones(2, 2) * 6], dim=0
+                ),
+                "main_image_encoder.model.encoder.layer.0.mlp.weights_out.weight": torch.ones(2, 2) * 7,
+                "other.weight": torch.ones(2),
+            }
+            enc.load_state_dict(v4_state, strict=True)
+            self.assertIn("main_image_encoder.model.encoder.layer.0.attention.q_proj.weight", enc.loaded_state)
+            self.assertIn("main_image_encoder.model.encoder.layer.0.attention.k_proj.weight", enc.loaded_state)
+            self.assertIn("main_image_encoder.model.encoder.layer.0.attention.v_proj.weight", enc.loaded_state)
+            self.assertIn("main_image_encoder.model.encoder.layer.0.attention.o_proj.weight", enc.loaded_state)
+            self.assertTrue(
+                torch.allclose(
+                    enc.loaded_state["main_image_encoder.model.encoder.layer.0.mlp.gate_proj.weight"],
+                    torch.ones(2, 2) * 5,
+                )
+            )
+            self.assertTrue(
+                torch.allclose(
+                    enc.loaded_state["main_image_encoder.model.encoder.layer.0.mlp.up_proj.weight"],
+                    torch.ones(2, 2) * 6,
+                )
+            )
+            self.assertIn("main_image_encoder.model.encoder.layer.0.mlp.down_proj.weight", enc.loaded_state)
+
+    def test_turntable_renderer_mesh_path(self):
+        renderer = three_d_nodes.Ziggart3DTurntableRenderer()
+        with self.assertRaises(FileNotFoundError):
+            renderer.render_turntable(mesh_path="/nonexistent/path/to/model.glb")
+
+        try:
+            import trimesh  # noqa: F401
+        except ImportError:
+            self.skipTest("trimesh not installed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            obj_path = Path(tmp) / "tri.obj"
+            obj_path.write_text(
+                "v 0.0 0.0 0.0\nv 1.0 0.0 0.0\nv 0.0 1.0 0.0\nf 1 2 3\n",
+                encoding="utf-8",
+            )
+            images, masks = renderer.render_turntable(
+                num_frames=3,
+                resolution=128,
+                mesh_path=str(obj_path),
+            )
+            self.assertEqual(tuple(images.shape), (3, 128, 128, 3))
+            self.assertEqual(tuple(masks.shape), (3, 128, 128))
+
 
 if __name__ == "__main__":
     unittest.main()

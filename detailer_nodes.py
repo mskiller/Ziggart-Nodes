@@ -71,6 +71,19 @@ from .embedded_model import (
 from .nodes import _gguf_files, _resolve_gguf, image_to_data_uri
 
 
+def _resolve_vae_downscale(vae: Any, default: int = 8) -> int:
+    """Resolve `vae.downscale_ratio` whether it is an int, tuple/list, or callable."""
+    raw = getattr(vae, "downscale_ratio", default)
+    if callable(raw):
+        raw = raw()
+    if isinstance(raw, (tuple, list)):
+        raw = raw[0] if raw else default
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        return default
+
+
 def _infer_coord_scales(
     coords: tuple[float, float, float, float],
     raw_strings: tuple[str, str, str, str],
@@ -813,7 +826,7 @@ class ZiggartDetailerKrea2:
             empty_mask = torch.zeros((0, img_h, img_w), dtype=torch.float32)
             empty_crops = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
             latent_channels = int(getattr(vae, "latent_channels", 16))
-            downscale = max(1, int(getattr(vae, "downscale_ratio", 8)))
+            downscale = _resolve_vae_downscale(vae, 8)
             empty_lat = {"samples": torch.zeros((0, latent_channels, max(1, img_h // downscale), max(1, img_w // downscale)))}
             return (empty_img, empty_crops, empty_crops, empty_img, empty_mask, empty_lat)
         final_images: list[torch.Tensor] = []
@@ -958,7 +971,7 @@ class ZiggartDetailerKrea2:
 
         # Encode final composited image to latent
         latent_channels = int(getattr(vae, "latent_channels", 16))
-        downscale = max(1, int(getattr(vae, "downscale_ratio", 8)))
+        downscale = _resolve_vae_downscale(vae, 8)
         if encode_final_latent:
             try:
                 rgb_final = _ensure_rgb_tensor(final_image_tensor)

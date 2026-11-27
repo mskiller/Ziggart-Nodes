@@ -387,6 +387,84 @@ class NodeExecutionTests(unittest.TestCase):
         self.assertIn("ZiggartGGUFVisionPromptReviser", nodes.NODE_DISPLAY_NAME_MAPPINGS)
         self.assertIn("ZiggartPromptRevisionGate", nodes.NODE_DISPLAY_NAME_MAPPINGS)
 
+    def test_gguf_vision_prompt_text_only_and_openai_modes(self):
+        class FakeManager:
+            def __init__(self):
+                self.calls = []
+
+            def load(self, config, unload_comfy_models_before):
+                self.loaded_config = config
+
+            def chat(self, messages, **kwargs):
+                self.calls.append(messages)
+                return "text reply"
+
+            def unload(self):
+                pass
+
+        original = nodes.MODEL_MANAGER
+        try:
+            # 1. Pure text-only with image=None and NO_MMPROJ_TEXT_ONLY
+            fake1 = FakeManager()
+            nodes.MODEL_MANAGER = fake1
+            with mock.patch.object(nodes, "_resolve_gguf", side_effect=["model.gguf", ""]):
+                res1 = nodes.GGUFVisionPrompt().generate(
+                    model=nodes.NO_MODEL,
+                    mmproj=nodes.NO_MMPROJ_TEXT_ONLY,
+                    system_prompt="You are helpful.",
+                    prompt="Say hello.",
+                    free_vram_after=False,
+                    enable_thinking=False,
+                    image=None,
+                )
+            self.assertEqual(res1[0], "text reply")
+            self.assertIsInstance(fake1.calls[0][-1]["content"], str)
+            self.assertEqual(res1[4].visual_parts, [])
+
+            # 2. Local text-only vlm_config with dummy EmptyImage still skips image attachment
+            fake2 = FakeManager()
+            nodes.MODEL_MANAGER = fake2
+            text_cfg = nodes.ModelConfig(model_path="model.gguf", mmproj_path="")
+            dummy_empty = np.zeros((1, 8, 8, 3), dtype=np.float32)
+            res2 = nodes.GGUFVisionPrompt().generate(
+                model=nodes.NO_MODEL,
+                mmproj=nodes.NO_MMPROJ_TEXT_ONLY,
+                system_prompt="Sys",
+                prompt="Just text.",
+                free_vram_after=False,
+                enable_thinking=False,
+                image=dummy_empty,
+                vlm_config=text_cfg,
+            )
+            self.assertEqual(res2[0], "text reply")
+            self.assertIsInstance(fake2.calls[0][-1]["content"], str)
+
+            # 3. OpenAI-compatible vision server (mmproj_path="") still attaches images
+            fake3 = FakeManager()
+            nodes.MODEL_MANAGER = fake3
+            api_cfg = nodes.ModelConfig(
+                model_path="",
+                mmproj_path="",
+                backend="openai_compatible",
+                api_base_url="http://localhost:8000/v1",
+                api_model="gpt-4o-mini",
+            )
+            res3 = nodes.GGUFVisionPrompt().generate(
+                model=nodes.NO_MODEL,
+                mmproj=nodes.NO_MMPROJ_TEXT_ONLY,
+                system_prompt="Sys",
+                prompt="Describe.",
+                free_vram_after=False,
+                enable_thinking=False,
+                image=dummy_empty,
+                vlm_config=api_cfg,
+            )
+            self.assertEqual(res3[0], "text reply")
+            self.assertIsInstance(fake3.calls[0][-1]["content"], list)
+            self.assertTrue(any(p.get("type") == "image_url" for p in fake3.calls[0][-1]["content"]))
+        finally:
+            nodes.MODEL_MANAGER = original
+
 
 if __name__ == "__main__":
     unittest.main()
