@@ -404,6 +404,17 @@ if nn is not None:
         def dtype(self) -> Any:
             return self.bias.dtype if self.bias is not None else torch.float16
 
+        @property
+        def weight(self) -> Any:
+            """Expose .dtype/.device/.shape for callers like sparse_dit.py inspecting layer.weight.dtype."""
+            from types import SimpleNamespace
+
+            return SimpleNamespace(
+                dtype=self.dtype,
+                device=self.q8.device,
+                shape=(self.out_features, self.in_features),
+            )
+
         def forward(self, x: Any) -> Any:
             if (
                 self.use_triton
@@ -1749,7 +1760,10 @@ def run_direct3d_v3_pipeline(
     # Optional sequential Hunyuan3DPaint texture pass (Direct3D-V3 is already completely unloaded)
     if ct_mode == "hunyuan3d_paint" and primary_rgba is not None:
         import trimesh as _tm  # type: ignore[import-not-found]
-        from .three_d_nodes import _install_zero_build_3d_shims
+        from .three_d_nodes import (
+            _install_zero_build_3d_shims,
+            _patch_diffusers_trust_remote_code_for_hy3dgen,
+        )
 
         vendor_root = Path(__file__).resolve().parent / ".cache" / "vendor_3d"
         _install_zero_build_3d_shims(vendor_root, auto_install=True)
@@ -1759,6 +1773,7 @@ def run_direct3d_v3_pipeline(
             from hy3dgen.texgen import Hunyuan3DPaintPipeline  # type: ignore[import-not-found]
 
             tm_obj = _tm.Trimesh(vertices=ref_verts, faces=ref_faces, process=False)
+            _patch_diffusers_trust_remote_code_for_hy3dgen()
             paint_pipe = Hunyuan3DPaintPipeline.from_pretrained("tencent/Hunyuan3D-2")
             if hasattr(paint_pipe, "enable_model_cpu_offload"):
                 paint_pipe.enable_model_cpu_offload()

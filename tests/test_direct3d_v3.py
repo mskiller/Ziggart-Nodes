@@ -521,6 +521,11 @@ class AlgorithmicTests(unittest.TestCase):
                 self.assertIsInstance(m_w8.proj, d3d.W8G32Linear)
                 self.assertEqual(m_w8.proj.q8.dtype, torch.int8)
                 self.assertTrue(torch.equal(m_w8.proj.q8, q8))
+                self.assertEqual(m_w8.proj.weight.dtype, m_w8.proj.dtype)
+                self.assertEqual(m_w8.proj.weight.device, m_w8.proj.q8.device)
+                self.assertEqual(m_w8.proj.weight.shape, (m_w8.proj.out_features, m_w8.proj.in_features))
+                self.assertNotIn("weight", dict(m_w8.proj.named_parameters()))
+                self.assertNotIn("weight", dict(m_w8.proj.named_buffers()))
 
                 m_fp16 = d3d.load_direct3d_v3_denoiser(
                     ckpt_path, cfg, dtype=torch.float16, use_triton_int8=False, dequant_to_fp16=True

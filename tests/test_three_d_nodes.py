@@ -548,6 +548,37 @@ class ThreeDNodesMockedInferenceTests(unittest.TestCase):
             self.assertEqual(tuple(images.shape), (3, 128, 128, 3))
             self.assertEqual(tuple(masks.shape), (3, 128, 128))
 
+    def test_patch_diffusers_trust_remote_code_for_hy3dgen(self):
+        import sys
+        import types
+
+        class FakeDiffusionPipeline:
+            @classmethod
+            def from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+                return (cls, pretrained_model_name_or_path, args, dict(kwargs))
+
+        diffusers_mod = types.ModuleType("diffusers")
+        diffusers_mod.DiffusionPipeline = FakeDiffusionPipeline
+
+        with mock.patch.dict(sys.modules, {"diffusers": diffusers_mod}):
+            three_d_nodes._patch_diffusers_trust_remote_code_for_hy3dgen()
+            self.assertTrue(getattr(FakeDiffusionPipeline, "_ziggart_trust_remote_patched", False))
+            # Calling a second time is idempotent
+            patched_ref = FakeDiffusionPipeline.from_pretrained.__func__
+            three_d_nodes._patch_diffusers_trust_remote_code_for_hy3dgen()
+            self.assertIs(FakeDiffusionPipeline.from_pretrained.__func__, patched_ref)
+
+            _, _, _, kw1 = FakeDiffusionPipeline.from_pretrained("tencent/Hunyuan3D-2", custom_pipeline="local_pipe")
+            self.assertIs(kw1.get("trust_remote_code"), True)
+
+            _, _, _, kw2 = FakeDiffusionPipeline.from_pretrained(
+                "tencent/Hunyuan3D-2", custom_pipeline="local_pipe", trust_remote_code=False
+            )
+            self.assertIs(kw2.get("trust_remote_code"), False)
+
+            _, _, _, kw3 = FakeDiffusionPipeline.from_pretrained("tencent/Hunyuan3D-2")
+            self.assertNotIn("trust_remote_code", kw3)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1680,6 +1680,26 @@ def _patch_hy3dgen_dinov2_v5_compat() -> None:
     SingleImageEncoder._ziggart_v5_patched = True
 
 
+def _patch_diffusers_trust_remote_code_for_hy3dgen() -> None:
+    """Default trust_remote_code=True for hy3dgen's local custom_pipeline calls."""
+    try:
+        from diffusers import DiffusionPipeline
+    except Exception:
+        return
+    if getattr(DiffusionPipeline, "_ziggart_trust_remote_patched", False):
+        return
+    orig_from_pretrained = DiffusionPipeline.from_pretrained.__func__
+
+    @classmethod
+    def _patched_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+        if kwargs.get("custom_pipeline") and "trust_remote_code" not in kwargs:
+            kwargs["trust_remote_code"] = True
+        return orig_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs)
+
+    DiffusionPipeline.from_pretrained = _patched_from_pretrained  # type: ignore[assignment]
+    DiffusionPipeline._ziggart_trust_remote_patched = True
+
+
 # ---------------------------------------------------------------------------
 # Unified 3D Model Manager (RTX 3070 Ti 8GB-16GB VRAM Safe)
 # ---------------------------------------------------------------------------
@@ -2869,6 +2889,7 @@ class Ziggart3DModelManager:
                     try:
                         from hy3dgen.texgen import Hunyuan3DPaintPipeline  # type: ignore[import-not-found]
 
+                        _patch_diffusers_trust_remote_code_for_hy3dgen()
                         paint_pipe = Hunyuan3DPaintPipeline.from_pretrained("tencent/Hunyuan3D-2")
                         if hasattr(paint_pipe, "enable_model_cpu_offload"):
                             paint_pipe.enable_model_cpu_offload()
