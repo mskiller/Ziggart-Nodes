@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import atexit
 import gc
+import importlib
 import json
+import logging
 import math
 import os
 import shutil
@@ -30,6 +32,7 @@ except ImportError:  # Allows lightweight unit tests outside ComfyUI.
 
 from .embedded_model import empty_accelerator_cache, release_comfy_vram
 
+logger = logging.getLogger(__name__)
 
 THREED_MODEL_FOLDER = "ziggart_3d"
 SH_C0 = 0.28209479177387814
@@ -1617,8 +1620,24 @@ def _patch_hy3dgen_dinov2_v5_compat() -> None:
     """Remap transformers-v4 Dinov2 keys in hy3dgen SingleImageEncoder to transformers-v5."""
     try:
         import torch as _torch
-        from hy3dgen.shapegen.models.conditioners import SingleImageEncoder  # type: ignore[import-not-found]
     except Exception:
+        return
+
+    SingleImageEncoder = None
+    for mod_path in (
+        "hy3dgen.shapegen.models.conditioner",
+        "hy3dgen.shapegen.models",
+        "hy3dgen.shapegen.models.conditioners",
+    ):
+        try:
+            mod = importlib.import_module(mod_path)
+            SingleImageEncoder = getattr(mod, "SingleImageEncoder", None)
+            if SingleImageEncoder is not None:
+                break
+        except Exception:
+            continue
+    if SingleImageEncoder is None:
+        logger.warning("[Ziggart 3D] Could not locate hy3dgen SingleImageEncoder for transformers-v5 patch.")
         return
 
     if getattr(SingleImageEncoder, "_ziggart_v5_patched", False):

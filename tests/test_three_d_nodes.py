@@ -441,11 +441,14 @@ class ThreeDNodesMockedInferenceTests(unittest.TestCase):
                 self.loaded_state = dict(state_dict)
                 return ("ok", strict, assign)
 
+        class FakeSingleImageEncoderPlural(FakeSingleImageEncoder):
+            pass
+
         hy3dgen_mod = types.ModuleType("hy3dgen")
         shapegen_mod = types.ModuleType("hy3dgen.shapegen")
         models_mod = types.ModuleType("hy3dgen.shapegen.models")
-        cond_mod = types.ModuleType("hy3dgen.shapegen.models.conditioners")
-        cond_mod.SingleImageEncoder = FakeSingleImageEncoder
+        cond_singular_mod = types.ModuleType("hy3dgen.shapegen.models.conditioner")
+        cond_singular_mod.SingleImageEncoder = FakeSingleImageEncoder
 
         with mock.patch.dict(
             sys.modules,
@@ -453,7 +456,7 @@ class ThreeDNodesMockedInferenceTests(unittest.TestCase):
                 "hy3dgen": hy3dgen_mod,
                 "hy3dgen.shapegen": shapegen_mod,
                 "hy3dgen.shapegen.models": models_mod,
-                "hy3dgen.shapegen.models.conditioners": cond_mod,
+                "hy3dgen.shapegen.models.conditioner": cond_singular_mod,
             },
         ):
             three_d_nodes._patch_hy3dgen_dinov2_v5_compat()
@@ -489,6 +492,37 @@ class ThreeDNodesMockedInferenceTests(unittest.TestCase):
                 )
             )
             self.assertIn("main_image_encoder.model.encoder.layer.0.mlp.down_proj.weight", enc.loaded_state)
+
+        # Fallback to plural module path when singular conditioner is unavailable
+        cond_plural_mod = types.ModuleType("hy3dgen.shapegen.models.conditioners")
+        cond_plural_mod.SingleImageEncoder = FakeSingleImageEncoderPlural
+        with mock.patch.dict(
+            sys.modules,
+            {
+                "hy3dgen": hy3dgen_mod,
+                "hy3dgen.shapegen": shapegen_mod,
+                "hy3dgen.shapegen.models": models_mod,
+                "hy3dgen.shapegen.models.conditioner": None,
+                "hy3dgen.shapegen.models.conditioners": cond_plural_mod,
+            },
+        ):
+            three_d_nodes._patch_hy3dgen_dinov2_v5_compat()
+            self.assertTrue(getattr(FakeSingleImageEncoderPlural, "_ziggart_v5_patched", False))
+
+        # Missing SingleImageEncoder logs warning and returns cleanly
+        with mock.patch.dict(
+            sys.modules,
+            {
+                "hy3dgen": hy3dgen_mod,
+                "hy3dgen.shapegen": shapegen_mod,
+                "hy3dgen.shapegen.models": models_mod,
+                "hy3dgen.shapegen.models.conditioner": None,
+                "hy3dgen.shapegen.models.conditioners": None,
+            },
+        ):
+            with self.assertLogs(three_d_nodes.logger, level="WARNING") as cm:
+                three_d_nodes._patch_hy3dgen_dinov2_v5_compat()
+            self.assertTrue(any("SingleImageEncoder" in msg for msg in cm.output))
 
     def test_turntable_renderer_mesh_path(self):
         renderer = three_d_nodes.Ziggart3DTurntableRenderer()
