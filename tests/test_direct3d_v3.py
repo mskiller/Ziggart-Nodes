@@ -731,6 +731,45 @@ class ComfyNodeAndDownloaderTests(unittest.TestCase):
         self.assertEqual(manifest["cached_models"]["direct3d_v3_int8"]["stages"], [1024])
         self.assertAlmostEqual(manifest["total_size_mb"], 1300.0, places=2)
 
+    def test_w8g32_linear_preserves_input_dtype_and_forward_with_cached_windows(self):
+        q8 = torch.randint(-127, 128, (32, 64), dtype=torch.int8)
+        scales = torch.ones((32, 2), dtype=torch.float32) * 0.01
+        bias = torch.randn((32,), dtype=torch.float16)
+        layer = d3d.W8G32Linear(64, 32, q8, scales, bias=bias, group_size=32, use_triton=False)
+
+        for dt in (torch.float16, torch.bfloat16, torch.float32):
+            out = layer(torch.randn((2, 64), dtype=dt))
+            self.assertEqual(out.dtype, dt)
+
+        class FakeBlock(nn.Module):
+            def forward(self, s, c, cond, index, layout, skip_value=None, window_size=None, window_cache=None):
+                return s + cond[:, :1, : s.shape[-1]].squeeze(1)
+
+        class FakeDecoder(nn.Module):
+            def forward(self, x_patches, s, index, window_cache=None, window_size=None):
+                return torch.ones((x_patches.shape[0], 1), dtype=s.dtype) * 2.5
+
+        class FakeModel(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.time_factor = 1000.0
+                self.depth = 2
+                self.window_size = 4
+                self.patch_size = 1
+                self.in_channels = 4
+                self.t_embedder = lambda t: t.unsqueeze(-1)
+                self.x_embedder = lambda x: x
+                self.blocks = nn.ModuleList([FakeBlock(), FakeBlock()])
+                self.decoder = FakeDecoder()
+
+        model = FakeModel()
+        x = torch.randn((3, 4), dtype=torch.float16)
+        t = torch.tensor([0.5], dtype=torch.float32)
+        cond = torch.randn((3, 2, 4), dtype=torch.float32)
+        out_dec = d3d.forward_with_cached_windows(model, x, None, [], t, cond, (None, None))
+        self.assertTrue(torch.all(out_dec <= 1.0))
+        self.assertTrue(torch.all(out_dec >= -1.0))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -598,7 +598,7 @@ Prompt-guided open-vocabulary localization with **WeVisOne-VL** and high-density
 - `cropped_base` (`IMAGE`): Batch of original crops before refinement.
 - `detection_preview` (`IMAGE`): Preview image with colored bounding boxes and dimensions.
 - `mask` (`MASK`): Full-size composite mask of modified areas.
-- `latent` (`LATENT`): Latent representation of the final image.
+- `latent` (`LATENT`): Latent representation of the final image (safely resolves scalar, tuple, or callable `vae.downscale_ratio` for Qwen Image, Flux, and Wan VAEs).
 
 ---
 
@@ -946,7 +946,7 @@ All nodes in `Ziggart/3D` share `Ziggart3DModelManager`, which automatically evi
 ### 25. Hunyuan3D-2mini Image to 3D Mesh (GLB)
 *Class: `ZiggartHunyuan3DImageToMesh` | Category: `Ziggart/3D`*
 - Runs Tencent's **`Hunyuan3D-2mini (0.6B - 6GB VRAM)`** (`octree_resolution = 256`, `num_chunks = 8000`) for ultra-sharp watertight geometry, with automatic `transformers` v5 Dinov2 `SingleImageEncoder` `state_dict` compatibility patching.
-- **Sequential VRAM Protection**: When `generate_texture = True`, it unloads the Shape DiT model and empties CUDA cache **before** loading `Hunyuan3DPaintPipeline` with CPU offload.
+- **Sequential VRAM Protection**: When `generate_texture = True`, it unloads the Shape DiT model and empties CUDA cache **before** loading `Hunyuan3DPaintPipeline` with CPU offload (automatically enabling `trust_remote_code=True` for `hy3dgen`'s local `diffusers` `custom_pipeline`).
 
 ### 26. 3D Gaussian / Mesh Turntable Renderer
 *Class: `Ziggart3DTurntableRenderer` | Category: `Ziggart/3D`*
@@ -962,13 +962,13 @@ All nodes in `Ziggart/3D` share `Ziggart3DModelManager`, which automatically evi
 ### 26B. Direct3D-V3 Refine Mesh (High-Detail 8GB VRAM)
 *Class: `ZiggartDirect3DV3Refine` | Category: `Ziggart/3D`*
 - **Latent-Free Native SDF Voxel Refinement**: Refines any coarse `ZIGGART_MESH` (or `.glb`/`.obj`/`.ply` from Hunyuan3D-2mini, SPAR3D, or Idol) using **DreamTechAI/Direct3D-V3** (MIT) at native `512`, `1024`, or `1536` SDF voxel resolution aligned to a reference RGB/RGBA image, normal map, or white-clay render.
-- **8GB VRAM INT8 Triton Acceleration**: Uses **@MostAadTech** `Direct3D-V3-int8` (`W8G32` quantization: `~5.9 GB` total across all 3 stages / `~1.31 GiB` per stage) with fused Triton INT8 linear kernels and an automatic pure-PyTorch fallback when Triton is unavailable (`fp16` official `wushuang98/Direct3D-V3` weights are also selectable).
+- **8GB VRAM INT8 Triton Acceleration**: Uses **@MostAadTech** `Direct3D-V3-int8` (`W8G32` quantization: `~5.9 GB` total across all 3 stages / `~1.31 GiB` per stage) with fused Triton INT8 linear kernels and an automatic pure-PyTorch fallback when Triton is unavailable (`fp16` official `wushuang98/Direct3D-V3` weights are also selectable). Includes a zero-VRAM `W8G32Linear.weight` metadata proxy (`.dtype`/`.device`/`.shape`) and CUDA `bf16`/`fp16` autocast + precision preservation in `forward_with_cached_windows` and `W8G32Linear.forward` so `flash_attn` stays in `bf16`/`fp16` even with `fp32` DINOv3 conditioning or `LayerNorm` upcasts.
 - **Zero-Build Windows Shims**: Runs without C++ compilation on Windows via an automatic Triton SAT voxelizer + pure-PyTorch fallback and a `flash_attn` native/SDPA fallback.
 - **Geometry, Guidance & Texturing Controls**:
   - `sharp_edges`: Enables **Sparse Dual Contouring** to preserve crisp hard edges on armor, props, and architecture.
   - `guidance_method`: Supports `cfg`, `apg` (gentler projected guidance), and `fdg` (boosts fine surface creases), plus `skip_guidance_last_steps`.
   - `speed_mode`: `lossless` (Triton INT8 + window cache), `fast`, `fastest`, or `off` (FP16 dequant).
-  - `color_transfer`: `transfer_from_coarse` (projects coarse vertex colors onto the refined mesh), `none`, or `hunyuan3d_paint` (sequentially unloads Direct3D-V3 before running `Hunyuan3DPaintPipeline`).
+  - `color_transfer`: `transfer_from_coarse` (projects coarse vertex colors onto the refined mesh), `none`, or `hunyuan3d_paint` (sequentially unloads Direct3D-V3 before running `Hunyuan3DPaintPipeline` with automatic `diffusers` `custom_pipeline` `trust_remote_code=True`).
 - **Outputs**: `mesh_path` (`STRING`), `mesh_data` (`ZIGGART_MESH`), `preview_image` (`IMAGE` 2×2 shaded contact sheet), `refinement_info` (`STRING` JSON report).
 
 ### 26C. Direct3D-V3 Refine Mesh Multiview (6-View)

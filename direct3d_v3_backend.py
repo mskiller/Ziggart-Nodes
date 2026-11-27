@@ -416,17 +416,31 @@ if nn is not None:
             )
 
         def forward(self, x: Any) -> Any:
+            target_dtype = x.dtype
+            if x.is_cuda:
+                try:
+                    autocast_on = torch.is_autocast_enabled("cuda")
+                except TypeError:
+                    autocast_on = torch.is_autocast_enabled()
+                if autocast_on:
+                    try:
+                        target_dtype = torch.get_autocast_dtype("cuda")
+                    except AttributeError:
+                        target_dtype = torch.get_autocast_gpu_dtype()
+            x_in = x.to(target_dtype) if x.dtype != target_dtype else x
             if (
                 self.use_triton
                 and TRITON_AVAILABLE
-                and x.is_cuda
+                and x_in.is_cuda
                 and self.group_size == 32
                 and (self.in_features % 32) == 0
             ):
-                return _triton_w8g32_linear(x, self.q8, self.scales, self.bias, self.group_size)
-            w = dequantize_w8g32(self.q8, self.scales, group_size=self.group_size, dtype=x.dtype)
-            b = self.bias.to(x.dtype) if self.bias is not None else None
-            return F.linear(x, w, b)
+                out = _triton_w8g32_linear(x_in, self.q8, self.scales, self.bias, self.group_size)
+                return out.to(target_dtype) if out.dtype != target_dtype else out
+            w = dequantize_w8g32(self.q8, self.scales, group_size=self.group_size, dtype=target_dtype)
+            b = self.bias.to(target_dtype) if self.bias is not None else None
+            out = F.linear(x_in, w, b)
+            return out.to(target_dtype) if out.dtype != target_dtype else out
 
 else:  # pragma: no cover
 
@@ -943,27 +957,33 @@ def forward_with_cached_windows(
     window_cache: tuple[Any, Any],
 ) -> Any:
     """Run SparseDiT forward reusing precomputed shifted-window partitions."""
-    x, t = x.to(cond.dtype), t.to(cond.dtype)
-    t_emb = model.t_embedder(t * model.time_factor)
-    s = model.x_embedder(x)
-    c = t_emb
-    skip_value_list = []
-    for layer, block in enumerate(model.blocks):
-        skip_value = None if layer <= model.depth // 2 else skip_value_list.pop()
-        s = block(
-            s,
-            c,
-            cond,
-            index,
-            layout,
-            skip_value=skip_value,
-            window_size=model.window_size,
-            window_cache=window_cache,
-        )
-        if layer < model.depth // 2:
-            skip_value_list.append(s)
-    x_patches = x.reshape(-1, model.patch_size**3, model.in_channels)
-    x_dec = model.decoder(x_patches, s, index, window_cache=window_cache, window_size=model.window_size).squeeze(-1)
+    if x.is_cuda:
+        amp_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        target_dtype = cond.dtype if cond.dtype in (torch.float16, torch.bfloat16) else amp_dtype
+    else:
+        target_dtype = cond.dtype
+    x, t, cond = x.to(target_dtype), t.to(target_dtype), cond.to(target_dtype)
+    with torch.amp.autocast("cuda", dtype=target_dtype, enabled=x.is_cuda):
+        t_emb = model.t_embedder(t * model.time_factor)
+        s = model.x_embedder(x)
+        c = t_emb
+        skip_value_list = []
+        for layer, block in enumerate(model.blocks):
+            skip_value = None if layer <= model.depth // 2 else skip_value_list.pop()
+            s = block(
+                s,
+                c,
+                cond,
+                index,
+                layout,
+                skip_value=skip_value,
+                window_size=model.window_size,
+                window_cache=window_cache,
+            )
+            if layer < model.depth // 2:
+                skip_value_list.append(s)
+        x_patches = x.reshape(-1, model.patch_size**3, model.in_channels)
+        x_dec = model.decoder(x_patches, s, index, window_cache=window_cache, window_size=model.window_size).squeeze(-1)
     return x_dec.clamp(-1.0, 1.0)
 
 
