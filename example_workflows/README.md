@@ -1,10 +1,10 @@
 # Ziggart Nodes — Workflows Exemples (`example_workflows/`)
 
-Ce dossier contient **18 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 64 nœuds Ziggart** dans tous leurs modes et cas d'usage.
+Ce dossier contient **19 workflows ComfyUI prêts à charger** (`.json`, glisser-déposer directement dans ComfyUI ou accessibles depuis le menu **Workflow -> Browse Templates -> Ziggart-Nodes**) couvrant **l'intégralité des 66 nœuds Ziggart** dans tous leurs modes et cas d'usage.
 
 ---
 
-## Liste des 18 Workflows et des Usages Couverts
+## Liste des 19 Workflows et des Usages Couverts
 
 ### 1. [`01_Wildcards_3_Ways_and_LoRA_Encode.json`](./01_Wildcards_3_Ways_and_LoRA_Encode.json)
 Tour complet des **5 nœuds de génération par Wildcards** et de leurs différents modes :
@@ -222,6 +222,17 @@ Pipeline haut débit **API VLM OpenAI-Compatible + Captioning Batch Multi-Images
 - **`ZiggartOpenAIVLMLoader`** : Configure une cible HTTP OpenAI-compatible (Ollama, LM Studio, `llama-server`, vLLM, ou OpenAI API) sur la broche standard `GGUF_VL_MODEL` avec streaming SSE natif.
 - **`ZiggartBatchFolderVisionCaptioner`** : Scanne tout un dossier d'images et les annote en **une seule exécution** sans recharger le modèle entre les images (`chat_batch`, barre de progression, `caption_preset`, `verbosity`), sauvegarde atomiquement les sidecars `<image>.txt` + le `.txt` maître et écrit un journal `.ziggart_batch_manifest.json` pour reprendre proprement après interruption.
 - **`ZiggartDatasetCaptionCuratorAndTriggerInjector`** : Inspecte, nettoie et injecte vos trigger words sur le dataset généré.
+
+---
+
+### 19. [`19_Direct3D_V3_HighDetail_Mesh_Refinement_and_Multiview.json`](./19_Direct3D_V3_HighDetail_Mesh_Refinement_and_Multiview.json)
+Pipeline de raffinement géométrique haute définition **Direct3D-V3 Latent-Free Voxel Refinement & Multiview (`Ziggart/3D`, 8 Go VRAM)** :
+- **`Ziggart3DModelDownloader` + Génération Coarse (`ZiggartHunyuan3DImageToMesh`)** : Pré-cache les poids **Direct3D-V3 INT8** (`MostAadTech/Direct3D-V3-int8`, `W8G32`, `~5.9 Go` total / `~1.31 GiB` par stage) ou **FP16** (`wushuang98/Direct3D-V3`) + `facebook/dinov3-vith16plus-pretrain-lvd1689m`, et génère un maillage coarse initial (`ZIGGART_MESH`).
+- **Branche A — `ZiggartDirect3DV3Refine` (Raffinement Single-View `512`/`1024`/`1536`)** :
+  - Raffine le maillage coarse sans latent via les noyaux linéaires INT8 fusionnés sous Triton (avec fallback pure-PyTorch et shims Windows sans compilation pour le voxelizer SAT et `flash_attn`).
+  - Prend en charge `sharp_edges` (Sparse Dual Contouring), le guidage `cfg` / `apg` / `fdg`, `speed_mode` (`lossless` / `fast` / `fastest` / `off`), le transfert de couleurs `transfer_from_coarse` ou `hunyuan3d_paint` séquentiel.
+- **Branche B — `ZiggartDirect3DV3RefineMultiview` (Raffinement Multi-Vues 6 Caméras)** :
+  - Fusionne jusqu'à 6 vues (`front`, `back`, `left`, `right`, `top`, `bottom` + masques optionnels) pondérées par les normales des patchs du maillage coarse, avec `multiview_speed = "fast"` (passe inconditionnelle partagée) avant rendu **Turntable 360°** (`Ziggart3DTurntableRenderer` + `Ziggart3DTurntableGifSaver`).
 
 
 

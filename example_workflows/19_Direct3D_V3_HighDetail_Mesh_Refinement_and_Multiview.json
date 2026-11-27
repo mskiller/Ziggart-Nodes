@@ -1,0 +1,1199 @@
+{
+  "id": "d3d3v301-8b42-4f91-a2c0-7e11003d0019",
+  "revision": 0,
+  "last_node_id": 19,
+  "last_link_id": 18,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Note",
+      "pos": [
+        -420.0,
+        -250.0
+      ],
+      "size": [
+        2140.0,
+        155.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Guide — Direct3D-V3 High-Detail Mesh Refinement & 6-View Multiview Suite (8GB+ VRAM INT8 / FP16)",
+      "properties": {
+        "Node name for S&R": "Note"
+      },
+      "widgets_values": [
+        "WORKFLOW 19 : ZIGGART DIRECT3D-V3 HIGH-DETAIL MESH REFINEMENT & MULTIVIEW\n0. MODEL DOWNLOADER (Ziggart3DModelDownloader) : Pre-downloads MostAadTech/Direct3D-V3-int8 (1024_only ~1.3 GB) plus optional 512/1536 INT8 or DreamTechAI FP16 stages and DINOv3 ViT-H+ weights.\n1. PATH A (Organic / Character Refinement) : LoadImage -> ZiggartHunyuan3DImageToMesh (coarse mesh) -> ZiggartDirect3DV3Refine (resolution=1024, sharp_edges=false, guidance_method=cfg, color_transfer=transfer_from_coarse) -> Ziggart3DTurntableRenderer -> Ziggart3DTurntableGifSaver + PreviewImage.\n2. PATH B (Hard-Surface / Sharp Edges) : LoadImage -> ZiggartSPAR3DImageToMesh (coarse textured mesh) -> ZiggartDirect3DV3Refine (resolution=1536, sharp_edges=true, guidance_method=fdg, speed_mode=fast) -> PreviewImage.\n3. PATH C (6-View Multiview Refinement) : Front LoadImage + optional back/left/right LoadImage nodes + coarse ZIGGART_MESH (or set mesh_path) -> ZiggartDirect3DV3RefineMultiview (multiview_speed=fast, guidance_method=apg) -> PreviewImage."
+      ],
+      "color": "#234",
+      "bgcolor": "#356"
+    },
+    {
+      "id": 2,
+      "type": "Ziggart3DModelDownloader",
+      "pos": [
+        -420.0,
+        -50.0
+      ],
+      "size": [
+        380.0,
+        240.0
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "manifest_json",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        }
+      ],
+      "title": "0. 3D Model Downloader (Direct3D-V3 INT8 1024)",
+      "properties": {
+        "Node name for S&R": "Ziggart3DModelDownloader"
+      },
+      "widgets_values": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        "",
+        "1024_only",
+        "none"
+      ]
+    },
+    {
+      "id": 3,
+      "type": "LoadImage",
+      "pos": [
+        -420.0,
+        260.0
+      ],
+      "size": [
+        320.0,
+        310.0
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            1,
+            2
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "Path A: Input Organic / Character Image",
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ]
+    },
+    {
+      "id": 4,
+      "type": "ZiggartHunyuan3DImageToMesh",
+      "pos": [
+        -40.0,
+        260.0
+      ],
+      "size": [
+        380.0,
+        390.0
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh_path",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "mesh_data",
+          "type": "ZIGGART_MESH",
+          "slot_index": 1,
+          "links": [
+            3
+          ]
+        },
+        {
+          "name": "preprocessed_image",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "preview_image",
+          "type": "IMAGE",
+          "slot_index": 3,
+          "links": []
+        }
+      ],
+      "title": "Path A1: Hunyuan3D-2mini Coarse Mesh",
+      "properties": {
+        "Node name for S&R": "ZiggartHunyuan3DImageToMesh"
+      },
+      "widgets_values": [
+        "Hunyuan3D-2mini (0.6B - 6GB VRAM)",
+        30,
+        5.5,
+        256,
+        8000,
+        false,
+        40000,
+        12345,
+        "fixed",
+        "ziggart_hunyuan3d_mesh",
+        true,
+        true,
+        ""
+      ]
+    },
+    {
+      "id": 5,
+      "type": "ZiggartDirect3DV3Refine",
+      "pos": [
+        400.0,
+        260.0
+      ],
+      "size": [
+        440.0,
+        620.0
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 2
+        },
+        {
+          "name": "mesh_data",
+          "type": "ZIGGART_MESH",
+          "link": 3
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh_path",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "mesh_data",
+          "type": "ZIGGART_MESH",
+          "slot_index": 1,
+          "links": [
+            4
+          ]
+        },
+        {
+          "name": "preview_image",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": [
+            5
+          ]
+        },
+        {
+          "name": "refinement_info",
+          "type": "STRING",
+          "slot_index": 3,
+          "links": []
+        }
+      ],
+      "title": "Path A2: Direct3D-V3 Refine (Organic 1024 CFG)",
+      "properties": {
+        "Node name for S&R": "ZiggartDirect3DV3Refine"
+      },
+      "widgets_values": [
+        "int8 (5.9 GB - 8GB VRAM Recommended)",
+        "1024",
+        "same_as_resolution",
+        8,
+        4.0,
+        "cfg",
+        0,
+        "lossless",
+        150000,
+        true,
+        false,
+        150000,
+        "transfer_from_coarse",
+        "glb",
+        42,
+        "fixed",
+        "ziggart_direct3d_v3_organic",
+        true,
+        true,
+        "",
+        "",
+        "",
+        "",
+        true
+      ]
+    },
+    {
+      "id": 6,
+      "type": "Ziggart3DTurntableRenderer",
+      "pos": [
+        900.0,
+        260.0
+      ],
+      "size": [
+        360.0,
+        250.0
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh_data",
+          "type": "ZIGGART_MESH",
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            6
+          ]
+        },
+        {
+          "name": "masks",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": [
+            7
+          ]
+        }
+      ],
+      "title": "Path A3: 360° Turntable Renderer",
+      "properties": {
+        "Node name for S&R": "Ziggart3DTurntableRenderer"
+      },
+      "widgets_values": [
+        12,
+        0.0,
+        360.0,
+        20.0,
+        512,
+        2,
+        "",
+        false
+      ]
+    },
+    {
+      "id": 7,
+      "type": "Ziggart3DTurntableGifSaver",
+      "pos": [
+        1320.0,
+        260.0
+      ],
+      "size": [
+        380.0,
+        320.0
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 6
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "link": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "gif_path",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "filename",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        }
+      ],
+      "title": "Path A4: Turntable Animated GIF Saver",
+      "properties": {
+        "Node name for S&R": "Ziggart3DTurntableGifSaver"
+      },
+      "widgets_values": [
+        12,
+        "ziggart_direct3d_v3_turntable",
+        0,
+        false,
+        "original",
+        512,
+        true
+      ]
+    },
+    {
+      "id": 8,
+      "type": "PreviewImage",
+      "pos": [
+        900.0,
+        560.0
+      ],
+      "size": [
+        360.0,
+        320.0
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 5
+        }
+      ],
+      "outputs": [],
+      "title": "Path A: Refined Organic Mesh Preview",
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      }
+    },
+    {
+      "id": 9,
+      "type": "LoadImage",
+      "pos": [
+        -420.0,
+        960.0
+      ],
+      "size": [
+        320.0,
+        310.0
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            8,
+            9
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "Path B: Input Hard-Surface / Prop Image",
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ]
+    },
+    {
+      "id": 10,
+      "type": "ZiggartSPAR3DImageToMesh",
+      "pos": [
+        -40.0,
+        960.0
+      ],
+      "size": [
+        380.0,
+        320.0
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 8
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh_path",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "mesh_data",
+          "type": "ZIGGART_MESH",
+          "slot_index": 1,
+          "links": [
+            10
+          ]
+        },
+        {
+          "name": "point_cloud_ply_path",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "preview_image",
+          "type": "IMAGE",
+          "slot_index": 3,
+          "links": []
+        }
+      ],
+      "title": "Path B1: SPAR3D Coarse Textured Mesh",
+      "properties": {
+        "Node name for S&R": "ZiggartSPAR3DImageToMesh"
+      },
+      "widgets_values": [
+        true,
+        1024,
+        "none",
+        -1,
+        "ziggart_spar3d_mesh",
+        true,
+        true,
+        "stabilityai/stable-point-aware-3d",
+        ""
+      ]
+    },
+    {
+      "id": 11,
+      "type": "ZiggartDirect3DV3Refine",
+      "pos": [
+        400.0,
+        960.0
+      ],
+      "size": [
+        440.0,
+        620.0
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 9
+        },
+        {
+          "name": "mesh_data",
+          "type": "ZIGGART_MESH",
+          "link": 10
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh_path",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "mesh_data",
+          "type": "ZIGGART_MESH",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "preview_image",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": [
+            11
+          ]
+        },
+        {
+          "name": "refinement_info",
+          "type": "STRING",
+          "slot_index": 3,
+          "links": []
+        }
+      ],
+      "title": "Path B2: Direct3D-V3 Refine (1536 Sharp Edges / FDG)",
+      "properties": {
+        "Node name for S&R": "ZiggartDirect3DV3Refine"
+      },
+      "widgets_values": [
+        "int8 (5.9 GB - 8GB VRAM Recommended)",
+        "1536",
+        "same_as_resolution",
+        8,
+        4.0,
+        "fdg",
+        0,
+        "fast",
+        150000,
+        true,
+        true,
+        150000,
+        "transfer_from_coarse",
+        "glb",
+        42,
+        "fixed",
+        "ziggart_direct3d_v3_hardsurface",
+        true,
+        true,
+        "",
+        "",
+        "",
+        "",
+        true
+      ]
+    },
+    {
+      "id": 12,
+      "type": "PreviewImage",
+      "pos": [
+        900.0,
+        960.0
+      ],
+      "size": [
+        360.0,
+        320.0
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 11
+        }
+      ],
+      "outputs": [],
+      "title": "Path B: Refined Hard-Surface Mesh Preview",
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      }
+    },
+    {
+      "id": 13,
+      "type": "LoadImage",
+      "pos": [
+        -420.0,
+        1660.0
+      ],
+      "size": [
+        320.0,
+        310.0
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            12,
+            13
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "Path C: Front View Image (Required)",
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ]
+    },
+    {
+      "id": 14,
+      "type": "LoadImage",
+      "pos": [
+        -420.0,
+        2010.0
+      ],
+      "size": [
+        320.0,
+        310.0
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            14
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "Path C: Back View Image (Optional)",
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ]
+    },
+    {
+      "id": 15,
+      "type": "LoadImage",
+      "pos": [
+        -420.0,
+        2360.0
+      ],
+      "size": [
+        320.0,
+        310.0
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            15
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "Path C: Left View Image (Optional)",
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ]
+    },
+    {
+      "id": 16,
+      "type": "LoadImage",
+      "pos": [
+        -420.0,
+        2710.0
+      ],
+      "size": [
+        320.0,
+        310.0
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            16
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "Path C: Right View Image (Optional)",
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ]
+    },
+    {
+      "id": 17,
+      "type": "ZiggartHunyuan3DImageToMesh",
+      "pos": [
+        -40.0,
+        1660.0
+      ],
+      "size": [
+        380.0,
+        390.0
+      ],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 12
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh_path",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "mesh_data",
+          "type": "ZIGGART_MESH",
+          "slot_index": 1,
+          "links": [
+            17
+          ]
+        },
+        {
+          "name": "preprocessed_image",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": []
+        },
+        {
+          "name": "preview_image",
+          "type": "IMAGE",
+          "slot_index": 3,
+          "links": []
+        }
+      ],
+      "title": "Path C1: Coarse Mesh for Multiview (or set mesh_path)",
+      "properties": {
+        "Node name for S&R": "ZiggartHunyuan3DImageToMesh"
+      },
+      "widgets_values": [
+        "Hunyuan3D-2mini (0.6B - 6GB VRAM)",
+        30,
+        5.5,
+        256,
+        8000,
+        false,
+        40000,
+        12345,
+        "fixed",
+        "ziggart_hunyuan3d_mv_coarse",
+        true,
+        true,
+        ""
+      ]
+    },
+    {
+      "id": 18,
+      "type": "ZiggartDirect3DV3RefineMultiview",
+      "pos": [
+        400.0,
+        1660.0
+      ],
+      "size": [
+        440.0,
+        720.0
+      ],
+      "flags": {},
+      "order": 17,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 13
+        },
+        {
+          "name": "mesh_data",
+          "type": "ZIGGART_MESH",
+          "link": 17
+        },
+        {
+          "name": "back_image",
+          "type": "IMAGE",
+          "link": 14
+        },
+        {
+          "name": "left_image",
+          "type": "IMAGE",
+          "link": 15
+        },
+        {
+          "name": "right_image",
+          "type": "IMAGE",
+          "link": 16
+        },
+        {
+          "name": "top_image",
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "bottom_image",
+          "type": "IMAGE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh_path",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "name": "mesh_data",
+          "type": "ZIGGART_MESH",
+          "slot_index": 1,
+          "links": []
+        },
+        {
+          "name": "preview_image",
+          "type": "IMAGE",
+          "slot_index": 2,
+          "links": [
+            18
+          ]
+        },
+        {
+          "name": "refinement_info",
+          "type": "STRING",
+          "slot_index": 3,
+          "links": []
+        }
+      ],
+      "title": "Path C2: Direct3D-V3 6-View Multiview Refine (Fast / APG)",
+      "properties": {
+        "Node name for S&R": "ZiggartDirect3DV3RefineMultiview"
+      },
+      "widgets_values": [
+        "int8 (5.9 GB - 8GB VRAM Recommended)",
+        "1024",
+        "same_as_resolution",
+        8,
+        4.0,
+        "apg",
+        0,
+        "lossless",
+        150000,
+        true,
+        false,
+        150000,
+        "transfer_from_coarse",
+        "glb",
+        42,
+        "fixed",
+        "ziggart_direct3d_v3_mv",
+        true,
+        true,
+        "fast",
+        "",
+        "",
+        "",
+        "",
+        true
+      ]
+    },
+    {
+      "id": 19,
+      "type": "PreviewImage",
+      "pos": [
+        900.0,
+        1660.0
+      ],
+      "size": [
+        360.0,
+        320.0
+      ],
+      "flags": {},
+      "order": 18,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 18
+        }
+      ],
+      "outputs": [],
+      "title": "Path C: Multiview Refined Mesh Preview",
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      }
+    }
+  ],
+  "links": [
+    [
+      1,
+      3,
+      0,
+      4,
+      0,
+      "IMAGE"
+    ],
+    [
+      2,
+      3,
+      0,
+      5,
+      0,
+      "IMAGE"
+    ],
+    [
+      3,
+      4,
+      1,
+      5,
+      1,
+      "ZIGGART_MESH"
+    ],
+    [
+      4,
+      5,
+      1,
+      6,
+      0,
+      "ZIGGART_MESH"
+    ],
+    [
+      5,
+      5,
+      2,
+      8,
+      0,
+      "IMAGE"
+    ],
+    [
+      6,
+      6,
+      0,
+      7,
+      0,
+      "IMAGE"
+    ],
+    [
+      7,
+      6,
+      1,
+      7,
+      1,
+      "MASK"
+    ],
+    [
+      8,
+      9,
+      0,
+      10,
+      0,
+      "IMAGE"
+    ],
+    [
+      9,
+      9,
+      0,
+      11,
+      0,
+      "IMAGE"
+    ],
+    [
+      10,
+      10,
+      1,
+      11,
+      1,
+      "ZIGGART_MESH"
+    ],
+    [
+      11,
+      11,
+      2,
+      12,
+      0,
+      "IMAGE"
+    ],
+    [
+      12,
+      13,
+      0,
+      17,
+      0,
+      "IMAGE"
+    ],
+    [
+      13,
+      13,
+      0,
+      18,
+      0,
+      "IMAGE"
+    ],
+    [
+      14,
+      14,
+      0,
+      18,
+      2,
+      "IMAGE"
+    ],
+    [
+      15,
+      15,
+      0,
+      18,
+      3,
+      "IMAGE"
+    ],
+    [
+      16,
+      16,
+      0,
+      18,
+      4,
+      "IMAGE"
+    ],
+    [
+      17,
+      17,
+      1,
+      18,
+      1,
+      "ZIGGART_MESH"
+    ],
+    [
+      18,
+      18,
+      2,
+      19,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "0. Model Downloader",
+      "bounding": [
+        -440.0,
+        -90.0,
+        420.0,
+        300.0
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "Path A — Organic / Character Refinement (Hunyuan3D -> Direct3D-V3 1024 + Turntable GIF)",
+      "bounding": [
+        -440.0,
+        220.0,
+        2160.0,
+        680.0
+      ],
+      "color": "#2a6f4e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "Path B — Hard-Surface / Sharp Edges (SPAR3D -> Direct3D-V3 1536 FDG)",
+      "bounding": [
+        -440.0,
+        920.0,
+        1720.0,
+        680.0
+      ],
+      "color": "#8a5a2b",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "Path C — 6-View Multiview Refinement (Direct3D-V3 Multiview Fast + APG)",
+      "bounding": [
+        -440.0,
+        1620.0,
+        1720.0,
+        1420.0
+      ],
+      "color": "#5f4b8b",
+      "font_size": 24,
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}

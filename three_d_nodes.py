@@ -1626,6 +1626,7 @@ _BACKEND_REPOS: dict[str, tuple[str, str]] = {
     "idol": ("https://github.com/speridlabs/idol-sdk.git", "idol-sdk"),
     "spar3d": ("https://github.com/Stability-AI/stable-point-aware-3d.git", "stable-point-aware-3d"),
     "hy3dgen": ("https://github.com/Tencent/Hunyuan3D-2.git", "Hunyuan3D-2"),
+    "direct3d": ("https://github.com/DreamTechAI/Direct3D-V3.git", "Direct3D-V3"),
 }
 
 
@@ -2839,6 +2840,77 @@ class Ziggart3DModelManager:
                     self.unload()
                 raise Ziggart3DError(f"Hunyuan3D inference failed: {exc}") from exc
 
+    def run_direct3d_v3(
+        self,
+        *,
+        view_images: dict[str, Image.Image],
+        coarse_vertices: np.ndarray,
+        coarse_faces: np.ndarray,
+        coarse_colors: np.ndarray | None,
+        model_precision: str,
+        resolution: int,
+        start_from: str,
+        steps: int,
+        guidance_scale: float,
+        guidance_method: str,
+        skip_guidance_last_steps: int,
+        speed_mode: str,
+        multiview_speed: str,
+        max_tokens: int,
+        fit_large_meshes: bool,
+        sharp_edges: bool,
+        target_faces: int,
+        color_transfer: str,
+        seed: int,
+        custom_model_path: str,
+        image_encoder_override: str,
+        hf_token: str,
+        auto_download_weights: bool,
+        unload_comfy_models: bool,
+        free_vram_after: bool,
+        output_mesh_path: Path,
+    ) -> tuple[Path, dict[str, Any], str]:
+        from .direct3d_v3_backend import run_direct3d_v3_pipeline
+
+        with self._lock:
+            self.unload()
+            if unload_comfy_models:
+                release_comfy_vram()
+            try:
+                return run_direct3d_v3_pipeline(
+                    view_images=view_images,
+                    coarse_vertices=coarse_vertices,
+                    coarse_faces=coarse_faces,
+                    coarse_colors=coarse_colors,
+                    model_precision=model_precision,
+                    resolution=resolution,
+                    start_from=start_from,
+                    steps=steps,
+                    guidance_scale=guidance_scale,
+                    guidance_method=guidance_method,
+                    skip_guidance_last_steps=skip_guidance_last_steps,
+                    speed_mode=speed_mode,
+                    multiview_speed=multiview_speed,
+                    max_tokens=max_tokens,
+                    fit_large_meshes=fit_large_meshes,
+                    sharp_edges=sharp_edges,
+                    target_faces=target_faces,
+                    color_transfer=color_transfer,
+                    seed=seed,
+                    custom_model_path=custom_model_path,
+                    image_encoder_override=image_encoder_override,
+                    hf_token=hf_token,
+                    auto_download_weights=auto_download_weights,
+                    output_mesh_path=output_mesh_path,
+                )
+            except Ziggart3DError:
+                raise
+            except Exception as exc:
+                raise Ziggart3DError(f"Direct3D-V3 refinement failed: {exc}") from exc
+            finally:
+                if free_vram_after:
+                    self.unload()
+
 
 THREED_MANAGER = Ziggart3DModelManager()
 atexit.register(THREED_MANAGER.unload)
@@ -3782,6 +3854,20 @@ class Ziggart3DModelDownloader:
             },
             "optional": {
                 "hf_token": ("STRING", {"default": "", "tooltip": "Optional Hugging Face authentication token."}),
+                "download_direct3d_v3_int8": (
+                    ["none", "1536_only", "1024_only", "all_stages"],
+                    {
+                        "default": "none",
+                        "tooltip": "Download MostAadTech/Direct3D-V3-int8 (~1.3 GB/stage, 8GB VRAM friendly).",
+                    },
+                ),
+                "download_direct3d_v3_fp16": (
+                    ["none", "1536_only", "1024_only", "all_stages"],
+                    {
+                        "default": "none",
+                        "tooltip": "Download official wushuang98/Direct3D-V3 weights (~5.0 GB/stage).",
+                    },
+                ),
             },
         }
 
@@ -3793,6 +3879,8 @@ class Ziggart3DModelDownloader:
         download_birefnet: bool = False,
         force_redownload: bool = False,
         hf_token: str = "",
+        download_direct3d_v3_int8: str = "none",
+        download_direct3d_v3_fp16: str = "none",
     ) -> tuple[str]:
         keys = []
         if download_idol_fp16:
@@ -3819,6 +3907,24 @@ class Ziggart3DModelDownloader:
                 status_dict[k] = {"status": "ready", "path": str(p), "size_mb": sz}
             else:
                 status_dict[k] = {"status": "error_or_missing", "spec": IDOL_MODEL_REGISTRY.get(k)}
+
+        stage_map = {
+            "1536_only": (1536,),
+            "1024_only": (1024,),
+            "all_stages": (512, 1024, 1536),
+        }
+        for var, sel in (("int8", download_direct3d_v3_int8), ("fp16", download_direct3d_v3_fp16)):
+            if sel in stage_map:
+                from .direct3d_v3_backend import download_direct3d_v3_files
+
+                d3d_res = download_direct3d_v3_files(
+                    variant=var,
+                    stages=stage_map[sel],
+                    force_redownload=force_redownload,
+                    hf_token=hf_token,
+                )
+                total_size_mb += float(d3d_res.get("total_size_mb", 0.0))
+                status_dict[f"direct3d_v3_{var}"] = d3d_res
 
         summary = {
             "cached_models": status_dict,
@@ -3976,6 +4082,327 @@ class Ziggart3DTurntableGifSaver:
         return {"ui": ui_info, "result": (output_tensor, str(saved_path), relative_filename)}
 
 
+def _load_coarse_mesh_arrays(
+    mesh_data: dict[str, Any] | None,
+    mesh_path: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
+    """Load coarse mesh vertices, faces, and optional vertex colors from ZIGGART_MESH or a file path."""
+    if mesh_data is not None:
+        verts = np.asarray(mesh_data["vertices"], dtype=np.float32)
+        faces = np.asarray(mesh_data["faces"], dtype=np.int32)
+        cols = mesh_data.get("vertex_colors")
+        cols_arr = np.asarray(cols, dtype=np.float32) if cols is not None else None
+        if len(verts) == 0 or len(faces) == 0:
+            raise ValueError("Connected 'mesh_data' has no vertices or faces.")
+        return verts, faces, cols_arr
+
+    clean_path = str(mesh_path or "").strip()
+    if not clean_path or clean_path.lower() in ("true", "false"):
+        raise ValueError("Connect 'mesh_data' (ZIGGART_MESH) or provide a valid 'mesh_path' (.glb/.obj/.ply).")
+    p = Path(clean_path).expanduser()
+    if not p.is_file():
+        raise FileNotFoundError(f"Coarse mesh file not found: {p}")
+
+    try:
+        import trimesh as _tm  # type: ignore[import-not-found]
+
+        loaded = _tm.load(str(p), force="mesh", process=False)
+        arrs = _extract_trimesh_arrays(loaded)
+        return arrs["vertices"], arrs["faces"], arrs.get("vertex_colors")
+    except Exception as exc:
+        raise Ziggart3DError(f"Failed to load coarse mesh '{p}': {exc}") from exc
+
+
+class ZiggartDirect3DV3Refine:
+    """Refine a coarse 3D mesh into high-detail geometry using Direct3D-V3 (INT8 Triton / FP16)."""
+
+    DESCRIPTION = (
+        "Latent-free native voxel geometry refinement using DreamTechAI Direct3D-V3 & "
+        "@MostAadTech W8G32 INT8 weights. Takes a coarse ZIGGART_MESH (from Hunyuan3D, SPAR3D, "
+        "or Idol) and its reference image (RGB/RGBA or normal/white-clay map) to reconstruct "
+        "crisp 512/1024/1536 surface details on 8GB+ GPUs."
+    )
+    CATEGORY = "Ziggart/3D"
+    FUNCTION = "refine_mesh"
+    OUTPUT_NODE = True
+    RETURN_TYPES = ("STRING", "ZIGGART_MESH", "IMAGE", "STRING")
+    RETURN_NAMES = ("mesh_path", "mesh_data", "preview_image", "refinement_info")
+    OUTPUT_TOOLTIPS = (
+        "Absolute path to the refined 3D mesh (.glb, .obj, or .ply).",
+        "Refined in-memory ZIGGART_MESH for Turntable Renderer or Avatar Auto-Rigger.",
+        "2x2 shaded multi-angle preview render of the refined mesh.",
+        "JSON metadata report (stages, token counts, vertex/face counts, shims).",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, Any]:
+        return {
+            "required": {
+                "image": ("IMAGE", {"tooltip": "Reference RGB/RGBA image, normal map, or white-clay render aligned with the coarse mesh."}),
+                "model_precision": (
+                    [
+                        "int8 (5.9 GB - 8GB VRAM Recommended)",
+                        "fp16 (Official DreamTechAI)",
+                    ],
+                    {
+                        "default": "int8 (5.9 GB - 8GB VRAM Recommended)",
+                        "tooltip": "INT8 uses MostAadTech/Direct3D-V3-int8 (W8G32 Triton); FP16 uses wushuang98/Direct3D-V3.",
+                    },
+                ),
+                "resolution": (
+                    ["512", "1024", "1536"],
+                    {
+                        "default": "1024",
+                        "tooltip": "Target native SDF voxel resolution (1024 balanced, 1536 maximum detail).",
+                    },
+                ),
+                "start_from": (
+                    ["same_as_resolution", "512", "1024"],
+                    {
+                        "default": "same_as_resolution",
+                        "tooltip": "Single-stage ('same_as_resolution') loads only 1 denoiser for 8GB VRAM safety.",
+                    },
+                ),
+                "steps": ("INT", {"default": 8, "min": 1, "max": 50, "step": 1, "tooltip": "Denoising steps per stage (8 recommended for INT8, 15 for FP16)."}),
+                "guidance_scale": ("FLOAT", {"default": 4.0, "min": 0.0, "max": 15.0, "step": 0.5}),
+                "guidance_method": (
+                    ["cfg", "apg", "fdg"],
+                    {"default": "cfg", "tooltip": "cfg = standard, apg = gentler projected guidance, fdg = boost fine surface creases."},
+                ),
+                "skip_guidance_last_steps": ("INT", {"default": 0, "min": 0, "max": 10, "step": 1, "tooltip": "Skip uncond pass on the last N steps for extra speed."}),
+                "speed_mode": (
+                    ["lossless", "fast", "fastest", "off"],
+                    {"default": "lossless", "tooltip": "lossless = Triton INT8 + window cache; fast/fastest skip late CFG steps; off = FP16 dequant."},
+                ),
+                "max_tokens": ("INT", {"default": 150000, "min": 10000, "max": 500000, "step": 10000, "tooltip": "Max occupied voxel patches (~150k fits 8GB VRAM)."}),
+                "fit_large_meshes": ("BOOLEAN", {"default": True, "tooltip": "Automatically scale down oversized coarse meshes to fit max_tokens."}),
+                "sharp_edges": ("BOOLEAN", {"default": False, "tooltip": "Use Sparse Dual Contouring to preserve hard edges (props/armor/buildings)."}),
+                "target_faces": ("INT", {"default": 150000, "min": 0, "max": 2000000, "step": 10000, "tooltip": "Target triangle count after decimation (0 = keep all faces)."}),
+                "color_transfer": (
+                    ["transfer_from_coarse", "none", "hunyuan3d_paint"],
+                    {"default": "transfer_from_coarse", "tooltip": "Project vertex colors from coarse mesh, leave untextured, or run Hunyuan3DPaint sequentially."},
+                ),
+                "export_format": (["glb", "obj", "ply"], {"default": "glb"}),
+                "seed": ("INT", {"default": 42, "min": 0, "max": 2147483647, "step": 1}),
+                "filename_prefix": ("STRING", {"default": "ziggart_direct3d_v3"}),
+                "unload_comfy_models": ("BOOLEAN", {"default": True}),
+                "free_vram_after": ("BOOLEAN", {"default": True}),
+            },
+            "optional": {
+                "mesh_data": ("ZIGGART_MESH", {"tooltip": "Coarse mesh from Hunyuan3D, SPAR3D, or GaussianToMesh."}),
+                "mesh_path": ("STRING", {"default": "", "tooltip": "Or path to an existing coarse .glb/.obj/.ply mesh file."}),
+                "mask": ("MASK", {"tooltip": "Optional foreground mask if image has no alpha channel."}),
+                "custom_model_path": ("STRING", {"default": "", "tooltip": "Optional local directory or Hugging Face repo override."}),
+                "image_encoder_override": ("STRING", {"default": "", "tooltip": "Optional DINOv3 ViT-H+ local path or Hugging Face repo override."}),
+                "hf_token": ("STRING", {"default": "", "tooltip": "Optional Hugging Face token (for gated DINOv3 access)."}),
+                "auto_download_weights": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    def refine_mesh(
+        self,
+        image: Any,
+        model_precision: str = "int8 (5.9 GB - 8GB VRAM Recommended)",
+        resolution: str = "1024",
+        start_from: str = "same_as_resolution",
+        steps: int = 8,
+        guidance_scale: float = 4.0,
+        guidance_method: str = "cfg",
+        skip_guidance_last_steps: int = 0,
+        speed_mode: str = "lossless",
+        max_tokens: int = 150000,
+        fit_large_meshes: bool = True,
+        sharp_edges: bool = False,
+        target_faces: int = 150000,
+        color_transfer: str = "transfer_from_coarse",
+        export_format: str = "glb",
+        seed: int = 42,
+        filename_prefix: str = "ziggart_direct3d_v3",
+        unload_comfy_models: bool = True,
+        free_vram_after: bool = True,
+        mesh_data: dict[str, Any] | None = None,
+        mesh_path: str = "",
+        mask: Any = None,
+        custom_model_path: str = "",
+        image_encoder_override: str = "",
+        hf_token: str = "",
+        auto_download_weights: bool = True,
+    ) -> tuple[str, dict[str, Any], Any, str]:
+        c_verts, c_faces, c_cols = _load_coarse_mesh_arrays(mesh_data, mesh_path)
+        front_pil = tensor_to_pil(image, mask=mask)
+
+        clean_prefix = str(filename_prefix).strip()
+        if not clean_prefix or clean_prefix.lower() in ("true", "false"):
+            clean_prefix = "ziggart_direct3d_v3"
+        out_path = _next_output_path(clean_prefix, export_format)
+
+        saved_path, out_mesh, info_json = THREED_MANAGER.run_direct3d_v3(
+            view_images={"front": front_pil},
+            coarse_vertices=c_verts,
+            coarse_faces=c_faces,
+            coarse_colors=c_cols,
+            model_precision=model_precision,
+            resolution=int(resolution),
+            start_from=start_from,
+            steps=int(steps),
+            guidance_scale=float(guidance_scale),
+            guidance_method=guidance_method,
+            skip_guidance_last_steps=int(skip_guidance_last_steps),
+            speed_mode=speed_mode,
+            multiview_speed="fast",
+            max_tokens=int(max_tokens),
+            fit_large_meshes=bool(fit_large_meshes),
+            sharp_edges=bool(sharp_edges),
+            target_faces=int(target_faces),
+            color_transfer=color_transfer,
+            seed=int(seed),
+            custom_model_path=custom_model_path,
+            image_encoder_override=image_encoder_override,
+            hf_token=hf_token,
+            auto_download_weights=bool(auto_download_weights),
+            unload_comfy_models=bool(unload_comfy_models),
+            free_vram_after=bool(free_vram_after),
+            output_mesh_path=out_path,
+        )
+        preview = render_4view_contact_sheet(
+            positions=out_mesh["vertices"],
+            colors=out_mesh["vertex_colors"],
+            faces=out_mesh["faces"],
+            normals=out_mesh["normals"],
+        )
+        return (str(saved_path), out_mesh, preview, info_json)
+
+
+class ZiggartDirect3DV3RefineMultiview:
+    """Multiview Direct3D-V3 refinement using front + optional back/left/right/top/bottom views."""
+
+    DESCRIPTION = (
+        "Multiview Direct3D-V3 geometry refinement. Blends surface detail across up to 6 camera "
+        "views (front, back, left, right, top, bottom) weighted by coarse-mesh patch normals."
+    )
+    CATEGORY = "Ziggart/3D"
+    FUNCTION = "refine_mesh_multiview"
+    OUTPUT_NODE = True
+    RETURN_TYPES = ("STRING", "ZIGGART_MESH", "IMAGE", "STRING")
+    RETURN_NAMES = ("mesh_path", "mesh_data", "preview_image", "refinement_info")
+    OUTPUT_TOOLTIPS = (
+        "Absolute path to the refined 3D mesh (.glb, .obj, or .ply).",
+        "Refined in-memory ZIGGART_MESH for Turntable Renderer or Avatar Auto-Rigger.",
+        "2x2 shaded multi-angle preview render of the refined mesh.",
+        "JSON metadata report (stages, token counts, active views, vertex/face counts).",
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, Any]:
+        base = ZiggartDirect3DV3Refine.INPUT_TYPES()
+        req = dict(base["required"])
+        req["multiview_speed"] = (
+            ["fast", "standard"],
+            {
+                "default": "fast",
+                "tooltip": "'fast' shares one unconditional guidance pass across all views (~45% faster per extra view).",
+            },
+        )
+        opt = dict(base["optional"])
+        for view in ("back", "left", "right", "top", "bottom"):
+            opt[f"{view}_image"] = ("IMAGE", {"tooltip": f"Optional {view} view reference image."})
+            opt[f"{view}_mask"] = ("MASK", {"tooltip": f"Optional {view} view foreground mask."})
+        return {"required": req, "optional": opt}
+
+    def refine_mesh_multiview(
+        self,
+        image: Any,
+        model_precision: str = "int8 (5.9 GB - 8GB VRAM Recommended)",
+        resolution: str = "1024",
+        start_from: str = "same_as_resolution",
+        steps: int = 8,
+        guidance_scale: float = 4.0,
+        guidance_method: str = "cfg",
+        skip_guidance_last_steps: int = 0,
+        speed_mode: str = "lossless",
+        max_tokens: int = 150000,
+        fit_large_meshes: bool = True,
+        sharp_edges: bool = False,
+        target_faces: int = 150000,
+        color_transfer: str = "transfer_from_coarse",
+        export_format: str = "glb",
+        seed: int = 42,
+        filename_prefix: str = "ziggart_direct3d_v3_mv",
+        unload_comfy_models: bool = True,
+        free_vram_after: bool = True,
+        multiview_speed: str = "fast",
+        mesh_data: dict[str, Any] | None = None,
+        mesh_path: str = "",
+        mask: Any = None,
+        custom_model_path: str = "",
+        image_encoder_override: str = "",
+        hf_token: str = "",
+        auto_download_weights: bool = True,
+        back_image: Any = None,
+        back_mask: Any = None,
+        left_image: Any = None,
+        left_mask: Any = None,
+        right_image: Any = None,
+        right_mask: Any = None,
+        top_image: Any = None,
+        top_mask: Any = None,
+        bottom_image: Any = None,
+        bottom_mask: Any = None,
+    ) -> tuple[str, dict[str, Any], Any, str]:
+        c_verts, c_faces, c_cols = _load_coarse_mesh_arrays(mesh_data, mesh_path)
+        view_images: dict[str, Image.Image] = {"front": tensor_to_pil(image, mask=mask)}
+        for vn, img_v, msk_v in (
+            ("back", back_image, back_mask),
+            ("left", left_image, left_mask),
+            ("right", right_image, right_mask),
+            ("top", top_image, top_mask),
+            ("bottom", bottom_image, bottom_mask),
+        ):
+            if img_v is not None:
+                view_images[vn] = tensor_to_pil(img_v, mask=msk_v)
+
+        clean_prefix = str(filename_prefix).strip()
+        if not clean_prefix or clean_prefix.lower() in ("true", "false"):
+            clean_prefix = "ziggart_direct3d_v3_mv"
+        out_path = _next_output_path(clean_prefix, export_format)
+
+        saved_path, out_mesh, info_json = THREED_MANAGER.run_direct3d_v3(
+            view_images=view_images,
+            coarse_vertices=c_verts,
+            coarse_faces=c_faces,
+            coarse_colors=c_cols,
+            model_precision=model_precision,
+            resolution=int(resolution),
+            start_from=start_from,
+            steps=int(steps),
+            guidance_scale=float(guidance_scale),
+            guidance_method=guidance_method,
+            skip_guidance_last_steps=int(skip_guidance_last_steps),
+            speed_mode=speed_mode,
+            multiview_speed=multiview_speed,
+            max_tokens=int(max_tokens),
+            fit_large_meshes=bool(fit_large_meshes),
+            sharp_edges=bool(sharp_edges),
+            target_faces=int(target_faces),
+            color_transfer=color_transfer,
+            seed=int(seed),
+            custom_model_path=custom_model_path,
+            image_encoder_override=image_encoder_override,
+            hf_token=hf_token,
+            auto_download_weights=bool(auto_download_weights),
+            unload_comfy_models=bool(unload_comfy_models),
+            free_vram_after=bool(free_vram_after),
+            output_mesh_path=out_path,
+        )
+        preview = render_4view_contact_sheet(
+            positions=out_mesh["vertices"],
+            colors=out_mesh["vertex_colors"],
+            faces=out_mesh["faces"],
+            normals=out_mesh["normals"],
+        )
+        return (str(saved_path), out_mesh, preview, info_json)
+
+
 NODE_CLASS_MAPPINGS = {
     "ZiggartIdolImageToGaussian": ZiggartIdolImageToGaussian,
     "ZiggartIdolPreprocess": ZiggartIdolPreprocess,
@@ -3985,6 +4412,8 @@ NODE_CLASS_MAPPINGS = {
     "ZiggartGaussianToMesh": ZiggartGaussianToMesh,
     "ZiggartSPAR3DImageToMesh": ZiggartSPAR3DImageToMesh,
     "ZiggartHunyuan3DImageToMesh": ZiggartHunyuan3DImageToMesh,
+    "ZiggartDirect3DV3Refine": ZiggartDirect3DV3Refine,
+    "ZiggartDirect3DV3RefineMultiview": ZiggartDirect3DV3RefineMultiview,
     "Ziggart3DTurntableRenderer": Ziggart3DTurntableRenderer,
     "Ziggart3DTurntableGifSaver": Ziggart3DTurntableGifSaver,
 }
@@ -3998,6 +4427,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ZiggartGaussianToMesh": "Convert Idol Gaussian Splat to 3D Mesh (GLB/OBJ)",
     "ZiggartSPAR3DImageToMesh": "SPAR3D Image to 3D Mesh (Fast 7GB VRAM)",
     "ZiggartHunyuan3DImageToMesh": "Hunyuan3D-2mini Image to 3D Mesh (GLB)",
+    "ZiggartDirect3DV3Refine": "Direct3D-V3 Refine Mesh (High-Detail 8GB VRAM)",
+    "ZiggartDirect3DV3RefineMultiview": "Direct3D-V3 Refine Mesh Multiview (6-View)",
     "Ziggart3DTurntableRenderer": "3D Gaussian / Mesh Turntable Renderer",
     "Ziggart3DTurntableGifSaver": "3D Turntable Animated GIF Saver (Discord Ready)",
 }

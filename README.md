@@ -1,19 +1,19 @@
-# Ziggart Nodes for ComfyUI (`v1.10.1`)
+# Ziggart Nodes for ComfyUI (`v1.11.0`)
 
-A complete collection of **64 local, in-process & API-hybrid ComfyUI nodes** combining:
+A complete collection of **66 local, in-process & API-hybrid ComfyUI nodes** combining:
 - **Zero-Freeze 700+ MB Wildcard & Canonical Theme Engines** (Way A + Way C architectures + **`🎲 Pre-Generate Prompt (Test Without Queue)`** UI button + Token Inspector/Compressor)
 - **Krea2 (`Qwen3VL-4B` CLIP) Prompt Director & Regional Conditioning Suite** (Modular & All-in-One Theme/Universe context, Trio/Ensemble Director, Interactive 2D Spatial Layout BBox Designer, Regional Conditioning Composer, Head-to-Toe 28-Section Anatomy Character Creator with per-section `[None]` & View Presets, 1:1 Character-Outfit linking, and automatic 9-zone Outfit $\rightarrow$ Anatomy occlusion filtering)
 - **GGUF & OpenAI-Compatible Vision-Language Models (VLMs)** via `llama-cpp-python` (automatic GGUF architecture inspection & handler dispatch across **Qwen2.5/3/3.5-VL**, **Ornith-1.5-9B**, **Gemma 4**, **Inkling-2-Mini** `inkling2_loop`, `[None (Text-Only LLM)]` mode, `kv_cache_type` `f16`/`q8_0`/`q4_0`, `n_batch`, **Prefix KV-Cached Batch Vision**, and JSON-schema `response_format` reliability), **Managed Local `llama-server` Fallback** (with automatic `ggml-org/llama.cpp` `b12774+` Windows CUDA binary download into gitignored `bin/llama.cpp/`), or **OpenAI-Compatible HTTP Endpoints** (`ZiggartOpenAIVLMLoader` for Ollama, LM Studio, `llama-server`, vLLM, and OpenAI APIs), **Streaming Interactive Vision Prompt Review & Multi-Turn Chat Gate** (live token streaming, **Stop**, **Reset Context**, **Diff**, and **Region-Pinning** crop zoom), **Single-Load Batch Folder Vision Captioner** (`ZiggartBatchFolderVisionCaptioner` with presets, verbosity & `.ziggart_batch_manifest.json` resume), **Iterative Vision Prompt Reviser & Gate**, **Folder Image Batch & Queue Loader** (1-click `"▶️ Queue All Remaining Images (1-by-1)"`), **Vision Single-Line TXT & Wildcard Saver** (`1 prompt = 1 line`, `0 empty lines`), and **Dataset Caption Curator & Trigger Injector** (LoRA trigger injection, VLM boilerplate stripping, token budget QA & visual contact sheet)
 - **WeVisOne-VL Open-Vocabulary Visual Grounding & Contour Silhouette Matting**
 - **Krea 2 Turbo** High-Resolution Detailing, **Autonomous Closed-Loop Self-Healing Detailer**, **Reinhard Color & Frequency Matcher**, and **Tiled Upscaling**
-- **RTX 3070 Ti (8GB–16GB VRAM) 3D Generation Suite**: **`speridlabs/idol` Image-to-Gaussian Splat (`.ply`)**, **Gaussian-to-Mesh (`.glb`/`.obj`)**, **SPAR3D**, **Hunyuan3D-2mini**, and **360° Turntable Rendering**
+- **RTX 3070 Ti (8GB–16GB VRAM) 3D Generation Suite**: **`speridlabs/idol` Image-to-Gaussian Splat (`.ply`)**, **Gaussian-to-Mesh (`.glb`/`.obj`)**, **SPAR3D**, **Hunyuan3D-2mini**, **Direct3D-V3 (INT8 Triton & Multiview High-Detail Mesh Refinement)**, and **360° Turntable Rendering**
 - **3D VRM Avatar, HairDeck & Live Webcam Mocap ("Replace Me!") Suite (`Ziggart/3D/Avatar`)**: One-time automatic model downloader & permanent disk cache (`ComfyUI/models/3d/ziggart_avatars/`), 2D Canonical T-Pose & Hair Splitter, **HairDeck** 3D Hair Cards & Spring-Bone physics generator, 25-Bone VRM Humanoid Auto-Rigger, 20-Morph Facial BlendShape & Viseme Builder, VRM 1.0 / 0.x Assembler, Fun Physics/Props/Emote Configurator, and **Interactive 3D VRM Pose Editor & 60 FPS Live Webcam Mocap Studio**
 - **FlowHMR 3D Video & Webcam Mocap Pipeline (`Ziggart/3D/Mocap`)**: Recover physically plausible 3D motion from loaded video or live webcams via **FlowHMR** (0.46B generative flow matching with GRPO physics reinforcement learning), featuring 52 SMPL-H joint to 25-bone VRM Humanoid retargeting, ground contact locking ($Y \ge 0$), temporal EMA smoothing, synchronized multi-pass video generation (`RGB`, `MASK`, `DEPTH`, `NORMAL`, `OPENPOSE`), and full 17-joint `.bvh` (54 channels/frame), `.npz`, and `.json` export
 - **Dynamic System Attention Selector (`Ziggart/Model`)**: Startup detection and per-model/global switching across **SageAttention**, **FlashAttention (v2/v3)**, **xFormers**, **PyTorch SDPA** (`flash`, `mem_efficient`, `cudnn`, `math`), **Sub-Quad**, **Split**, and **Basic** attention
 
 ---
 
-## Included Nodes (64 Nodes)
+## Included Nodes (66 Nodes)
 
 | Display Name | Internal Class | Category | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -64,6 +64,8 @@ A complete collection of **64 local, in-process & API-hybrid ComfyUI nodes** com
 | **Convert Idol Gaussian Splat to 3D Mesh (GLB/OBJ)** | `ZiggartGaussianToMesh` | `Ziggart/3D` | Converts `ZIGGART_GSPLAT` or `.ply` Gaussian Splats into watertight/smoothed polygon 3D meshes (`.glb`, `.obj`, `.ply`) with vertex colors and normals. |
 | **SPAR3D Image to 3D Mesh (Fast 7GB VRAM)** | `ZiggartSPAR3DImageToMesh` | `Ziggart/3D` | Generates UV-unwrapped textured 3D meshes (`.glb`) + intermediate point clouds (`.ply`) in ~1–2s using Stability AI's **SPAR3D** with `low_vram_mode=True` (`~7.0 GB` VRAM). |
 | **Hunyuan3D-2mini Image to 3D Mesh (GLB)** | `ZiggartHunyuan3DImageToMesh` | `Ziggart/3D` | Generates high-sharpness 3D meshes (`.glb`) using **Hunyuan3D-2mini (0.6B, ~5.5 GB VRAM)** and sequentially unloads Shape before running optional PBR Paint. |
+| **Direct3D-V3 Refine Mesh (High-Detail 8GB VRAM)** | `ZiggartDirect3DV3Refine` | `Ziggart/3D` | Latent-free native SDF voxel mesh refinement (`512`/`1024`/`1536`) using **DreamTechAI/Direct3D-V3** & **@MostAadTech** `Direct3D-V3-int8` (`W8G32`, ~5.9 GB total / ~1.31 GiB per stage) with fused Triton INT8 kernels, Sparse Dual Contouring (`sharp_edges`), and coarse-to-refined color transfer / sequential `hunyuan3d_paint`. |
+| **Direct3D-V3 Refine Mesh Multiview (6-View)** | `ZiggartDirect3DV3RefineMultiview` | `Ziggart/3D` | Multiview Direct3D-V3 refinement blending up to 6 views (`front`, `back`, `left`, `right`, `top`, `bottom`) weighted by coarse-mesh patch normals with `multiview_speed` (`fast` shared-uncond / `standard`). |
 | **3D Gaussian / Mesh Turntable Renderer** | `Ziggart3DTurntableRenderer` | `Ziggart/3D` | Renders 360° turntable `IMAGE` and `MASK` batches from any `ZIGGART_GSPLAT` or `ZIGGART_MESH`. |
 | **3D Turntable Animated GIF Saver (Discord Ready)** | `Ziggart3DTurntableGifSaver` | `Ziggart/3D` | Converts 3D turntable frame batches into optimized animated GIFs (with ping-pong, background transparency, and Discord size optimization). Outputs both `IMAGE` frame tensors and `gif_path` string for instant Discord webhook sending. |
 | **Avatar 3D Model Auto-Downloader & Cache Manager** | `ZiggartAvatarModelDownloader` | `Ziggart/3D/Avatar` | Automatically downloads 3D Avatar models (`HairDeck`, `Make-It-Animatable`, `UniRig`, `BiRefNet`) on first run into `ComfyUI/models/3d/ziggart_avatars/` and keeps them permanently cached on disk. |
@@ -124,6 +126,8 @@ A complete collection of **64 local, in-process & API-hybrid ComfyUI nodes** com
    - [24. SPAR3D Image to 3D Mesh (Fast 7GB VRAM)](#24-spar3d-image-to-3d-mesh-fast-7gb-vram)
    - [25. Hunyuan3D-2mini Image to 3D Mesh (GLB)](#25-hunyuan3d-2mini-image-to-3d-mesh-glb)
    - [26. 3D Gaussian / Mesh Turntable Renderer](#26-3d-gaussian--mesh-turntable-renderer)
+   - [26B. Direct3D-V3 Refine Mesh (High-Detail 8GB VRAM)](#26b-direct3d-v3-refine-mesh-high-detail-8gb-vram)
+   - [26C. Direct3D-V3 Refine Mesh Multiview (6-View)](#26c-direct3d-v3-refine-mesh-multiview-6-view)
 6B. [3D VRM Avatar, HairDeck & Live Webcam Mocap Suite (`Ziggart/3D/Avatar`)](#3d-vrm-avatar-hairdeck--live-webcam-mocap-suite-ziggart3davatar)
    - [26A. Avatar 3D Model Auto-Downloader & Cache Manager](#26a-avatar-3d-model-auto-downloader--cache-manager)
    - [26B. Avatar 2D Canonical T-Pose & Hair Splitter](#26b-avatar-2d-canonical-t-pose--hair-splitter)
@@ -924,7 +928,7 @@ All nodes in `Ziggart/3D` share `Ziggart3DModelManager`, which automatically evi
 
 ### 22D. 3D Model Auto-Downloader & Cache Manager
 *Class: `Ziggart3DModelDownloader` | Category: `Ziggart/3D`*
-- Inspects local cache status and pre-downloads weights for 3D generation pipelines (`PedroMarinhoDev/Idol-ComfyUI`, `VAST-AI/TripoSplat`, `BiRefNet`) in a single click with progress reporting.
+- Inspects local cache status and pre-downloads weights for 3D generation pipelines (`PedroMarinhoDev/Idol-ComfyUI`, `VAST-AI/TripoSplat`, `BiRefNet`, and **Direct3D-V3** `MostAadTech/Direct3D-V3-int8` / `wushuang98/Direct3D-V3` + `facebook/dinov3-vith16plus-pretrain-lvd1689m`) in a single click with progress reporting.
 - **Outputs**: `manifest_json` (`STRING`).
 
 ### 23. Convert Idol Gaussian Splat to 3D Mesh (GLB/OBJ)
@@ -954,6 +958,24 @@ All nodes in `Ziggart/3D` share `Ziggart3DModelManager`, which automatically evi
 - Saves 3D turntable frame batches as high-quality, lightweight animated GIFs with adaptive 256-color palette quantization, ping-pong looping, and background compositing (`transparent`, `white`, `black`, `original`).
 - **Discord Ready**: Directly provides both an `IMAGE` frame batch (for Discord nodes that accept image tensors) and an absolute `gif_path` `STRING` (for webhook file uploaders), while playing the animated spinning 3D GIF live on the ComfyUI canvas node.
 - **Outputs**: `image` (`IMAGE`), `gif_path` (`STRING`), `filename` (`STRING`).
+
+### 26B. Direct3D-V3 Refine Mesh (High-Detail 8GB VRAM)
+*Class: `ZiggartDirect3DV3Refine` | Category: `Ziggart/3D`*
+- **Latent-Free Native SDF Voxel Refinement**: Refines any coarse `ZIGGART_MESH` (or `.glb`/`.obj`/`.ply` from Hunyuan3D-2mini, SPAR3D, or Idol) using **DreamTechAI/Direct3D-V3** (MIT) at native `512`, `1024`, or `1536` SDF voxel resolution aligned to a reference RGB/RGBA image, normal map, or white-clay render.
+- **8GB VRAM INT8 Triton Acceleration**: Uses **@MostAadTech** `Direct3D-V3-int8` (`W8G32` quantization: `~5.9 GB` total across all 3 stages / `~1.31 GiB` per stage) with fused Triton INT8 linear kernels and an automatic pure-PyTorch fallback when Triton is unavailable (`fp16` official `wushuang98/Direct3D-V3` weights are also selectable).
+- **Zero-Build Windows Shims**: Runs without C++ compilation on Windows via an automatic Triton SAT voxelizer + pure-PyTorch fallback and a `flash_attn` native/SDPA fallback.
+- **Geometry, Guidance & Texturing Controls**:
+  - `sharp_edges`: Enables **Sparse Dual Contouring** to preserve crisp hard edges on armor, props, and architecture.
+  - `guidance_method`: Supports `cfg`, `apg` (gentler projected guidance), and `fdg` (boosts fine surface creases), plus `skip_guidance_last_steps`.
+  - `speed_mode`: `lossless` (Triton INT8 + window cache), `fast`, `fastest`, or `off` (FP16 dequant).
+  - `color_transfer`: `transfer_from_coarse` (projects coarse vertex colors onto the refined mesh), `none`, or `hunyuan3d_paint` (sequentially unloads Direct3D-V3 before running `Hunyuan3DPaintPipeline`).
+- **Outputs**: `mesh_path` (`STRING`), `mesh_data` (`ZIGGART_MESH`), `preview_image` (`IMAGE` 2×2 shaded contact sheet), `refinement_info` (`STRING` JSON report).
+
+### 26C. Direct3D-V3 Refine Mesh Multiview (6-View)
+*Class: `ZiggartDirect3DV3RefineMultiview` | Category: `Ziggart/3D`*
+- Extends **Direct3D-V3 Refine Mesh** to blend surface geometry details across up to **6 camera views** (`image` front + optional `back_image`, `left_image`, `right_image`, `top_image`, `bottom_image` and matching masks) weighted by coarse-mesh patch normals.
+- **`multiview_speed`**: `fast` (shares a single unconditional guidance pass across all active views for ~45% speedup per extra view) or `standard`, alongside all `sharp_edges`, `guidance_method`, `speed_mode`, `color_transfer`, and `start_from` (`same_as_resolution` / `512` / `1024`) controls.
+- **Outputs**: `mesh_path` (`STRING`), `mesh_data` (`ZIGGART_MESH`), `preview_image` (`IMAGE`), `refinement_info` (`STRING`).
 
 ---
 
@@ -1070,7 +1092,7 @@ A complete monocular video-to-mocap and live webcam animation pipeline built on 
 
 ### Ready-to-Load Example Workflows (`example_workflows/`)
 
-All **64 Ziggart nodes** and their distinct operating modes are provided as **18 ready-to-load ComfyUI workflow JSON files** inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
+All **66 Ziggart nodes** and their distinct operating modes are provided as **19 ready-to-load ComfyUI workflow JSON files** inside [`example_workflows/`](./example_workflows/README.md) (drag-and-drop directly onto the ComfyUI canvas or open via **Workflow → Browse Templates → Ziggart-Nodes**):
 
 | Workflow File | Featured Ziggart Nodes | Covered Usage Modes |
 | :--- | :--- | :--- |
@@ -1092,6 +1114,7 @@ All **64 Ziggart nodes** and their distinct operating modes are provided as **18
 | [`16_Vision_Prompt_Iterative_Revision_Loop.json`](./example_workflows/16_Vision_Prompt_Iterative_Revision_Loop.json) | `ZiggartGGUFVLMLoader`, `ZiggartGGUFVisionPrompt`, `ZiggartGGUFVisionPromptReviser`, `ZiggartPromptRevisionGate` | Iterative **Vision → Generate → Compare & Revise** loop comparing the original target image against the generated image and current prompt, outputting `revised_prompt`, `diff_report`, `fidelity_score`, and `needs_revision` through the revision gate for multi-pass refinement. |
 | [`17_Interactive_Vision_Prompt_Review_and_Chat.json`](./example_workflows/17_Interactive_Vision_Prompt_Review_and_Chat.json) | `ZiggartGGUFVLMLoader`, `ZiggartGGUFVisionPrompt`, `ZiggartGGUFVisionPromptChatGate` | Interactive **Image → Vision Prompt → Pause, Discuss & Refine → Generate** workflow: pauses after initial VLM output so you can **Ask / Discuss** with live streaming + **Stop**, **Refine Prompt** with thumbnail region pinning + word **Diff**, **Reset Context**, edit / **Undo** versions, and release VRAM on **Continue Workflow**. |
 | [`18_OpenAI_API_and_Batch_Folder_Captioner.json`](./example_workflows/18_OpenAI_API_and_Batch_Folder_Captioner.json) | `ZiggartOpenAIVLMLoader`, `ZiggartBatchFolderVisionCaptioner`, `ZiggartDatasetCaptionCuratorAndTriggerInjector` | High-speed batch folder captioning using either a local GGUF model or an OpenAI-compatible HTTP endpoint (Ollama, LM Studio, `llama-server`, vLLM, OpenAI API) in a single pass with `caption_preset`, `verbosity`, atomic `.txt` sidecars, `.ziggart_batch_manifest.json` resume, and dataset curation. |
+| [`19_Direct3D_V3_HighDetail_Mesh_Refinement_and_Multiview.json`](./example_workflows/19_Direct3D_V3_HighDetail_Mesh_Refinement_and_Multiview.json) | `Ziggart3DModelDownloader`, `ZiggartHunyuan3DImageToMesh`, `ZiggartDirect3DV3Refine`, `ZiggartDirect3DV3RefineMultiview`, `Ziggart3DTurntableRenderer`, `Ziggart3DTurntableGifSaver` | Two-branch Direct3D-V3 refinement showcase: **Branch A** (Coarse mesh $\rightarrow$ `ZiggartDirect3DV3Refine` INT8 `1024` with `sharp_edges` / Sparse Dual Contouring + `transfer_from_coarse` $\rightarrow$ 360° Turntable + GIF) and **Branch B** (6-view `ZiggartDirect3DV3RefineMultiview` with `multiview_speed = "fast"` + optional sequential `hunyuan3d_paint`). |
 
 ### Workflow A: Krea2 (`Qwen3VL-4B`) Modular Prompt Director + Multi-Character Detailing
 
@@ -1198,7 +1221,7 @@ cd C:\path\to\ComfyUI_windows_portable
 ComfyUI/
 ├── custom_nodes/
 │   └── Ziggart-Nodes/
-│       ├── example_workflows/          <-- 14 ready-to-load ComfyUI workflow JSON templates
+│       ├── example_workflows/          <-- 19 ready-to-load ComfyUI workflow JSON templates
 │       └── wildcards/                  <-- Place Ziggart.yaml, Collection/, and .txt wildcards here
 │           ├── Ziggart.yaml
 │           ├── Collection/
@@ -1220,6 +1243,10 @@ ComfyUI/
 
 ### Download Links
 
+- **Direct3D-V3 High-Detail 3D Refinement Models** *(auto-downloaded on first run or via `Ziggart3DModelDownloader`)*:
+  - [DreamTechAI / Direct3D-V3 (Official FP16) on HuggingFace](https://huggingface.co/wushuang98/Direct3D-V3) *(MIT License — [DreamTechAI/Direct3D-V3 GitHub](https://github.com/DreamTechAI/Direct3D-V3))*
+  - [@MostAadTech Direct3D-V3-int8 (W8G32 8GB VRAM) on HuggingFace](https://huggingface.co/MostAadTech/Direct3D-V3-int8)
+  - [DINOv3 ViT-H+ Image Encoder (`facebook/dinov3-vith16plus-pretrain-lvd1689m`) on HuggingFace](https://huggingface.co/facebook/dinov3-vith16plus-pretrain-lvd1689m)
 - **FlowHMR & Motius 3D Mocap Models** *(auto-downloaded on first run or manual drop-in)*:
   - [Motius-FlowHMR-Base on HuggingFace](https://huggingface.co/ZeyuLing/Motius-FlowHMR-Base)
   - [FlowHMR Latest (GRPO Physics-Refined) on HuggingFace](https://huggingface.co/fafsaf1/flowhmr-0.46B)
